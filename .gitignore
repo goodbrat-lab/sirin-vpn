@@ -1,0 +1,64 @@
+# === Секреты и ключи ===
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+.env
+.env.*
+*secret*
+*token*
+*credential*
+
+# === Исключения (тестовые файлы безопасны) ===
+!*_test.go
+
+# === Сборки и артефакты ===
+*.aar
+*.apk
+*.aab
+*.exe
+*.dmg
+*.so
+*.dll
+*.dylib
+*.jar
+
+# === Go ===
+/core/vendor/
+*.test
+*.out
+
+# === Android ===
+/apps/android/.gradle/
+/apps/android/build/
+/apps/android/local.properties
+/apps/android/.idea/
+
+# === Desktop (Wails) ===
+/apps/desktop/build/
+/apps/desktop/node_modules/
+
+# === Router ===
+/apps/router/artifacts/
+
+# === OS ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Логи и временные файлы ===
+*.log
+*.tmp
+*.bak
+*.backup
+/tmp/
+/cache/
