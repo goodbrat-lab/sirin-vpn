@@ -1,4 +1,15 @@
 #!/bin/sh
+# build-aar.sh — сборка Go-движка в AAR для Android
+#
+# Требования:
+#   - Go 1.27+
+#   - Android SDK (переменная ANDROID_HOME или стандартные пути)
+#   - Android NDK (переменная ANDROID_NDK_HOME или $ANDROID_HOME/ndk/*)
+#   - Java 17+ (переменная JAVA_HOME или стандартные пути)
+#
+# Использование:
+#   ./build-aar.sh
+#
 # Сборка engine.aar.
 #
 # Скрипт существует ради ОДНОГО флага: -ldflags=-checklinkname=0.
@@ -45,14 +56,58 @@
 #
 # Перед запуском владелец выгружает античит:  fltmc unload FACEIT
 #
-# Пути ниже — под машину владельца. Меняются здесь, в одном месте.
+# Android SDK — берётся из окружения, если не задано — типичные пути
+if [ -z "$ANDROID_HOME" ]; then
+    if [ -d "$HOME/AppData/Local/Android/Sdk" ]; then
+        ANDROID_HOME="$HOME/AppData/Local/Android/Sdk"       # Windows
+    elif [ -d "$HOME/Library/Android/sdk" ]; then
+        ANDROID_HOME="$HOME/Library/Android/sdk"             # macOS
+    elif [ -d "$HOME/Android/Sdk" ]; then
+        ANDROID_HOME="$HOME/Android/Sdk"                     # Linux
+    else
+        echo "ERROR: ANDROID_HOME не задан и не найден в типичных путях"
+        echo "Установи ANDROID_HOME вручную перед запуском скрипта"
+        exit 1
+    fi
+fi
+
+# NDK — аналогично, но с проверкой версии
+if [ -z "$ANDROID_NDK_HOME" ]; then
+    # Ищем любой установленный NDK в $ANDROID_HOME/ndk/
+    NDK_DIR=$(ls -d "$ANDROID_HOME/ndk/"*/ 2>/dev/null | sort -V | tail -1)
+    if [ -n "$NDK_DIR" ]; then
+        ANDROID_NDK_HOME="${NDK_DIR%/}"
+    else
+        echo "WARN: NDK не найден в $ANDROID_HOME/ndk/"
+        echo "Установи NDK через Android SDK Manager"
+        exit 1
+    fi
+fi
+
+# JAVA_HOME — если не задан, ищем JBR из Android Studio
+if [ -z "$JAVA_HOME" ]; then
+    if [ -d "/c/Program Files/Android/Android Studio/jbr" ]; then
+        JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
+    elif [ -d "C:/Program Files/Android/Android Studio/jbr" ]; then
+        JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"
+    elif [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then
+        JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+    elif command -v java >/dev/null 2>&1; then
+        # Если java уже в PATH, берем ее родительский каталог
+        JAVA_HOME="$(dirname "$(dirname "$(command -v java)")")"
+    else
+        echo "ERROR: JAVA_HOME не задан и не найден в типичных путях"
+        echo "Установи JAVA_HOME вручную перед запуском скрипта"
+        exit 1
+    fi
+fi
+
+export ANDROID_HOME
+export ANDROID_NDK_HOME
+export JAVA_HOME
+export PATH="$JAVA_HOME/bin:$PATH"
 
 set -e
-
-export ANDROID_HOME="${ANDROID_HOME:-C:/Users/bioto/AppData/Local/Android/Sdk}"
-export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/30.0.15729638}"
-export JAVA_HOME="${JAVA_HOME:-C:/Program Files/Android/Android Studio/jbr}"
-export PATH="$JAVA_HOME/bin:$PATH"
 
 cd "$(dirname "$0")"
 

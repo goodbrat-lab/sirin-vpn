@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# Проверка staged изменений на наличие секретов
+has_violation=0
+
+files=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$files" ]; then
+    exit 0
+fi
+
+for file in $files; do
+    # Проверка 1: приватные ключи — для всех файлов
+    if git diff --cached "$file" | grep -E -q "^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----"; then
+        echo "[SECURITY HOOK] Приватный ключ в $file"
+        has_violation=1
+    fi
+
+    # Проверка 2: пароли и токены — для всех файлов (требуется кавычка после =)
+    if git diff --cached "$file" | grep -E -i -q "^\+.*(password|token|api_key|secret)[[:space:]]*=[[:space:]]*[\"']"; then
+        echo "[SECURITY HOOK] Пароль/токен в $file"
+        has_violation=1
+    fi
+
+    # Проверка 3: IP-адреса — только для «обычных» файлов
+    case "$file" in
+        shared/geoip/*|shared/geosite/*|*_test.go|*.md|AUDIT_ENDPOINTS.md|.gitignore)
+            # пропускаем проверку IP для публичных баз, тестов и документации
+            ;;
+        *)
+            if git diff --cached "$file" | grep -E "^\+[^+]" | grep -E -o "([0-9]{1,3}\.){3}[0-9]{1,3}" | grep -E -v "^(127\.0\.0\.1|0\.0\.0\.0)$" | grep -q .; then
+                echo "[SECURITY HOOK] IP-адрес в $file"
+                has_violation=1
+            fi
+            ;;
+    esac
+done
+
+if [ $has_violation -ne 0 ]; then
+    echo "=================================================================="
+    echo "Секрет обнаружен! Проверь файл. Если это ложное срабатывание — используй git commit --no-verify"
+    echo "=================================================================="
+    exit 1
+fi
+
+exit 0
