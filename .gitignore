@@ -65,3 +65,11 @@ desktop.ini
 
 # === Локальные аудиты ===
 AUDIT_ENDPOINTS.md
+
+# === Исключения для Gradle Wrapper ===
+!apps/android/gradle/wrapper/gradle-wrapper.jar
+
+# === Боевые параметры (не для публичного git) ===
+# Аналогично оригинальному репо JinComputers
+apps/android/app/src/main/java/org/meridianvpn/app/Config.kt
+apps/android/app/src/debug/java/org/meridianvpn/app/DebugHashes.kt

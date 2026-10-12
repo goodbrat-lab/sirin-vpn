@@ -143,11 +143,13 @@ if [ "$1" = "--all" ]; then
 fi
 
 go vet ./...
+mkdir -p ../../apps/android/app/libs
 gomobile bind \
 	-target="$TARGET" \
 	-androidapi 26 \
 	-ldflags=-checklinkname=0 \
-	-o ../app/libs/engine.aar \
+	-o ../../apps/android/app/libs/engine.aar \
 	.
 
 echo "engine.aar собран: $WHAT"
+echo "  Целевая папка: $(pwd)/../../apps/android/app/libs"
