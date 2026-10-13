@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="goldGrad3" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C59637" />
+      <stop offset="50%" stop-color="#E8C36F" />
+      <stop offset="100%" stop-color="#FFF0BE" />
+    </linearGradient>
+    <linearGradient id="featherBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B8DEF" />
+      <stop offset="100%" stop-color="#7BA9F0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Стержень пера с закругленным основанием -->
+  <path d="M 108,422 
+           C 102,427 106,438 116,436 
+           C 124,435 136,424 148,410 
+           C 214,334 266,260 320,190 
+           C 365,125 410,75 440,60 
+           C 415,85 355,160 305,230 
+           C 246,314 182,382 122,416 
+           C 114,420 110,421 108,422 Z" 
+        fill="url(#goldGrad3)" />
+
+  <!-- Верхние бородки (золотые геометрические зубцы) -->
+  <polygon points="392,86 335,145 365,150 422,94" fill="url(#goldGrad3)" opacity="0.95" />
+  <polygon points="348,154 285,220 320,225 380,160" fill="url(#goldGrad3)" opacity="0.88" />
+  <polygon points="298,234 230,305 270,310 334,240" fill="url(#goldGrad3)" opacity="0.8" />
+  <polygon points="248,318 180,390 220,392 282,324" fill="url(#goldGrad3)" opacity="0.75" />
+
+  <!-- Дополнительные микро-зубцы бородок вдоль стержня -->
+  <polygon points="418,102 385,134 402,138" fill="url(#goldGrad3)" opacity="0.8" />
+  <polygon points="370,168 338,202 355,206" fill="url(#goldGrad3)" opacity="0.75" />
+
+  <!-- Нижние бородки (синий акцент: #5B8DEF -> #7BA9F0) -->
+  <polygon points="362,178 300,245 315,265 374,204" fill="url(#featherBlue)" opacity="0.9" />
+  <polygon points="312,254 245,325 260,345 324,279" fill="url(#featherBlue)" opacity="0.82" />
+  <polygon points="258,334 190,405 208,420 270,356" fill="url(#featherBlue)" opacity="0.75" />
+  <!-- Дополнительный нижний зубчик -->
+  <polygon points="334,220 286,268 298,284" fill="url(#featherBlue)" opacity="0.8" />
+
+  <!-- Закрученный кончик пера Сирин (акцент невесомости) -->
+  <path d="M 440,60 
+           C 465,50 480,70 460,95 
+           C 445,108 430,95 436,80 
+           C 438,72 445,66 440,60 Z" 
+        fill="#E8C36F" />
+</svg>

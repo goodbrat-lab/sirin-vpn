@@ -61,7 +61,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Meridian">
+        android:theme="@style/Theme.Sirin">
 
         <!--
             screenOrientation="portrait": экран не переворачивается в
@@ -142,7 +142,7 @@
             systemExempted нет.
         -->
         <service
-            android:name=".MeridianVpnService"
+            android:name=".SirinVpnService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
             android:permission="android.permission.BIND_VPN_SERVICE">
@@ -179,10 +179,10 @@
             приложение. Иконка монохромная, как требует шторка.
         -->
         <service
-            android:name=".MeridianTileService"
+            android:name=".SirinTileService"
             android:exported="true"
-            android:icon="@drawable/ic_meridian_notify"
-            android:label="Meridian VPN"
+            android:icon="@drawable/ic_sirin_notify"
+            android:label="Сирин"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />

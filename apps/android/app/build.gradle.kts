@@ -27,7 +27,7 @@ plugins {
 }
 
 android {
-    namespace = "org.meridianvpn.app"
+    namespace = "ru.guseynovia.sirin"
 
     /**
      * ВЕРСИЯ NDK — НУЖНА НЕ ДЛЯ СБОРКИ, А ДЛЯ ИНСТРУМЕНТОВ.
@@ -56,7 +56,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "org.meridianvpn.app"
+        applicationId = "ru.guseynovia.sirin"
         minSdk = 26
         targetSdk = 37
         // Номер сборки живёт в app/version.properties и поднимается

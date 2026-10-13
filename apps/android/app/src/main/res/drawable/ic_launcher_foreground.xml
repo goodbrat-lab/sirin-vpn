@@ -1,54 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Сфера из логотипа для значка приложения.
-
-    Поле 108×108 — как требует адаптивный значок. Сфера радиусом 30 в
-    центре: безопасная зона у адаптивного значка это круг диаметром 66,
-    то есть радиус 33, и 30 укладывается в неё с запасом на обрезку
-    любой формы, которую выберет лаунчер.
-
-    Меридианы стоят там же, где в логотипе: разбор пикселей дал
-    пересечения на 0.29 и 0.62 радиуса от центра, отсюда 8.7 и 18.6.
-
-    Обводка толще, чем в исходном файле (2.0 против примерно 0.9 в
-    пересчёте). На значке в 48dp тонкая линия исчезает совсем, а от
-    сферы только контур и остаётся.
--->
+<!-- Передний план адаптивного значка: птица Сирин (Mini) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:viewportWidth="512"
+    android:viewportHeight="512">
 
-    <!-- Тело сферы. -->
-    <path
-        android:fillColor="@color/brand_sphere"
-        android:pathData="M54,24 a30,30 0 1,0 0,60 a30,30 0 1,0 0,-60z" />
+    <!-- Масштабирование в безопасную зону 66dp адаптивной иконки -->
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.74"
+        android:scaleY="0.74">
 
-    <!-- Меридианы. -->
-    <path
-        android:strokeColor="@color/brand_meridian"
-        android:strokeWidth="1.1"
-        android:fillColor="#00000000"
-        android:pathData="M54,24 a8.7,30 0 1,0 0,60 a8.7,30 0 1,0 0,-60z" />
-    <path
-        android:strokeColor="@color/brand_meridian"
-        android:strokeWidth="1.1"
-        android:fillColor="#00000000"
-        android:pathData="M54,24 a18.6,30 0 1,0 0,60 a18.6,30 0 1,0 0,-60z" />
+        <!-- Голова птицы Сирин (золотой акцент бренда) -->
+        <path
+            android:fillColor="@color/crp_accent_gold"
+            android:pathData="M 110,265 L 235,200 C 235,135 258,88 315,55 C 270,100 278,150 298,180 C 322,168 362,168 382,192 C 414,224 402,286 358,318 C 298,366 266,448 278,458 C 222,382 210,278 245,200 L 110,265 Z" />
 
-    <!-- Контур. -->
-    <path
-        android:strokeColor="@color/brand_edge"
-        android:strokeWidth="2.0"
-        android:fillColor="#00000000"
-        android:pathData="M54,24 a30,30 0 1,0 0,60 a30,30 0 1,0 0,-60z" />
+        <!-- Контрастное око Сирин (заливка фоном + золотая обводка 6px) -->
+        <path
+            android:fillColor="@color/crp_bg"
+            android:strokeColor="@color/crp_accent_gold"
+            android:strokeWidth="6"
+            android:pathData="M300,206 a22,22 0 1,0 0.1,0 Z" />
 
-    <!-- Точки на полюсах. -->
-    <path
-        android:fillColor="@color/brand_edge"
-        android:pathData="M54,20.8 a3.2,3.2 0 1,0 0,6.4 a3.2,3.2 0 1,0 0,-6.4z" />
-    <path
-        android:fillColor="@color/brand_edge"
-        android:pathData="M54,80.8 a3.2,3.2 0 1,0 0,6.4 a3.2,3.2 0 1,0 0,-6.4z" />
+        <!-- Блик зрачка (белый) -->
+        <path
+            android:fillColor="@color/white"
+            android:pathData="M306,214.5 a7.5,7.5 0 1,0 0.1,0 Z" />
+    </group>
 </vector>

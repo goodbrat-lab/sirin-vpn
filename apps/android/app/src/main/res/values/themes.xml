@@ -9,7 +9,7 @@
     измеримая.
 -->
 <resources>
-    <style name="Theme.Meridian" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Sirin" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

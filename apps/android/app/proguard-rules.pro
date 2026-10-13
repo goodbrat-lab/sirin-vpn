@@ -31,7 +31,7 @@
 -keep class engine.** { *; }
 
 # Наши реализации интерфейсов движка — анонимные объекты в
-# MeridianVpnService, HashScreen и CaptchaGate. Имена их методов обязаны
+# SirinVpnService, HashScreen и CaptchaGate. Имена их методов обязаны
 # совпадать с именами в интерфейсах, которые мы сохранили выше.
 -keepclassmembers class * implements engine.Logger { *; }
 -keepclassmembers class * implements engine.Protector { *; }
@@ -53,10 +53,10 @@
 # Компоненты, которые создаёт система по имени из манифеста. AGP
 # обычно их сохраняет сам, но манифест мы правим руками, и полагаться
 # на догадку не будем.
--keep class org.meridianvpn.app.MeridianVpnService { *; }
--keep class org.meridianvpn.app.MainActivity { *; }
--keep class org.meridianvpn.app.CaptchaActivity { *; }
--keep class org.meridianvpn.app.TrialAlarm$Receiver { *; }
+-keep class ru.guseynovia.sirin.SirinVpnService { *; }
+-keep class ru.guseynovia.sirin.MainActivity { *; }
+-keep class ru.guseynovia.sirin.CaptchaActivity { *; }
+-keep class ru.guseynovia.sirin.TrialAlarm$Receiver { *; }
 
 # WebView экрана капчи. JavaScript-интерфейсов мы не заводим, но
 # методы WebViewClient вызываются системой.

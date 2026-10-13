@@ -1,30 +1,11 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-    ЦВЕТА ЛОГОТИПА сняты из design/logo.png разбором пикселей, а не на
-    глаз. Здесь они лежат для того, что рисует система: значок
-    приложения и фон. Те же числа продублированы в Brand.kt для того,
-    что рисует Compose.
-
-    Меняя любое из них, поменяй и там — иначе значок и экран разъедутся,
-    а заметить это можно только глазом на устройстве.
--->
 <resources>
-    <!-- Заливка сферы. Почти чёрный с синей примесью. -->
-    <color name="brand_sphere">#11141A</color>
-
-    <!-- Контур сферы и точки на полюсах. -->
-    <color name="brand_edge">#5B8AFF</color>
-
-    <!-- Меридианы: приглушённый сине-серый. -->
-    <color name="brand_meridian">#454E69</color>
-
-    <!--
-        Фон значка. Чуть темнее заливки сферы: на одинаковом фоне
-        сфера пропадает, а разница в пару тонов даёт ей край, не
-        превращая значок в две плашки.
-    -->
-    <color name="brand_space">#0A0C11</color>
-
+    <color name="crp_bg">#0B0F1C</color>
+    <color name="crp_accent_blue">#5B8DEF</color>
+    <color name="crp_accent_purple">#9B6FE8</color>
+    <color name="crp_accent_gold">#E8C36F</color>
+    <color name="crp_success">#4ADE80</color>
+    <color name="crp_error">#EF4444</color>
+    <color name="ic_launcher_background">#0B0F1C</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

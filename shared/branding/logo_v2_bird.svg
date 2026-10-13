@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="goldGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE4A6" />
+      <stop offset="60%" stop-color="#E8C36F" />
+      <stop offset="100%" stop-color="#C59637" />
+    </linearGradient>
+    <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#E8C36F" />
+      <stop offset="70%" stop-color="#9B6FE8" />
+      <stop offset="100%" stop-color="#5B8DEF" />
+    </linearGradient>
+  </defs>
+
+  <!-- Защитная внешняя дуга крыла Сирин (щит) -->
+  <path d="M 230,76 
+           C 355,76 442,162 442,285 
+           C 442,378 380,450 285,470 
+           C 345,432 386,370 386,295 
+           C 386,192 308,120 208,114 
+           Z" 
+        fill="url(#wingGrad)" />
+
+  <!-- Внутреннее малое перо крыла -->
+  <path d="M 255,152 
+           C 334,162 384,224 384,305 
+           C 384,358 352,404 305,430 
+           C 338,392 354,350 354,305 
+           C 354,236 312,186 248,172 
+           Z" 
+        fill="url(#goldGrad2)" 
+        opacity="0.88" />
+
+  <!-- Голова и профиль птицы Сирин (усиленный контур) -->
+  <path d="M 120,232 
+           L 185,200 
+           C 185,166 196,140 224,124 
+           C 202,146 206,172 216,188 
+           C 228,182 248,182 258,194 
+           C 274,210 268,242 246,258 
+           C 216,282 200,324 206,374 
+           C 178,336 172,284 190,244 
+           L 120,232 Z" 
+        fill="url(#goldGrad2)" />
+
+  <!-- Глаз сокола / Сирин (с золотой обводкой 3px) -->
+  <circle cx="216" cy="214" r="10" fill="#0B0F1C" stroke="#E8C36F" stroke-width="3" />
+  <circle cx="219" cy="211" r="3.5" fill="#FFFFFF" />
+
+  <!-- Хвостовые летящие перья (основание, утолщенное) -->
+  <path d="M 206,374 
+           C 210,412 196,444 162,465 
+           C 192,442 198,414 192,382 
+           Z" 
+        fill="url(#goldGrad2)" 
+        opacity="0.85" />
+</svg>

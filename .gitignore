@@ -71,5 +71,5 @@ AUDIT_ENDPOINTS.md
 
 # === Боевые параметры (не для публичного git) ===
 # Аналогично оригинальному репо JinComputers
-apps/android/app/src/main/java/org/meridianvpn/app/Config.kt
-apps/android/app/src/debug/java/org/meridianvpn/app/DebugHashes.kt
+apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt

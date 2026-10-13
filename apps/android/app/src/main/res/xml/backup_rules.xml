@@ -3,7 +3,7 @@
     Правило резервного копирования для Android 11 и ниже
     (атрибут android:fullBackupContent).
 
-    КОПИРУЕТСЯ РОВНО ОДИН ФАЙЛ: meridian_access.xml.
+    КОПИРУЕТСЯ РОВНО ОДИН ФАЙЛ: sirin_access.xml.
 
     Так и должно быть. В копию НЕ ДОЛЖНЫ попасть:
       meridian_hashes.xml — хеши VK, по ним присоединяются к звонку;
@@ -65,6 +65,6 @@
 <full-backup-content>
 
     <!-- Единственное, что копируем: якорь триала и ключ доступа. -->
-    <include domain="sharedpref" path="meridian_access.xml" />
+    <include domain="sharedpref" path="sirin_access.xml" />
 
 </full-backup-content>

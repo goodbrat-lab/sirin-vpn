@@ -1,0 +1,8 @@
+<resources>
+    <color name="crp_bg">#0B0F1C</color>
+    <color name="crp_accent_blue">#5B8DEF</color>
+    <color name="crp_accent_purple">#9B6FE8</color>
+    <color name="crp_accent_gold">#E8C36F</color>
+    <color name="crp_success">#4ADE80</color>
+    <color name="crp_error">#EF4444</color>
+</resources>

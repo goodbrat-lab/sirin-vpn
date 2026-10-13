@@ -8,7 +8,7 @@
     Содержимое обязано совпадать, иначе поведение разъедется по версиям
     Android, и заметить это будет нечем.
 
-    КОПИРУЕТСЯ РОВНО ОДИН ФАЙЛ: meridian_access.xml. Полный разбор,
+    КОПИРУЕТСЯ РОВНО ОДИН ФАЙЛ: sirin_access.xml. Полный разбор,
     почему именно так и почему защита здесь ОДНА, а не две, — в
     backup_rules.xml. Коротко: наличие <include> само по себе
     исключает всё остальное, а <exclude> наружу от включённого
@@ -62,11 +62,11 @@
 <data-extraction-rules>
 
     <cloud-backup disableIfNoEncryptionCapabilities="true">
-        <include domain="sharedpref" path="meridian_access.xml" />
+        <include domain="sharedpref" path="sirin_access.xml" />
     </cloud-backup>
 
     <device-transfer>
-        <include domain="sharedpref" path="meridian_access.xml" />
+        <include domain="sharedpref" path="sirin_access.xml" />
     </device-transfer>
 
 </data-extraction-rules>

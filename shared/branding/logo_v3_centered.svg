@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="goldSpine" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#C59637" />
+      <stop offset="50%" stop-color="#E8C36F" />
+      <stop offset="100%" stop-color="#FFF0BE" />
+    </linearGradient>
+    <linearGradient id="goldVanes" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFF0BE" />
+      <stop offset="60%" stop-color="#E8C36F" />
+      <stop offset="100%" stop-color="#C59637" />
+    </linearGradient>
+    <linearGradient id="blueVanes" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7BA9F0" />
+      <stop offset="60%" stop-color="#5B8DEF" />
+      <stop offset="100%" stop-color="#3A66C4" />
+    </linearGradient>
+  </defs>
+
+  <!-- Закругленный стержень пера Сирин (хребет по центру) -->
+  <path d="M 252,448 
+           C 246,454 250,464 256,464 
+           C 262,464 266,454 260,448 
+           L 260,110 
+           C 260,90 274,75 284,65 
+           C 272,72 254,84 252,110 
+           Z" 
+        fill="url(#goldSpine)" />
+
+  <!-- Левое крыло пера — золотые граненые бородки -->
+  <!-- Верхняя бородка -->
+  <polygon points="252,125 186,168 206,198 252,165" fill="url(#goldVanes)" />
+  <!-- Верхне-средняя бородка -->
+  <polygon points="252,175 146,232 172,268 252,225" fill="url(#goldVanes)" opacity="0.95" />
+  <!-- Нижне-средняя бородка -->
+  <polygon points="252,235 136,302 166,336 252,285" fill="url(#goldVanes)" opacity="0.9" />
+  <!-- Нижняя бородка с зубцом -->
+  <polygon points="252,295 158,368 186,394 252,342" fill="url(#goldVanes)" opacity="0.82" />
+
+  <!-- Правое крыло пера — контрастные синие бородки (#5B8DEF -> #7BA9F0) -->
+  <!-- Верхняя бородка -->
+  <polygon points="260,140 324,180 306,212 260,180" fill="url(#blueVanes)" />
+  <!-- Верхне-средняя бородка -->
+  <polygon points="260,190 362,242 338,278 260,240" fill="url(#blueVanes)" opacity="0.95" />
+  <!-- Нижне-средняя бородка -->
+  <polygon points="260,250 372,312 342,346 260,298" fill="url(#blueVanes)" opacity="0.9" />
+  <!-- Нижняя бородка с зубцом -->
+  <polygon points="260,308 350,378 324,402 260,352" fill="url(#blueVanes)" opacity="0.82" />
+
+  <!-- Декоративный легкий вихревой кончик пера на вершине -->
+  <circle cx="284" cy="65" r="5" fill="#FFF0BE" />
+</svg>
