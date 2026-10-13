@@ -1,0 +1,22 @@
+[Unit]
+Description=Sirin VPN Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/sirin/sirind -config /etc/sirin/sirind.toml
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/sirin/sirind.log
+StandardError=append:/var/log/sirin/sirind.log
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/sirin
+
+[Install]
+WantedBy=multi-user.target

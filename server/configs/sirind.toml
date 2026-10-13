@@ -1,0 +1,11 @@
+listen_addr = "0.0.0.0:56005"
+static_priv_file = "/etc/sirin/static_priv.hex"
+tun_name = "sirin0"
+tun_ip = "10.77.77.1"
+tun_netmask = "255.255.255.0"
+client_subnet = "10.77.77.0/24"
+session_ttl = 120
+allowed_uuids = [
+    "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    "550e8400-e29b-41d4-a716-446655440000",
+]

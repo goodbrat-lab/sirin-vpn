@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import org.json.JSONObject
@@ -182,6 +182,10 @@ object Params {
      */
     private fun fetch(why: String) {
         val ctx = appCtx ?: return
+        if (Config.SKIP_API_PARAMS_FETCH) {
+            TunnelLog.add("API: пропуск /v1/params (SKIP_API_PARAMS_FETCH=true)")
+            return
+        }
         prefs(ctx).edit().putLong(K_ASKED_AT, System.currentTimeMillis()).apply()
         val key = Access.password()
         // ОБЪЯВЛЯЕМ, ЧТО УМЕЕМ (требование кота 2). Без этого параметра
@@ -265,6 +269,9 @@ object Params {
      * переставлять записи по своему разумению нельзя.
      */
     fun nodes(): List<Node> {
+        if (Config.SKIP_API_PARAMS_FETCH) {
+            return emptyList()
+        }
         val s = saved() ?: return emptyList()
         return try {
             val a = JSONObject(s).optJSONArray("entries") ?: return emptyList()

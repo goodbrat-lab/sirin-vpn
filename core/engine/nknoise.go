@@ -49,7 +49,7 @@ var gatewayStaticPublicKey *ecdh.PublicKey
 var gatewayDTLSFingerprint string
 
 func init() {
-	raw, err := base64.StdEncoding.DecodeString("ig5OlH1O6fxjUQoV894l2KZbDGhlB48yUl+8dIPAtBg=")
+	raw, err := base64.StdEncoding.DecodeString("6diNbZpuATtmPuMRSIzkxRgWKqyHUD/5tl7FetyRAmw=")
 	if err != nil || len(raw) != 32 {
 		panic("nknoise.go: неверный публичный ключ шлюза")
 	}

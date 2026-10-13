@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 /**
  * Ручки API.
@@ -363,6 +363,21 @@ object Api {
     }
 
     fun checkKey(key: String): KeyAnswer {
+        if (Config.SKIP_API_KEY_CHECK) {
+            TunnelLog.add("API: пропуск HTTP-проверки ключа (SKIP_API_KEY_CHECK=true)")
+            return KeyAnswer.Verdict(
+                KeyVerdict(
+                    state = KeyState.ACTIVE,
+                    bound = Bound.THIS,
+                    expiresAt = 0L,
+                    since = 0L,
+                    stale = false,
+                    staleAge = 0L,
+                    message = "Ключ активен (локальный режим)",
+                    recoverable = true,
+                )
+            )
+        }
         val r = ApiClient.call("/v1/key", mapOf("key" to key))
         return when (r) {
             is ApiClient.Result.Ok -> {
