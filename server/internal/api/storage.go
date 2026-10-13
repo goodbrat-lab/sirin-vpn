@@ -1,0 +1,198 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Storage обеспечивает потокобезопасную работу с базой клиентов.
+type Storage struct {
+	path string
+	mu   sync.RWMutex
+	data ClientsFile
+}
+
+// NewStorage открывает или создаёт clients.json по указанному пути.
+func NewStorage(path string) (*Storage, error) {
+	s := &Storage{
+		path: path,
+		data: ClientsFile{
+			Clients: make(map[string]*Client),
+		},
+	}
+
+	if err := s.loadOrCreate(); err != nil {
+		return nil, fmt.Errorf("storage init: %w", err)
+	}
+
+	return s, nil
+}
+
+func (s *Storage) loadOrCreate() error {
+	dir := filepath.Dir(s.path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+	}
+
+	data, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		return s.saveLocked()
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", s.path, err)
+	}
+
+	if len(data) == 0 {
+		return s.saveLocked()
+	}
+
+	if err := json.Unmarshal(data, &s.data); err != nil {
+		return fmt.Errorf("parse %s: %w", s.path, err)
+	}
+
+	if s.data.Clients == nil {
+		s.data.Clients = make(map[string]*Client)
+	}
+
+	return nil
+}
+
+func (s *Storage) saveLocked() error {
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write tmp: %w", err)
+	}
+
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename: %w", err)
+	}
+
+	return nil
+}
+
+// Get возвращает копию клиента по UUID.
+func (s *Storage) Get(key string) (*Client, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return nil, false
+	}
+	clone := *c
+	return &clone, true
+}
+
+// Touch обновляет LastSeen и привязывает deviceID при необходимости.
+func (s *Storage) Touch(key string, deviceIDs ...string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return fmt.Errorf("client %s not found", key)
+	}
+
+	now := time.Now().UTC()
+	c.LastSeen = &now
+
+	if len(deviceIDs) > 0 && deviceIDs[0] != "" {
+		if c.DeviceID == "" {
+			c.DeviceID = deviceIDs[0]
+		}
+	}
+
+	return s.saveLocked()
+}
+
+// Add создаёт нового клиента.
+func (s *Storage) Add(name string, daysValid int) (*Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newUUID := uuid.New().String()
+	now := time.Now().UTC()
+
+	c := &Client{
+		UUID:      newUUID,
+		Name:      name,
+		CreatedAt: now,
+		Revoked:   false,
+	}
+
+	if daysValid > 0 {
+		exp := now.Add(time.Duration(daysValid) * 24 * time.Hour)
+		c.ExpiresAt = &exp
+	}
+
+	s.data.Clients[newUUID] = c
+
+	if err := s.saveLocked(); err != nil {
+		delete(s.data.Clients, newUUID)
+		return nil, err
+	}
+
+	clone := *c
+	return &clone, nil
+}
+
+// Revoke отзывает клиента.
+func (s *Storage) Revoke(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return fmt.Errorf("client %s not found", key)
+	}
+
+	c.Revoked = true
+	return s.saveLocked()
+}
+
+// Delete удаляет клиента.
+func (s *Storage) Delete(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.data.Clients[key]; !ok {
+		return fmt.Errorf("client %s not found", key)
+	}
+
+	delete(s.data.Clients, key)
+	return s.saveLocked()
+}
+
+// List возвращает список всех клиентов.
+func (s *Storage) List() []*Client {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	res := make([]*Client, 0, len(s.data.Clients))
+	for _, c := range s.data.Clients {
+		clone := *c
+		res = append(res, &clone)
+	}
+	return res
+}
+
+// Count возвращает количество клиентов.
+func (s *Storage) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.data.Clients)
+}
