@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -87,9 +87,7 @@ object ApiClient {
      * восстановления сертификата.
      */
     private val ADDRESSES = listOf(
-        Address("jinelectronics.ru"),
-        Address("138.249.246.89"),
-        Address("cdn.jincomputers.win", port = 443, pinned = false),
+        Address("crp.guseynovia.ru", port = 443, pinned = false),
     )
 
     /**
