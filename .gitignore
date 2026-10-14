@@ -80,3 +80,7 @@ server/sirinapi*
 server/sirinbot*
 *clients.json*
 
+# === Тестовые бинарники Reality ===
+core/engine/reality-test*
+core/engine/vless/cmd/reality-test/reality-test*
+
