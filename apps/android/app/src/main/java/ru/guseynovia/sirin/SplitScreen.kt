@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import android.content.Intent
@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -247,6 +248,17 @@ fun SplitScreen(
                 selected = modes.indexOf(mode),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             ) { i -> SplitTunnel.setMode(modes[i]) }
+
+            val currentMode = SplitTunnel.mode.value
+            Text(
+                text = SplitTunnel.hint(currentMode),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (currentMode == SplitTunnel.Mode.ONLY) 
+                    Color(0xFFEF4444) 
+                else 
+                    Color(0xFF9B6FE8),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import android.content.pm.PackageManager
@@ -93,6 +93,7 @@ object SplitTunnel {
 
     fun clear() {
         chosen.value = emptySet()
+        setMode(Mode.BYPASS)
         save()
     }
 

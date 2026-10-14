@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.app.Activity
 import android.content.Context
@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -346,6 +347,18 @@ fun TunnelScreen(modifier: Modifier = Modifier, onSettings: () -> Unit = {}) {
                         connect()
                     }
                 },
+            )
+        }
+
+        val isOnlyMode = SplitTunnel.mode.value == SplitTunnel.Mode.ONLY
+        val chosenCount = SplitTunnel.chosen.value.size
+        if (isOnlyMode && chosenCount > 0) {
+            Text(
+                text = "VPN только для $chosenCount прил.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFFEF4444),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
             )
         }
 
