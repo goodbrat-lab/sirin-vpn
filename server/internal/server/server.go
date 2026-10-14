@@ -21,6 +21,9 @@ type Server struct {
 	staticPriv []byte
 	conn       *net.UDPConn
 
+	tcpListener net.Listener
+	tcpAddr     string
+
 	tun        *tun.Device
 	tunEnabled bool
 
@@ -83,6 +86,10 @@ func (s *Server) TunEnabled() bool {
 	return s.tunEnabled
 }
 
+func (s *Server) TCPAddr() string {
+	return s.tcpAddr
+}
+
 func (s *Server) Start() error {
 	addr, err := net.ResolveUDPAddr("udp", s.cfg.ListenAddr)
 	if err != nil {
@@ -96,6 +103,20 @@ func (s *Server) Start() error {
 	s.conn = conn
 
 	log.Printf("[Sirin Server] UDP-сервер слушает на %s", s.cfg.ListenAddr)
+
+	if s.cfg.TCPListenAddr != "" {
+		l, err := net.Listen("tcp", s.cfg.TCPListenAddr)
+		if err != nil {
+			_ = s.conn.Close()
+			return fmt.Errorf("ListenTCP: %w", err)
+		}
+		s.tcpListener = l
+		s.tcpAddr = l.Addr().String()
+		log.Printf("[Sirin Server] TCP-сервер слушает на %s", s.tcpAddr)
+
+		s.wg.Add(1)
+		go s.tcpAcceptLoop()
+	}
 
 	s.wg.Add(2)
 	go s.readLoop()
@@ -120,11 +141,14 @@ func (s *Server) Stop() {
 	if s.conn != nil {
 		_ = s.conn.Close()
 	}
+	if s.tcpListener != nil {
+		_ = s.tcpListener.Close()
+	}
 	if s.tunEnabled && s.tun != nil {
 		_ = s.tun.Close()
 	}
 	s.wg.Wait()
-	log.Printf("[Sirin Server] UDP-сервер остановлен")
+	log.Printf("[Sirin Server] Сервер остановлен")
 }
 
 func (s *Server) readLoop() {
@@ -416,12 +440,269 @@ func (s *Server) handleTunPacket(pkt []byte) {
 
 	wire, err := sess.obfsTx.Wrap(pkt)
 	if err != nil {
-		log.Printf("[Sirin Server] Ошибка obfsTx.Wrap для туннельного пакета клиенту %s: %v", sess.addr.String(), err)
+		log.Printf("[Sirin Server] Ошибка obfsTx.Wrap для туннельного пакета клиенту %s: %v", sess.RemoteAddr(), err)
 		return
 	}
 
-	if _, err := s.conn.WriteToUDP(wire, sess.addr); err != nil {
-		log.Printf("[Sirin Server] Ошибка отправки туннельного пакета клиенту %s: %v", sess.addr.String(), err)
+	if sess.streamLink != nil {
+		if err := sess.streamLink.WriteFrame(wire); err != nil {
+			log.Printf("[Sirin Server] Ошибка отправки туннельного пакета по TCP клиенту %s: %v", sess.RemoteAddr(), err)
+		}
+	} else if s.conn != nil && sess.addr != nil {
+		if _, err := s.conn.WriteToUDP(wire, sess.addr); err != nil {
+			log.Printf("[Sirin Server] Ошибка отправки туннельного пакета клиенту %s: %v", sess.addr.String(), err)
+		}
+	}
+}
+
+func (s *Server) tcpAcceptLoop() {
+	defer s.wg.Done()
+
+	for {
+		conn, err := s.tcpListener.Accept()
+		if err != nil {
+			select {
+			case <-s.stopCh:
+				return
+			default:
+				log.Printf("[Sirin Server] Ошибка Accept TCP: %v", err)
+				continue
+			}
+		}
+
+		go s.handleTCPConn(conn)
+	}
+}
+
+func (s *Server) handleTCPConn(conn net.Conn) {
+	defer conn.Close()
+
+	remoteAddr := conn.RemoteAddr().String()
+
+	// 1. Проверить, что соединение от 127.0.0.1 (от Xray)
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil || host != "127.0.0.1" {
+		log.Printf("[Sirin Server] TCP from non-local %s — drop", remoteAddr)
+		return
+	}
+
+	link := NewStreamLink(conn)
+
+	// 2. Читаем первый кадр: msg1
+	pkt, err := link.ReadFrame()
+	if err != nil {
+		log.Printf("[Sirin Server] Ошибка чтения первого TCP-кадра от %s: %v", remoteAddr, err)
+		return
+	}
+
+	// 3. Подбор UUID для первого кадра
+	var matchedUUID string
+	var matchedKey []byte
+	var msg1Payload []byte
+
+	for uuid, key := range s.wrapKeys {
+		state, err := obfs.NewState(key)
+		if err != nil {
+			continue
+		}
+		plain, err := state.Unwrap(pkt)
+		if err != nil {
+			continue
+		}
+		if len(plain) == 49 {
+			matchedUUID = uuid
+			matchedKey = key
+			msg1Payload = plain
+			break
+		}
+	}
+
+	if matchedUUID == "" {
+		log.Printf("[Sirin Server] TCP-пакет от %s отброшен: нет подходящего UUID", remoteAddr)
+		return
+	}
+
+	log.Printf("[Sirin Server] Обнаружен входящий TCP-сеанс от %s (UUID: %s)", remoteAddr, matchedUUID)
+
+	// 4. Инициализация Noise Responder
+	resp, err := noise.NewResponder(s.staticPriv)
+	if err != nil {
+		log.Printf("[Sirin Server] Ошибка NewResponder: %v", err)
+		return
+	}
+
+	// 5. Обработка msg1
+	p1, err := resp.ReadMsg1(msg1Payload)
+	if err != nil {
+		log.Printf("[Sirin Server] Сбой проверки msg1: %v", err)
+		return
+	}
+	if len(p1) == 0 || p1[0] != noise.ProtocolVersion {
+		log.Printf("[Sirin Server] Неверная версия в msg1: %v", p1)
+		return
+	}
+
+	// 6. Формирование msg2
+	msg2, err := resp.WriteMsg2([]byte{})
+	if err != nil {
+		log.Printf("[Sirin Server] Сбой формирования msg2: %v", err)
+		return
+	}
+
+	// 7. Инициализация obfs состояний
+	obfsRx, err := obfs.NewState(matchedKey)
+	if err != nil {
+		return
+	}
+	obfsTx, err := obfs.NewState(matchedKey)
+	if err != nil {
+		return
+	}
+
+	// 8. Упаковка msg2 и отправка клиенту в streamlink кадре
+	wireMsg2, err := obfsTx.Wrap(msg2)
+	if err != nil {
+		log.Printf("[Sirin Server] Сбой упаковки msg2: %v", err)
+		return
+	}
+	if err := link.WriteFrame(wireMsg2); err != nil {
+		log.Printf("[Sirin Server] Ошибка отправки msg2 по TCP: %v", err)
+		return
+	}
+
+	// 9. Завершение рукопожатия Noise
+	if err := resp.Split(); err != nil {
+		log.Printf("[Sirin Server] Ошибка Split: %v", err)
+		return
+	}
+
+	// 10. Создание сессии
+	sess := &Session{
+		tcpConn:    conn,
+		streamLink: link,
+		remoteStr:  remoteAddr,
+		clientUUID: matchedUUID,
+		wrapKey:    matchedKey,
+		obfsRx:     obfsRx,
+		obfsTx:     obfsTx,
+		noise:      resp,
+		state:      StateHandshakeSent,
+		lastSeen:   time.Now(),
+	}
+
+	s.mu.Lock()
+	s.sessions[remoteAddr] = sess
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		delete(s.sessions, remoteAddr)
+		if sess.tunIP != nil {
+			delete(s.byTunIP, sess.tunIP.String())
+		}
+		sess.SetState(StateClosed)
+		s.mu.Unlock()
+		log.Printf("[Sirin Server] TCP-сессия %s завершена", remoteAddr)
+	}()
+
+	log.Printf("[Sirin Server] Msg2 отправлен TCP-клиенту %s, ожидаю AUTH", remoteAddr)
+
+	// 11. Цикл чтения последующих кадров (AUTH, keepalive, IPv4)
+	for {
+		frame, err := link.ReadFrame()
+		if err != nil {
+			select {
+			case <-s.stopCh:
+				return
+			default:
+				return
+			}
+		}
+
+		sess.Touch()
+
+		plain, err := sess.obfsRx.Unwrap(frame)
+		if err != nil {
+			continue
+		}
+
+		st := sess.State()
+		switch st {
+		case StateHandshakeSent:
+			decrypted, err := sess.noise.DecryptAuth(plain)
+			if err != nil {
+				log.Printf("[Sirin Server] Ошибка DecryptAuth от %s: %v", remoteAddr, err)
+				return
+			}
+
+			authStr := string(decrypted)
+			parts := strings.Split(authStr, "|")
+			if len(parts) < 2 || parts[0] != "AUTH" {
+				log.Printf("[Sirin Server] Некорректный синтаксис AUTH от %s: %q", remoteAddr, authStr)
+				return
+			}
+
+			clientUUID := parts[1]
+			if clientUUID != sess.clientUUID {
+				log.Printf("[Sirin Server] Несовпадение UUID в AUTH (%s != %s)", clientUUID, sess.clientUUID)
+				return
+			}
+
+			seq := s.clientIPSeq.Add(1)
+			tunIP := net.IPv4(10, 77, 77, byte(seq))
+			sess.mu.Lock()
+			sess.tunIP = tunIP
+			sess.state = StateAuthenticated
+			sess.mu.Unlock()
+
+			s.mu.Lock()
+			s.byTunIP[tunIP.String()] = sess
+			s.mu.Unlock()
+
+			okResp := fmt.Sprintf("OK|%s|%s|ffffff00|echo", tunIP.String(), s.cfg.TunIP)
+			encResp, err := sess.noise.EncryptResponse([]byte(okResp))
+			if err != nil {
+				log.Printf("[Sirin Server] Ошибка шифрования ответа OK: %v", err)
+				return
+			}
+
+			wireResp, err := sess.obfsTx.Wrap(encResp)
+			if err != nil {
+				log.Printf("[Sirin Server] Ошибка упаковки ответа OK: %v", err)
+				return
+			}
+
+			if err := link.WriteFrame(wireResp); err != nil {
+				log.Printf("[Sirin Server] Ошибка отправки OK по TCP: %v", err)
+				return
+			}
+
+			log.Printf("[Sirin Server] TCP-клиент %s успешно авторизован! Выделен IP %s", remoteAddr, tunIP.String())
+
+		case StateAuthenticated:
+			if len(plain) < 20 {
+				// Keepalive метка: отвечаем зеркальным эхо клиенту
+				echoWire, err := sess.obfsTx.Wrap(plain)
+				if err == nil {
+					_ = link.WriteFrame(echoWire)
+				}
+				continue
+			}
+
+			// Разбор IP пакета
+			version := plain[0] >> 4
+			if version == 4 && len(plain) >= 20 {
+				if s.tunEnabled {
+					if _, err := s.tun.Write(plain); err != nil {
+						log.Printf("[Sirin Server] tun write from %s: %v", remoteAddr, err)
+					}
+				} else {
+					dstIP := net.IPv4(plain[16], plain[17], plain[18], plain[19]).String()
+					log.Printf("[Sirin Server] IPv4 from %s: %d bytes dst=%s (no TUN)",
+						remoteAddr, len(plain), dstIP)
+				}
+			}
+		}
 	}
 }
 
@@ -446,6 +727,9 @@ func (s *Server) sessionCleanupLoop() {
 						delete(s.byTunIP, sess.tunIP.String())
 					}
 					sess.SetState(StateClosed)
+					if sess.tcpConn != nil {
+						_ = sess.tcpConn.Close()
+					}
 					log.Printf("[Sirin Server] Сессия %s закрыта по таймауту неактивности", k)
 				}
 			}

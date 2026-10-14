@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	ListenAddr     string   `toml:"listen_addr"`
+	TCPListenAddr  string   `toml:"tcp_listen_addr"` // "127.0.0.1:56006"
 	StaticPrivFile string   `toml:"static_priv_file"`
 	TunName        string   `toml:"tun_name"`
 	TunIP          string   `toml:"tun_ip"`
@@ -31,6 +32,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("разбор TOML: %w", err)
 	}
 
+	if cfg.TCPListenAddr == "" {
+		cfg.TCPListenAddr = "127.0.0.1:56006"
+	}
+
 	if cfg.SessionTTL <= 0 {
 		cfg.SessionTTL = 120
 	}
@@ -48,6 +53,12 @@ func (c *Config) Validate() error {
 	}
 	if _, _, err := net.SplitHostPort(c.ListenAddr); err != nil {
 		return fmt.Errorf("неверный формат listen_addr: %w", err)
+	}
+
+	if c.TCPListenAddr != "" {
+		if _, _, err := net.SplitHostPort(c.TCPListenAddr); err != nil {
+			return fmt.Errorf("неверный формат tcp_listen_addr: %w", err)
+		}
 	}
 
 	if c.StaticPrivFile == "" {

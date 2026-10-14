@@ -83,4 +83,6 @@ server/sirinbot*
 # === Тестовые бинарники Reality ===
 core/engine/reality-test*
 core/engine/vless/cmd/reality-test/reality-test*
+core/engine/e2e-test*
+core/engine/vless/cmd/e2e-test/e2e-test*
 

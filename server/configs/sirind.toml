@@ -1,4 +1,5 @@
 listen_addr = "0.0.0.0:56005"
+tcp_listen_addr = "127.0.0.1:56006"
 static_priv_file = "/etc/sirin/static_priv.hex"
 tun_name = "sirin0"
 tun_ip = "10.77.77.1"

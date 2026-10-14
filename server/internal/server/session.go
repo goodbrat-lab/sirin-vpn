@@ -36,6 +36,9 @@ type Session struct {
 	mu sync.Mutex
 
 	addr       *net.UDPAddr
+	tcpConn    net.Conn
+	streamLink *StreamLink
+	remoteStr  string
 	clientUUID string
 	wrapKey    []byte
 
@@ -46,6 +49,21 @@ type Session struct {
 	tunIP    net.IP
 	state    State
 	lastSeen time.Time
+}
+
+func (s *Session) RemoteAddr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.addr != nil {
+		return s.addr.String()
+	}
+	return s.remoteStr
+}
+
+func (s *Session) IsTCP() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tcpConn != nil
 }
 
 func (s *Session) Touch() {
