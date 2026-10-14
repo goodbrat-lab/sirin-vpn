@@ -1,0 +1,23 @@
+[Unit]
+Description=Sirin Telegram Bot
+After=network-online.target sirinapi.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sirin
+Group=sirin
+ExecStart=/opt/sirin/sirinbot -config /etc/sirin/sirinbot.toml
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/sirin/sirinbot.log
+StandardError=append:/var/log/sirin/sirinbot.log
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/sirin /etc/sirin
+
+[Install]
+WantedBy=multi-user.target

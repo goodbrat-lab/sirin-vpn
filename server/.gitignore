@@ -1,0 +1,5 @@
+# server/.gitignore
+sirinbot.toml
+sirinapi.toml
+clients.json
+bot_users.json
