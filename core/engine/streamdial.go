@@ -7,6 +7,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"meridian/engine/vless"
 )
 
 // raiseStream поднимает потоковую ступень (TCP 56004 или TLS 443).
@@ -47,11 +49,39 @@ func (s *session) raiseStream(
 }
 
 // dialStream открывает поток до шлюза: TCP с protect и TCP_NODELAY, а
-// для TLS-ступени — ещё TLS-обёртку с SNI и сверкой отпечатка.
+// для TLS-ступени — ещё TLS-обёртку с SNI и сверкой отпечатка, а для
+// VLESS-ступени — VLESS+Reality с XTLS Vision.
 func (s *session) dialStream(
 	ctx context.Context, c candidate, prot Protector, host string, budget time.Duration,
 ) (net.Conn, error) {
 	s.logf("%s: открываю поток", c.name)
+
+	// NEW: VLESS+Reality
+	if c.transport == transVLESS {
+		s.logf("%s: открываю VLESS+Reality поток до %s:%d", c.name, host, c.port)
+		cfg := &vless.RealityConfig{
+			ServerHost:  host,
+			ServerPort:  int(c.port),
+			PublicKey:   c.vlessPublicKey,
+			ShortID:     c.vlessShortID,
+			SNI:         c.sni,
+			Fingerprint: "chrome",
+			Control:     protectDialControl(prot, s.logf, c.name),
+		}
+		client := vless.NewClient(c.vlessUUID, cfg)
+
+		target := c.vlessTarget
+		if target == "" {
+			target = "127.0.0.1:56006"
+		}
+
+		conn, err := client.DialTCP(ctx, target)
+		if err != nil {
+			return nil, fmt.Errorf("%s: vless dial: %w", c.name, err)
+		}
+		s.logf("%s: VLESS+Reality поднят (target %s), кадрирование внутри", c.name, target)
+		return conn, nil
+	}
 
 	// protect в Control исключает сокет из туннеля — как у UDP-сокета в
 	// listenProtected. Без него запрос ушёл бы ВНУТРЬ туннеля, который

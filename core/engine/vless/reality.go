@@ -14,6 +14,7 @@ import (
 
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/crypto/hkdf"
+	"syscall"
 )
 
 type RealityConfig struct {
@@ -23,11 +24,15 @@ type RealityConfig struct {
 	ShortID     []byte
 	SNI         string // например, dl.google.com
 	Fingerprint string // "chrome"
+	Control     func(network, address string, c syscall.RawConn) error
 }
 
 // Dial выполняет TCP-соединение и TLS 1.3 рукопожатие по протоколу Reality с маскировкой под Chrome.
 func Dial(ctx context.Context, cfg *RealityConfig) (net.Conn, error) {
-	d := &net.Dialer{Timeout: 10 * time.Second}
+	d := &net.Dialer{
+		Timeout: 10 * time.Second,
+		Control: cfg.Control,
+	}
 	addr := net.JoinHostPort(cfg.ServerHost, fmt.Sprintf("%d", cfg.ServerPort))
 	rawConn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {

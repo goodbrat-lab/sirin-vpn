@@ -48,8 +48,18 @@ func main() {
 	if serverHost == "" {
 		serverHost = "crp.guseynovia.ru"
 	}
-	if len(os.Args) > 1 {
-		serverHost = os.Args[1]
+	viaLadder := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--via-ladder" {
+			viaLadder = true
+		} else if !strings.HasPrefix(arg, "-") {
+			serverHost = arg
+		}
+	}
+
+	if viaLadder {
+		runViaLadder(serverHost, vlessUUID, pubKey, shortID, clientPassword, deviceID)
+		return
 	}
 
 	// 2. VLESS+Reality Dial to 127.0.0.1:56006 via Xray
@@ -234,3 +244,27 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+func runViaLadder(serverHost string, vlessUUID [16]byte, pubKey, shortID []byte, clientPassword, deviceID string) {
+	log.Println("=== Running VLESS connection via Engine Ladder (Full flow) ===")
+	ladder := engine.NewLadder()
+	ladder.AddVLESS("vless-ladder-candidate", serverHost, 443, vlessUUID, pubKey, shortID, "dl.google.com", "127.0.0.1:56006")
+
+	assignedIP, err := engine.Connect(serverHost, "", ladder, clientPassword, deviceID, nil, nil, nil, &ladderLogger{}, nil)
+	if err != nil {
+		log.Fatalf("engine.Connect failed: %v", err)
+	}
+	defer engine.Stop()
+
+	log.Printf("SUCCESS: Ladder connected via winner: %s, assigned IP: %s", engine.Winner(), assignedIP)
+	log.Println("===================================================")
+	log.Println("FULL ENGINE LADDER TEST PASSED FOR transVLESS!")
+	log.Println("===================================================")
+}
+
+type ladderLogger struct{}
+
+func (l *ladderLogger) Log(line string) {
+	log.Printf("[engine] %s", line)
+}
+

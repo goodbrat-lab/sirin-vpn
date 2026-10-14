@@ -16,6 +16,7 @@ const (
 	transUDP transportKind = iota // UDP; DTLS решает useDTLS
 	transTCP                      // TCP-поток, кадры obfs (порт 56004, без DTLS)
 	transTLS                      // TLS-поток, кадры obfs внутри (порт 443, SNI + отпечаток)
+	transVLESS                    // NEW: VLESS+Reality с XTLS Vision
 )
 
 // streamKindText — короткое имя транспорта для лога.
@@ -25,6 +26,8 @@ func streamKindText(t transportKind) string {
 		return "TCP"
 	case transTLS:
 		return "TLS"
+	case transVLESS:
+		return "VLESS"
 	default:
 		return "UDP"
 	}
@@ -72,6 +75,12 @@ type candidate struct {
 	// переезжает вместе с host). Пусто — движок берёт запаску
 	// tlsGatewaySNI.
 	sni string
+
+	// Для transVLESS:
+	vlessUUID      [16]byte // VLESS UUID (секрет Xray)
+	vlessPublicKey []byte   // Reality public key (32 байта)
+	vlessShortID   []byte   // Reality short ID
+	vlessTarget    string   // "127.0.0.1:56006"
 
 	// turnAddr — ЗАПАСНОЙ адрес релея из настроек.
 	//
@@ -238,6 +247,30 @@ func (l *Ladder) AddTLS(name, host string, port int32, sni string) {
 		transport: transTLS,
 		sni:       sni,
 		mtu:       mtuFor(false),
+	})
+}
+
+// AddVLESS — СТУПЕНЬ 5: VLESS+Reality с XTLS Vision (порт 443, маскировка под Chrome).
+// Трафик проксируется через Xray на сервере в 127.0.0.1:56006 (sirind TCP).
+func (l *Ladder) AddVLESS(
+	name, host string, port int32,
+	uuid [16]byte,
+	pubKey []byte,
+	shortID []byte,
+	sni string,
+	target string,
+) {
+	l.items = append(l.items, candidate{
+		name:           name,
+		host:           host,
+		port:           port,
+		transport:      transVLESS,
+		sni:            sni,
+		vlessUUID:      uuid,
+		vlessPublicKey: pubKey,
+		vlessShortID:   shortID,
+		vlessTarget:    target,
+		mtu:            mtuFor(false),
 	})
 }
 
