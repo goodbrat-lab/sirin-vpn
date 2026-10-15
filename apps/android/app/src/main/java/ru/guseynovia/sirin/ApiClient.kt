@@ -10,13 +10,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URL
 import java.net.URLEncoder
-import java.security.SecureRandom
-import java.security.cert.CertificateException
-import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.X509TrustManager
 
 /**
  * Транспорт до нашего API.
@@ -31,63 +25,26 @@ import javax.net.ssl.X509TrustManager
  * Последний удачный адрес запоминается и в следующий раз пробуется
  * первым — тем же устройством, что и память путей в лестнице транспорта.
  *
- * ДОВЕРИЕ ПОСТРОЕНО ТОЛЬКО НА ПИНЕ, и это не упрощение, а единственный
- * работающий вариант. Сертификат службы САМОПОДПИСАННЫЙ (CN=meridian-api,
- * проверено с работающего порта 24.08.2026), в системном хранилище его
- * нет, и обычная проверка цепочки отвергнет его всегда. В его SAN лежит
- * только IP-адрес, доменного имени там нет вовсе, поэтому и проверка по
- * имени для адреса jinelectronics.ru не прошла бы тоже.
- *
- * Остаётся пин — и его ДОСТАТОЧНО: он привязывает соединение к
- * конкретному нашему ключу, что строже и цепочки, и имени. Подделать
- * его нельзя, не имея приватной части.
- *
- * Цена такого решения, чтобы она была названа: вместе с цепочкой мы
- * перестаём проверять и срок годности сертификата. Для закреплённого
- * ключа это не потеря — просрочка сама по себе ничего не значит, когда
- * ключ и так известен поимённо. Утечка ключа лечится переходом на
- * запасной пин, ради чего он и заведён.
+ * ДОВЕРИЕ: соединение защищено TLS с публичным доверенным сертификатом
+ * удостоверяющего центра.
  */
 object ApiClient {
 
     /** Версия договора, которую понимает эта сборка. */
     const val CONTRACT = "v1"
 
-    private const val PORT = 21947
+    private const val PORT = 443
 
     /**
-     * Один адрес API: куда стучаться, каким портом и как проверять TLS.
-     *
-     * `pinned = true` — доверие только по закреплённому ключу (`ApiPins`),
-     * сертификат самоподписанный, цепочки доверия нет и не будет.
-     * `pinned = false` — обычное системное доверие: у адреса настоящий
-     * сертификат от публичного удостоверяющего центра, проверять его
-     * закреплённым ключом нельзя (ключ там свой, не `bYxJ...`) и не нужно
-     * (уже подтверждён цепочкой).
+     * Один адрес API: куда стучаться и каким портом.
      */
-    private data class Address(val host: String, val port: Int = PORT, val pinned: Boolean = true)
+    private data class Address(val host: String, val port: Int = PORT)
 
     /**
-     * Адреса API по порядку.
-     *
-     * Домен первым, IP вторым: имя может не разрешиться, адрес — нет.
-     *
-     * ТРЕТИЙ — cdn.jincomputers.win, добавлен 23.09 (Кот1: traefik по SNI
-     * заводит настоящий Let's Encrypt на отдельном терминаторе перед
-     * meridian-api, порт обычный 443, не 21947). Это ЕДИНСТВЕННЫЙ адрес с
-     * `pinned = false` — у него есть цепочка доверия, а закреплённый ключ
-     * `bYxJ...` тут в принципе не подойдёт: сертификат другой, настоящий
-     * CA-выпуск, а не самоподписанный. Применить к нему пин — повторить
-     * инцидент 14.09 наоборот (тогда пин ждал самоподписанный, а получил
-     * LE; здесь пин ждал бы LE-ключ, которого нет и не может быть заранее
-     * известен — LE меняет ключ при каждом продлении).
-     *
-     * ПЕРВЫЕ ДВА адреса обязаны отдавать ОДИН И ТОТ ЖЕ закреплённый ключ.
-     * На 24.08.2026 так и есть, проверено обоим и снова 23.09 после
-     * восстановления сертификата.
+     * Адрес боевого API Sirin.
      */
     private val ADDRESSES = listOf(
-        Address("crp.guseynovia.ru", port = 443, pinned = false),
+        Address("crp.guseynovia.ru", port = 443),
     )
 
     /**
@@ -261,10 +218,6 @@ object ApiClient {
                 val url = URL("https://${addr.host}:${addr.port}/v1/logs")
                 val net = underlying()
                 conn = (net?.openConnection(url) ?: url.openConnection()) as HttpsURLConnection
-                if (addr.pinned) {
-                    conn.sslSocketFactory = pinnedFactory()
-                    conn.hostnameVerifier = pinnedVerifier(addr.host)
-                }
                 conn.connectTimeout = CONNECT_MS
                 // Тело до ~сотни КБ после сжатия: на медленной сети
                 // READ_MS мало, даём втрое.
@@ -336,10 +289,6 @@ object ApiClient {
                 val url = URL("https://${addr.host}:${addr.port}$path")
                 val net = underlying()
                 conn = (net?.openConnection(url) ?: url.openConnection()) as HttpsURLConnection
-                if (addr.pinned) {
-                    conn.sslSocketFactory = pinnedFactory()
-                    conn.hostnameVerifier = pinnedVerifier(addr.host)
-                }
                 conn.connectTimeout = connectMs
                 conn.readTimeout = readMs
                 conn.useCaches = false
@@ -408,19 +357,8 @@ object ApiClient {
             // выбором сети.
             //
             // Сети нет — идём как раньше. Это случай погашенного
-            // туннеля, когда исключать не из чего.
             val net = underlying()
-            conn = (net?.openConnection(URL(url)) ?: URL(url).openConnection())
-                as HttpsURLConnection
-            // ПИН — ТОЛЬКО ДЛЯ АДРЕСОВ С САМОПОДПИСАННЫМ СЕРТИФИКАТОМ.
-            // У адреса с pinned=false (cdn.jincomputers.win) — настоящая
-            // цепочка от публичного удостоверяющего центра; обычное
-            // системное доверие уже проверяет её, а закреплённый ключ
-            // здесь просто чужой и всегда провалит сверку.
-            if (addr.pinned) {
-                conn.sslSocketFactory = pinnedFactory()
-                conn.hostnameVerifier = pinnedVerifier(host)
-            }
+            conn = (net?.openConnection(URL(url)) ?: URL(url).openConnection()) as HttpsURLConnection
             conn.connectTimeout = CONNECT_MS
             conn.readTimeout = READ_MS
             conn.useCaches = false
@@ -584,80 +522,6 @@ object ApiClient {
         best ?: fallback
     } catch (e: Throwable) {
         null
-    }
-
-    // ------------------------------------------------------------------
-    // TLS: доверие только по пину
-    // ------------------------------------------------------------------
-
-    @Volatile
-    private var factory: SSLSocketFactory? = null
-
-    /**
-     * Фабрика сокетов, доверяющая ТОЛЬКО закреплённому ключу.
-     *
-     * Системное хранилище корней здесь не участвует вовсе: сертификат
-     * службы самоподписанный, и любая цепочка от него всё равно никуда
-     * не ведёт. Решение принимает пин.
-     *
-     * Это НЕ «доверитель, принимающий всё». Несовпадение пина бросает
-     * CertificateException, и рукопожатие не состоится. Ветки «принять
-     * любой, если не совпало» здесь нет и появиться не должно.
-     */
-    private fun pinnedFactory(): SSLSocketFactory {
-        factory?.let { return it }
-        synchronized(this) {
-            factory?.let { return it }
-            val tm = object : X509TrustManager {
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                    if (chain == null || chain.isEmpty()) {
-                        throw CertificateException("сервер не прислал сертификата")
-                    }
-                    if (!ApiPins.matches(chain)) {
-                        throw CertificateException("ключ сервера не совпал с закреплённым")
-                    }
-                }
-
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                    // Мы никогда не сервер. Если сюда попали — что-то не то.
-                    throw CertificateException("проверка клиента здесь неуместна")
-                }
-
-                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            }
-            val ctx = SSLContext.getInstance("TLS")
-            ctx.init(null, arrayOf(tm), SecureRandom())
-            val f = ctx.socketFactory
-            factory = f
-            return f
-        }
-    }
-
-    /**
-     * Вторые ворота: тот же пин, но уже на готовом соединении.
-     *
-     * Доверитель выше решает всё сам, и этот проверяющий строго говоря
-     * избыточен. Оставлен намеренно: если однажды кто-то подменит
-     * фабрику сокетов на обычную, закрепление не должно отключиться
-     * молча — оно должно упасть здесь.
-     *
-     * Проверки по ИМЕНИ здесь нет, и это осознанно. В сертификате
-     * службы доменного имени нет вовсе (SAN содержит только IP), так что
-     * обычная проверка имени провалила бы обращение к jinelectronics.ru
-     * при полностью исправном сервере. Пин строже имени и заменяет его.
-     */
-    private fun pinnedVerifier(host: String) = javax.net.ssl.HostnameVerifier { _, session ->
-        val ok = ApiPins.matches(
-            try {
-                session?.peerCertificates
-            } catch (e: Throwable) {
-                null
-            }
-        )
-        if (!ok) {
-            TunnelLog.add("API: ключ $host не совпал с закреплённым — считаю адрес недоступным")
-        }
-        ok
     }
 
     // ------------------------------------------------------------------

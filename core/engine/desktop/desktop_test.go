@@ -135,10 +135,10 @@ func (p *recProtector) ExcludeHost(h string) { p.excluded = append(p.excluded, h
 func TestGuardedProtectorNeverExcludesTunnelDNS(t *testing.T) {
 	inner := &recProtector{}
 	g := newGuardedProtector(inner, DefaultTunnelDNS).(*guardedProtector)
-	for _, h := range []string{"1.1.1.1", "8.8.8.8", "9.9.9.9", "77.88.8.8", "62.76.231.231"} {
+	for _, h := range []string{"1.1.1.1", "8.8.8.8", "9.9.9.9", "77.88.8.8", "192.0.2.1"} {
 		g.ExcludeHost(h)
 	}
-	want := []string{"9.9.9.9", "77.88.8.8", "62.76.231.231"}
+	want := []string{"9.9.9.9", "77.88.8.8", "192.0.2.1"}
 	if len(inner.excluded) != len(want) {
 		t.Fatalf("дошло до платформы %v, хочу %v", inner.excluded, want)
 	}

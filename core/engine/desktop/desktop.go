@@ -36,7 +36,7 @@ import (
 // был для Android/iOS.
 type Config struct {
 	// Gateway — имя или IP шлюза, как в Engine.connect() у Android/iOS
-	// (edge.jincomputers.win или готовый литерал).
+	// (crp.guseynovia.ru или готовый литерал).
 	Gateway        string
 	CachedFallback string
 	Ladder         *engine.Ladder

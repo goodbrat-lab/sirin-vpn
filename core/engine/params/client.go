@@ -32,13 +32,13 @@ const Contract = "v1"
 // (замер БЕЗ /v1 на 443: там прокси с чужим ключом). Запасной нужен для
 // немедленной смены при компрометации основного.
 const (
-	PinMain   = "bYxJBY7Uhz34CkyyssvHci+ihjsypwu//acXo1fsIbw="
-	PinBackup = "Lsn4bXD0gvNi/FGV0N12f3Uj4i/iuu8iHmtzO2geYV0="
+	PinMain   = ""
+	PinBackup = ""
 )
 
 // Address — один адрес API. Pinned=true: доверие ТОЛЬКО по закреплённому
 // ключу (самоподписанный сертификат, цепочки нет). Pinned=false: обычное
-// системное доверие (настоящий Let's Encrypt, cdn.jincomputers.win) —
+// системное доверие (настоящий Let's Encrypt, crp.guseynovia.ru) —
 // закреплённый ключ к нему не применяется, там ключ свой и меняется.
 type Address struct {
 	Host   string
@@ -46,12 +46,10 @@ type Address struct {
 	Pinned bool
 }
 
-// DefaultAddresses — порядок как в ApiClient.kt: домен, IP, cdn-имя.
+// DefaultAddresses — адрес боевого API Sirin.
 func DefaultAddresses() []Address {
 	return []Address{
-		{Host: "jinelectronics.ru", Port: 21947, Pinned: true},
-		{Host: "138.249.246.89", Port: 21947, Pinned: true},
-		{Host: "cdn.jincomputers.win", Port: 443, Pinned: false},
+		{Host: "crp.guseynovia.ru", Port: 443, Pinned: false},
 	}
 }
 
@@ -369,7 +367,7 @@ func (c *Client) interpret(host string, code int, body []byte) Result {
 	return Ok{Body: m, Code: code, Raw: body}
 }
 
-// resolvingDial — имена API (jinelectronics.ru, cdn.jincomputers.win)
+// resolvingDial — имена API (crp.guseynovia.ru)
 // разрешает платформа, если её Protector умеет LookupHost (то же
 // необязательное расширение, что и в engine/exclude.go): системный резолвер
 // при живом туннеле может уйти в туннель. Нет метода или ошибка — обычный

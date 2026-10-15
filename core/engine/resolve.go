@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// resolveGateway превращает hostGateway ("edge.jincomputers.win" или уже
+// resolveGateway превращает hostGateway ("crp.guseynovia.ru" или уже
 // готовый IP-литерал) в адрес, с которым дальше пойдёт climb().
 //
 // ОБРАТНАЯ СОВМЕСТИМОСТЬ — ПЕРВАЯ ВЕТКА. Если hostGateway уже IP (сегодняшний

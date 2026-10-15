@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildDNSQueryShape(t *testing.T) {
-	q := buildDNSQuery("edge.jincomputers.win")
+	q := buildDNSQuery("edge.example.org")
 
 	if len(q) < 12 {
 		t.Fatalf("запрос короче заголовка: %d байт", len(q))
@@ -21,9 +21,9 @@ func TestBuildDNSQueryShape(t *testing.T) {
 		t.Errorf("ANCOUNT = %d, хочу 0 в запросе", an)
 	}
 
-	// Имя закодировано метками: 4"edge" 12"jincomputers" 3"win" 0.
+	// Имя закодировано метками: 4"edge" 7"example" 3"org" 0.
 	off := 12
-	wantLabels := []string{"edge", "jincomputers", "win"}
+	wantLabels := []string{"edge", "example", "org"}
 	for _, label := range wantLabels {
 		if int(q[off]) != len(label) {
 			t.Fatalf("метка на смещении %d: длина %d, хочу %d (%q)", off, q[off], len(label), label)
@@ -73,21 +73,21 @@ func buildTestResponse(t *testing.T, host string, rtype uint16, rdata []byte) []
 }
 
 func TestParseDNSResponseFindsARecord(t *testing.T) {
-	resp := buildTestResponse(t, "edge.jincomputers.win", 1, []byte{62, 76, 231, 231})
+	resp := buildTestResponse(t, "edge.example.org", 1, []byte{192, 0, 2, 1})
 
 	ip, err := parseDNSResponse(resp)
 	if err != nil {
 		t.Fatalf("parseDNSResponse: %v", err)
 	}
-	if ip != "62.76.231.231" {
-		t.Errorf("ip = %q, хочу 62.76.231.231", ip)
+	if ip != "192.0.2.1" {
+		t.Errorf("ip = %q, хочу 192.0.2.1", ip)
 	}
 }
 
 func TestParseDNSResponseSkipsNonARecord(t *testing.T) {
 	// AAAA (TYPE 28) с телом в 16 байт — parseDNSResponse обязан
 	// пропустить её по RDLENGTH и не найти A-запись следом, раз её нет.
-	resp := buildTestResponse(t, "edge.jincomputers.win", 28, make([]byte, 16))
+	resp := buildTestResponse(t, "edge.example.org", 28, make([]byte, 16))
 
 	_, err := parseDNSResponse(resp)
 	if err == nil {
@@ -104,8 +104,8 @@ func TestParseDNSResponseTruncated(t *testing.T) {
 
 func TestIsPrivateOrSpecial(t *testing.T) {
 	cases := map[string]bool{
-		"62.76.231.231": false,
-		"138.124.78.252": false,
+		"192.0.2.1":     false,
+		"198.51.100.1":  false,
 		"1.1.1.1":       false,
 		"10.0.0.1":      true,
 		"172.16.5.5":    true,
@@ -123,11 +123,11 @@ func TestIsPrivateOrSpecial(t *testing.T) {
 }
 
 func TestResolveGatewaySkipsResolutionForLiteralIP(t *testing.T) {
-	addr, via, err := resolveGateway("138.124.78.252", "", nil, nil)
+	addr, via, err := resolveGateway("198.51.100.1", "", nil, nil)
 	if err != nil {
 		t.Fatalf("resolveGateway на IP-литерале вернул ошибку: %v", err)
 	}
-	if addr != "138.124.78.252" || via != "" {
+	if addr != "198.51.100.1" || via != "" {
 		t.Errorf("addr=%q via=%q, хочу addr без изменений и пустой via", addr, via)
 	}
 }

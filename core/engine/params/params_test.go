@@ -13,7 +13,7 @@ import (
 
 // Реальный АНОНИМНЫЙ ответ /v1/params (снят живьём 24.09, без ключа):
 // два входа, relay.target, настройка лестницы.
-const liveAnonymous = `{"status":"answered","generation":3,"ttl":21600,"now":1790196629,"entries":[{"id":"entry-1","host":"62.76.231.231","port":443,"dtls":true},{"id":"entry-2","host":"62.76.231.231","port":56004,"dtls":true},{"id":"entry-3","host":"62.76.231.231","port":56005,"dtls":false},{"id":"entry-c1","host":"203.0.113.41","port":443,"dtls":true},{"id":"entry-c2","host":"203.0.113.41","port":56004,"dtls":true},{"id":"entry-c3","host":"203.0.113.41","port":56005,"dtls":false}],"relay":{"enabled":true,"target":"138.124.78.252"},"ladder":{"direct_probe_every_attempts":4,"direct_skip_after_fails":5,"second_round_ms":3000},"contract":"v1"}`
+const liveAnonymous = `{"status":"answered","generation":3,"ttl":21600,"now":1790196629,"entries":[{"id":"entry-1","host":"192.0.2.1","port":443,"dtls":true},{"id":"entry-2","host":"192.0.2.1","port":56004,"dtls":true},{"id":"entry-3","host":"192.0.2.1","port":56005,"dtls":false},{"id":"entry-c1","host":"203.0.113.41","port":443,"dtls":true},{"id":"entry-c2","host":"203.0.113.41","port":56004,"dtls":true},{"id":"entry-c3","host":"203.0.113.41","port":56005,"dtls":false}],"relay":{"enabled":true,"target":"198.51.100.1"},"ladder":{"direct_probe_every_attempts":4,"direct_skip_after_fails":5,"second_round_ms":3000},"contract":"v1"}`
 
 func TestParseLiveAnonymousAnswer(t *testing.T) {
 	a, err := ParseAnswer([]byte(liveAnonymous))
@@ -24,13 +24,13 @@ func TestParseLiveAnonymousAnswer(t *testing.T) {
 		t.Fatalf("узлов %d, хочу 6", len(a.Nodes))
 	}
 	n := a.Nodes[0]
-	if n.ID != "entry-1" || n.Host != "62.76.231.231" || n.Port != 443 || !n.DTLS || n.Transport != "udp" {
+	if n.ID != "entry-1" || n.Host != "192.0.2.1" || n.Port != 443 || !n.DTLS || n.Transport != "udp" {
 		t.Errorf("первый узел разобран неверно: %+v", n)
 	}
 	if a.Nodes[2].DTLS {
 		t.Error("entry-3 без dtls")
 	}
-	if !a.Relay.Enabled || a.Relay.Target != "138.124.78.252" {
+	if !a.Relay.Enabled || a.Relay.Target != "198.51.100.1" {
 		t.Errorf("relay: %+v", a.Relay)
 	}
 	if a.TTLSeconds != 21600 || a.Generation != 3 {
@@ -45,12 +45,12 @@ func TestParseLiveAnonymousAnswer(t *testing.T) {
 }
 
 func TestParseTLSNodeAndDefaults(t *testing.T) {
-	raw := `{"status":"answered","entries":[{"id":"entry-tls","host":"62.76.231.231","port":443,"dtls":false,"transport":"tls","sni":"gw.62-76-231-231.sslip.io"},{"host":"1.2.3.4","port":56004}],"relay":{"enabled":false,"unknown":42},"ladder":{"second_round_ms":999999},"contract":"v1"}`
+	raw := `{"status":"answered","entries":[{"id":"entry-tls","host":"192.0.2.1","port":443,"dtls":false,"transport":"tls","sni":"gw.192-0-2-1.sslip.io"},{"host":"1.2.3.4","port":56004}],"relay":{"enabled":false,"unknown":42},"ladder":{"second_round_ms":999999},"contract":"v1"}`
 	a, err := ParseAnswer([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Nodes[0].Transport != "tls" || a.Nodes[0].SNI != "gw.62-76-231-231.sslip.io" {
+	if a.Nodes[0].Transport != "tls" || a.Nodes[0].SNI != "gw.192-0-2-1.sslip.io" {
 		t.Errorf("tls-узел: %+v", a.Nodes[0])
 	}
 	if a.Nodes[1].ID != "1.2.3.4:56004" || a.Nodes[1].Transport != "udp" {

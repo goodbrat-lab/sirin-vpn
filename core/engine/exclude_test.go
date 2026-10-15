@@ -75,10 +75,10 @@ func TestProtectDialControlWorksWithoutExcluder(t *testing.T) {
 
 func TestExcludeHostFilters(t *testing.T) {
 	p := &excludingProtector{}
-	for _, h := range []string{"", "edge.example.org", "0.0.0.0", "62.76.231.231"} {
+	for _, h := range []string{"", "edge.example.org", "0.0.0.0", "192.0.2.1"} {
 		excludeHost(p, h)
 	}
-	if len(p.excluded) != 1 || p.excluded[0] != "62.76.231.231" {
+	if len(p.excluded) != 1 || p.excluded[0] != "192.0.2.1" {
 		t.Errorf("передаются только IP-адреса: %v", p.excluded)
 	}
 	excludeHost(nil, "1.2.3.4") // не паникует
@@ -178,9 +178,9 @@ func TestResolvingDialContextUsesPlatformResolver(t *testing.T) {
 }
 
 func TestSystemDNSStepPrefersPlatformResolver(t *testing.T) {
-	p := &lookupProtector{table: map[string][]string{"edge.example.org": {"62.76.231.231"}}}
+	p := &lookupProtector{table: map[string][]string{"edge.example.org": {"192.0.2.1"}}}
 	ip, ok := viaSystemDNS("edge.example.org", p, func(string, ...interface{}) {})
-	if !ok || ip != "62.76.231.231" {
+	if !ok || ip != "192.0.2.1" {
 		t.Errorf("ip=%q ok=%v", ip, ok)
 	}
 	// Приватный ответ платформы отбрасывается тем же фильтром.
