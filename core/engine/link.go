@@ -75,15 +75,13 @@ func (l *rawLink) Write(p []byte) (int, error) {
 	// Над rawLink нет DTLS, который бы нарезал поток по своему MTU.
 	// Значит единственный, кто следит за верхней границей, — мы сами.
 	if len(p) > l.mtu {
-		var err error
 		l.bigOnce.Do(func() {
 			if l.logf != nil {
-				l.logf("пакет %d байт больше MTU ступени %d — на проводе вышло бы %d байт",
+				l.logf("пакет %d байт больше MTU ступени %d — на проводе вышло бы %d байт (отброшен)",
 					len(p), l.mtu, len(p)+obfsOverheadMax)
 			}
 		})
-		err = fmt.Errorf("пакет %d байт превышает MTU ступени %d", len(p), l.mtu)
-		return 0, err
+		return len(p), nil
 	}
 
 	n, err := l.pc.WriteTo(p, l.raddr)

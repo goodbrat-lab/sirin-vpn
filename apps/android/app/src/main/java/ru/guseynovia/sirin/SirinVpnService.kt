@@ -378,6 +378,8 @@ class SirinVpnService : VpnService() {
             // там же): отказ означает утечку по v6, и молчать о нём
             // нельзя, но и ронять заглушку из-за него нельзя тоже.
             try {
+                // IPv6 для заглушки Kill Switch: активирует IPv6 на интерфейсе
+                builder.addAddress("fd00::1", 128)
                 builder.addRoute("::", 0)
             } catch (e: Throwable) {
                 TunnelLog.add(
@@ -1359,8 +1361,9 @@ class SirinVpnService : VpnService() {
                     // Второй нужен как запас: один резолвер — единичная
                     // точка отказа, и на роутере это уже стоило дня
                     // работы 04.09. Своего резолвера у нас нет — кот 2
-                    // проверил на VPS, 53-й порт не слушает никто.
-                    .setMtu(mtu)
+                    // Для IPv6 минимальный допустимый MTU в ядре Linux — 1280 (RFC 8200).
+                    // При MTU < 1280 ядро возвращает EINVAL на установку IPv6-адреса ("Cannot set address").
+                    .setMtu(1280.coerceAtLeast(mtu))
                 builder.addRoute("0.0.0.0", 0)
                 for (s in DNS_SERVERS) builder.addDnsServer(s)
 
@@ -1404,6 +1407,10 @@ class SirinVpnService : VpnService() {
                 // ГРОМКИМ — он означает, что утечка на этом телефоне
                 // живая.
                 try {
+                    // IPv6 для туннеля: ULA-адрес (RFC 4193) активирует IPv6
+                    // на tun-интерфейсе. Без него Android игнорирует addRoute("::", 0),
+                    // и весь IPv6 уходит мимо туннеля (утечка).
+                    builder.addAddress("fd00::1", 128)
                     builder.addRoute("::", 0)
                     TunnelLog.add("IPv6 забран в туннель и глушится — шлюз его не несёт")
                 } catch (e: Throwable) {
