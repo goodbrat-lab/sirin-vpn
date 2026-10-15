@@ -144,8 +144,8 @@ func TestHandleParamsWithVLESS(t *testing.T) {
 	if vlessEntry.Host != "94.183.159.114" {
 		t.Fatalf("expected host 94.183.159.114, got %s", vlessEntry.Host)
 	}
-	if vlessEntry.SNI != "dl.google.com" {
-		t.Fatalf("expected SNI dl.google.com, got %s", vlessEntry.SNI)
+	if vlessEntry.SNI != "sun8-21.userapi.com" {
+		t.Fatalf("expected SNI sun8-21.userapi.com, got %s", vlessEntry.SNI)
 	}
 }
 

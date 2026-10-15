@@ -127,7 +127,17 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
-
+	// VLESS entry: резервный транспорт.
+	// SNI = sun8-21.userapi.com — поддомен VK CDN.
+	// ВАЖНО: не менять на dl.google.com / cloudflare.com / vk.com.
+	//   - dl.google.com: ТСПУ блокирует (несоответствие ASN)
+	//   - cloudflare.com: периодически блокируется
+	//   - vk.com / m.vk.com: корневые домены VK блокируются ТСПУ
+	//   - sun8-21.userapi.com: CDN-поддомен VK, стабильно работает
+	// Если sun8-21 заблокируют — заменить на следующий кандидат:
+	//   - www.kinopoisk.ru (TLS 1.3, AS Яндекс)
+	//   - wildberries.ru (TLS 1.3, AS WB)
+	//   - пустой SNI (крайняя мера, работает всегда)
 	if s.cfg.VLESSEnabled && s.cfg.VLESSHost != "" {
 		port := s.cfg.VLESSPort
 		if port == 0 {
@@ -139,7 +149,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 			Port:      port,
 			DTLS:      false,
 			Transport: "vless",
-			SNI:       "dl.google.com",
+			SNI:       "sun8-21.userapi.com",
 			PBK:       "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
 			SID:       "8283f99ec6a0f52e",
 		})

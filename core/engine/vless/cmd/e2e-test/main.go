@@ -69,7 +69,7 @@ func main() {
 		ServerPort:  443,
 		PublicKey:   pubKey,
 		ShortID:     shortID,
-		SNI:         "dl.google.com",
+		SNI:         "sun8-21.userapi.com",
 		Fingerprint: "chrome",
 	}
 	client := vless.NewClient(vlessUUID, realityCfg)
@@ -249,7 +249,7 @@ func min(a, b int) int {
 func runViaLadder(serverHost, uuidStr, pubKeyBase64, shortIDHex, clientPassword, deviceID string) {
 	log.Println("=== Running VLESS connection via Engine Ladder (Full flow) ===")
 	ladder := engine.NewLadder()
-	err := ladder.AddVLESS("vless-ladder-candidate", serverHost, 443, uuidStr, pubKeyBase64, shortIDHex, "dl.google.com", "127.0.0.1:56006")
+	err := ladder.AddVLESS("vless-ladder-candidate", serverHost, 443, uuidStr, pubKeyBase64, shortIDHex, "sun8-21.userapi.com", "127.0.0.1:56006")
 	if err != nil {
 		log.Fatalf("AddVLESS failed: %v", err)
 	}
