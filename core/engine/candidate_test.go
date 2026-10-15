@@ -2,20 +2,26 @@ package engine
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"testing"
+
+	"meridian/engine/vless"
 )
 
 func TestLadderAddVLESS(t *testing.T) {
 	ladder := NewLadder()
 
-	var uuid [16]byte
-	copy(uuid[:], []byte("1234567890123456"))
-	pubKey := []byte("0123456789abcdef0123456789abcdef")
-	shortID := []byte("8283f99e")
+	uuidStr := "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+	pubKeyBase64 := "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
+	shortIDHex := "8283f99ec6a0f52e"
 	sni := "dl.google.com"
 	target := "127.0.0.1:56006"
 
-	ladder.AddVLESS("vless-test", "crp.guseynovia.ru", 443, uuid, pubKey, shortID, sni, target)
+	err := ladder.AddVLESS("vless-test", "crp.guseynovia.ru", 443, uuidStr, pubKeyBase64, shortIDHex, sni, target)
+	if err != nil {
+		t.Fatalf("AddVLESS failed: %v", err)
+	}
 
 	if ladder.Len() != 1 {
 		t.Fatalf("expected 1 candidate, got %d", ladder.Len())
@@ -37,14 +43,18 @@ func TestLadderAddVLESS(t *testing.T) {
 	if c.sni != sni {
 		t.Errorf("expected sni %s, got %s", sni, c.sni)
 	}
-	if c.vlessUUID != uuid {
-		t.Errorf("expected uuid %v, got %v", uuid, c.vlessUUID)
+	expectedUUID, _ := vless.ParseUUID(uuidStr)
+	expectedPubKey, _ := base64.RawURLEncoding.DecodeString(pubKeyBase64)
+	expectedShortID, _ := hex.DecodeString(shortIDHex)
+
+	if c.vlessUUID != expectedUUID {
+		t.Errorf("expected uuid %v, got %v", expectedUUID, c.vlessUUID)
 	}
-	if !bytes.Equal(c.vlessPublicKey, pubKey) {
-		t.Errorf("expected pubKey %v, got %v", pubKey, c.vlessPublicKey)
+	if !bytes.Equal(c.vlessPublicKey, expectedPubKey) {
+		t.Errorf("expected pubKey %v, got %v", expectedPubKey, c.vlessPublicKey)
 	}
-	if !bytes.Equal(c.vlessShortID, shortID) {
-		t.Errorf("expected shortID %v, got %v", shortID, c.vlessShortID)
+	if !bytes.Equal(c.vlessShortID, expectedShortID) {
+		t.Errorf("expected shortID %v, got %v", expectedShortID, c.vlessShortID)
 	}
 	if c.vlessTarget != target {
 		t.Errorf("expected target %s, got %s", target, c.vlessTarget)

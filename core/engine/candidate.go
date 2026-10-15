@@ -1,8 +1,13 @@
 package engine
 
 import (
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"time"
+
+	"meridian/engine/vless"
 )
 
 // transportKind — каким транспортом идёт ПРЯМАЯ ступень.
@@ -250,16 +255,35 @@ func (l *Ladder) AddTLS(name, host string, port int32, sni string) {
 	})
 }
 
-// AddVLESS — СТУПЕНЬ 5: VLESS+Reality с XTLS Vision (порт 443, маскировка под Chrome).
-// Трафик проксируется через Xray на сервере в 127.0.0.1:56006 (sirind TCP).
+// AddVLESS — СТУПЕНЬ 5: VLESS+Reality с XTLS Vision.
+// UUID (hex с дефисами), pubKey (base64url), shortID (hex).
+// Пустой target → default "127.0.0.1:56006".
 func (l *Ladder) AddVLESS(
 	name, host string, port int32,
-	uuid [16]byte,
-	pubKey []byte,
-	shortID []byte,
+	uuidStr string,
+	pubKeyBase64 string,
+	shortIDHex string,
 	sni string,
 	target string,
-) {
+) error {
+	uuid, err := vless.ParseUUID(uuidStr)
+	if err != nil {
+		return fmt.Errorf("AddVLESS %s: %w", name, err)
+	}
+	pubKey, err := base64.RawURLEncoding.DecodeString(pubKeyBase64)
+	if err != nil {
+		return fmt.Errorf("AddVLESS %s: decode pubkey: %w", name, err)
+	}
+	if len(pubKey) != 32 {
+		return fmt.Errorf("AddVLESS %s: pubkey must be 32 bytes, got %d", name, len(pubKey))
+	}
+	shortID, err := hex.DecodeString(shortIDHex)
+	if err != nil {
+		return fmt.Errorf("AddVLESS %s: decode shortID: %w", name, err)
+	}
+	if target == "" {
+		target = "127.0.0.1:56006"
+	}
 	l.items = append(l.items, candidate{
 		name:           name,
 		host:           host,
@@ -272,6 +296,7 @@ func (l *Ladder) AddVLESS(
 		vlessTarget:    target,
 		mtu:            mtuFor(false),
 	})
+	return nil
 }
 
 // AddDirectRemembered добавляет прямую ступень, запомненную как рабочая

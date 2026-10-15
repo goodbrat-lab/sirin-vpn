@@ -26,7 +26,8 @@ func main() {
 		log.Fatalf("decode pubkey: %v", err)
 	}
 
-	shortID, err := hex.DecodeString("8283f99ec6a0f52e")
+	shortIDHex := "8283f99ec6a0f52e"
+	shortID, err := hex.DecodeString(shortIDHex)
 	if err != nil {
 		log.Fatalf("decode shortID: %v", err)
 	}
@@ -58,7 +59,7 @@ func main() {
 	}
 
 	if viaLadder {
-		runViaLadder(serverHost, vlessUUID, pubKey, shortID, clientPassword, deviceID)
+		runViaLadder(serverHost, uuidStr, pubKeyB64, shortIDHex, clientPassword, deviceID)
 		return
 	}
 
@@ -245,10 +246,13 @@ func min(a, b int) int {
 	return b
 }
 
-func runViaLadder(serverHost string, vlessUUID [16]byte, pubKey, shortID []byte, clientPassword, deviceID string) {
+func runViaLadder(serverHost, uuidStr, pubKeyBase64, shortIDHex, clientPassword, deviceID string) {
 	log.Println("=== Running VLESS connection via Engine Ladder (Full flow) ===")
 	ladder := engine.NewLadder()
-	ladder.AddVLESS("vless-ladder-candidate", serverHost, 443, vlessUUID, pubKey, shortID, "dl.google.com", "127.0.0.1:56006")
+	err := ladder.AddVLESS("vless-ladder-candidate", serverHost, 443, uuidStr, pubKeyBase64, shortIDHex, "dl.google.com", "127.0.0.1:56006")
+	if err != nil {
+		log.Fatalf("AddVLESS failed: %v", err)
+	}
 
 	assignedIP, err := engine.Connect(serverHost, "", ladder, clientPassword, deviceID, nil, nil, nil, &ladderLogger{}, nil)
 	if err != nil {

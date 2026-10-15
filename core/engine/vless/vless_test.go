@@ -195,3 +195,36 @@ func TestRealitySessionID(t *testing.T) {
 		t.Errorf("ShortID mismatch: expected %x, got %x", shortID, decrypted[8:16])
 	}
 }
+
+func TestParseUUID(t *testing.T) {
+	validStr := "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+	expectedBytes := [16]byte{0x5f, 0x26, 0xeb, 0xc3, 0x6e, 0xb0, 0x45, 0xfb, 0xa4, 0x90, 0xc8, 0xc9, 0x2b, 0x86, 0xb6, 0x44}
+
+	uuid, err := ParseUUID(validStr)
+	if err != nil {
+		t.Fatalf("ParseUUID failed on valid string: %v", err)
+	}
+	if uuid != expectedBytes {
+		t.Fatalf("ParseUUID mismatch: expected %x, got %x", expectedBytes, uuid)
+	}
+
+	// Без дефисов тоже должен парситься (32 hex)
+	noDashes := "5f26ebc36eb045fba490c8c92b86b644"
+	uuid2, err := ParseUUID(noDashes)
+	if err != nil {
+		t.Fatalf("ParseUUID failed on no-dashes string: %v", err)
+	}
+	if uuid2 != expectedBytes {
+		t.Fatalf("ParseUUID mismatch: expected %x, got %x", expectedBytes, uuid2)
+	}
+
+	// Невалидная длина
+	if _, err := ParseUUID("5f26ebc3"); err == nil {
+		t.Errorf("expected error on short UUID string")
+	}
+
+	// Невалидный hex
+	if _, err := ParseUUID("zz26ebc3-6eb0-45fb-a490-c8c92b86b644"); err == nil {
+		t.Errorf("expected error on invalid hex characters")
+	}
+}

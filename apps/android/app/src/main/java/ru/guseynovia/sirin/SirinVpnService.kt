@@ -2386,7 +2386,7 @@ class SirinVpnService : VpnService() {
         val all: List<Node> = when {
             mode == Config.TransportMode.RELAY_ONLY -> emptyList()
             fromService -> nodes.map {
-                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni)
+                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.pbk, it.sid)
             }
             else -> Config.DIRECT_CANDIDATES.mapIndexed { i, c ->
                 Node(Paths.directName(i), "", c.port, c.useDtls)
@@ -2394,16 +2394,16 @@ class SirinVpnService : VpnService() {
         }
 
         // ПРОПУСК ЗАКРЫТОГО UDP убирает ТОЛЬКО UDP-ступени, а поток
-        // (TCP/TLS) оставляет: на сети, режущей UDP, поток и есть путь.
+        // (TCP/TLS/VLESS) оставляет: на сети, режущей UDP, поток и есть путь.
         // Раньше здесь был emptyList — он ронял и поток, когда стал
         // частью лестницы.
-        // ПРОПУСК РЕЗАННОГО ПОТОКА убирает TCP/TLS и оставляет UDP: это
+        // ПРОПУСК РЕЗАННОГО ПОТОКА убирает TCP/TLS/VLESS и оставляет UDP: это
         // зеркало пропуска UDP, и включаются они независимо. Сеть, где
         // UDP не поднимается, а поток поднимается и немеет, выключит оба
         // — и лестница станет чисто релейной. Ровно этого мы и хотим:
         // релей на такой сети единственный, кто держит трафик.
         val byKind: List<Node> = all.filter { n ->
-            val stream = n.transport == "tcp" || n.transport == "tls"
+            val stream = n.transport == "tcp" || n.transport == "tls" || n.transport == "vless"
             if (stream) !skipStreams else !skipDirect
         }
         // Медленные входы обходим, но лестницу пустой не оставляем: если
@@ -2413,7 +2413,7 @@ class SirinVpnService : VpnService() {
         val directs: List<Node> = when {
             only != null -> (all.filter { it.id == only }.ifEmpty {
                 manualNode(only)?.split(':')?.let { p ->
-                    listOf(Node(only, p[0], p[1].toInt(), p[2] == "1", p.getOrElse(3) { "udp" }, p.getOrElse(4) { "" }))
+                    listOf(Node(only, p[0], p[1].toInt(), p[2] == "1", p.getOrElse(3) { "udp" }, p.getOrElse(4) { "" }, p.getOrElse(5) { "" }, p.getOrElse(6) { "" }))
                 } ?: emptyList()
             }).also {
                 TunnelLog.add("ОТЛАДКА: только ступень $only (${it.size}), без релея")
@@ -2462,6 +2462,15 @@ class SirinVpnService : VpnService() {
                     streams.add(code)
                     ladder.addTLS(code, n.host, n.port, n.sni)
                 }
+                "vless" -> {
+                    val vlessUUID = "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+                    streams.add(code)
+                    try {
+                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "")
+                    } catch (e: Throwable) {
+                        TunnelLog.add("узел $code: vless ошибка — ${e.message}")
+                    }
+                }
                 "udp" -> if (n.id == known) {
                     // Запомненную ступень помечаем явно: движок пробует
                     // её одну и без гонки. Гонка нужна незнакомой сети.
@@ -2470,15 +2479,6 @@ class SirinVpnService : VpnService() {
                     ladder.addDirect(code, n.host, n.port, n.dtls)
                 }
                 // НЕЗНАКОМЫЙ ТРАНСПОРТ ПРОПУСКАЕМ ВСЛУХ, А НЕ МОЛЧА.
-                //
-                // Раньше эта ветка была else и всё непонятное считала
-                // UDP: появись на службе новый вид транспорта, мы бы
-                // дозванивались до его порта датаграммами и получали
-                // необъяснимо мёртвую ступень без единой строки о
-                // причине. Фильтр ?transports в запросе такого ответа
-                // не допускает, но полагаться на дальнюю сторону в том,
-                // что она не пришлёт нам незнакомого, — как раз тот
-                // род молчаливого допущения, который стоил нам недели.
                 else -> TunnelLog.add(
                     "узел $code: транспорт «${n.transport}» этой сборке незнаком — пропускаю"
                 )
@@ -2615,6 +2615,8 @@ class SirinVpnService : VpnService() {
         val dtls: Boolean,
         val transport: String = "udp",
         val sni: String = "",
+        val pbk: String = "",
+        val sid: String = "",
     )
 
     /**

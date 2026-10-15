@@ -193,7 +193,7 @@ object Params {
         // обратная совместимость: старому клиенту незнакомый транспорт
         // просто не присылают, а не надеются, что он «пропустит».
         val query = HashMap<String, String>()
-        query["transports"] = "udp,tcp,tls"
+        query["transports"] = "udp,tcp,tls,vless"
         if (key.isNotEmpty()) query["key"] = key
         when (val r = ApiClient.call("/v1/params", query)) {
             is ApiClient.Result.Ok -> accept(ctx, r.body, why)
@@ -258,6 +258,8 @@ object Params {
         val transport: String,
         /** SNI для tls-ступени; для прочих пусто. Привязан к IP. */
         val sni: String,
+        val pbk: String = "",
+        val sid: String = "",
     )
 
     /**
@@ -291,6 +293,8 @@ object Params {
                         // udp-запись, как и договорились с котом 2.
                         transport = o.optString("transport").ifEmpty { "udp" },
                         sni = o.optString("sni"),
+                        pbk = o.optString("pbk"),
+                        sid = o.optString("sid"),
                     )
                 )
             }

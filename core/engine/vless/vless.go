@@ -2,6 +2,7 @@ package vless
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"strconv"
@@ -117,4 +118,24 @@ func DecodeResponse(header []byte) (*Response, int, error) {
 		addon = header[2 : 2+addonLen]
 	}
 	return &Response{Version: ver, Addon: addon}, totalLen, nil
+}
+
+// ParseUUID парсит UUID из строки (8-4-4-4-12 hex с дефисами).
+func ParseUUID(s string) ([16]byte, error) {
+	var uuid [16]byte
+	cleaned := make([]byte, 0, 32)
+	for _, c := range s {
+		if c != '-' {
+			cleaned = append(cleaned, byte(c))
+		}
+	}
+	if len(cleaned) != 32 {
+		return uuid, fmt.Errorf("invalid UUID length: %d (expected 32 hex chars)", len(cleaned))
+	}
+	b, err := hex.DecodeString(string(cleaned))
+	if err != nil {
+		return uuid, fmt.Errorf("invalid UUID hex: %w", err)
+	}
+	copy(uuid[:], b)
+	return uuid, nil
 }
