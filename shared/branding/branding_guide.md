@@ -18,6 +18,7 @@
 | **App Icon (Иконка)** | `logo_v2_mini.svg` | Центрированная укрупненная голова птицы с золотым оком | Иконка приложения Android (адаптивная и растровые mipmap), десктопный лаунчер |
 | **Favicon & Tray** | `favicon_48.png` | Круглая mini-версия в разрешении 48×48 px | Favicon для браузера, иконка в системном трее Windows/macOS/Linux |
 | **Monochrome** | `logo_mono.svg` | 1-цветный векторный контур | Плитка шторки Android (Quick Settings Tile), статус-бар |
+| **Перо Сирин (UI)** | `logo_sirin_feather_v2.svg` | Анимированное перо Сирин (4 состояния) | Главный экран Android (`SirinFeather.kt`), веб/десктоп (`sirin-feather.js`) |
 | **Archive Variants** | `logo_v1_triangle.svg`, `logo_v3_feather.svg`, `logo_v3_centered.svg` | Альтернативные концепты (треугольник в круге, перо) | Архивные материалы дизайн-системы |
 
 ---
