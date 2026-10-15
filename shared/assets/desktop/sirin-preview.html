@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sirin Feather Preview — Визуальный элемент "Перо Сирин"</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #0B0F1C;
+            color: #E2E8F0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #FCE4A6;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        p.subtitle {
+            color: #94A3B8;
+            font-size: 14px;
+        }
+        .grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+            justify-content: center;
+            max-width: 1100px;
+            width: 100%;
+            margin-bottom: 40px;
+        }
+        .card {
+            background: #151C2C;
+            border: 1px solid #243048;
+            border-radius: 16px;
+            padding: 24px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 240px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: #384A6E;
+        }
+        .card h2 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .card p.desc {
+            font-size: 12px;
+            color: #94A3B8;
+            margin-bottom: 16px;
+            text-align: center;
+            min-height: 32px;
+        }
+        .state-disconnected h2 { color: #94A3B8; }
+        .state-connecting h2 { color: #E8C36F; }
+        .state-connected h2 { color: #FCE4A6; }
+        .state-error h2 { color: #EF4444; }
+
+        canvas {
+            width: 200px;
+            height: 200px;
+            background: #0D1322;
+            border-radius: 12px;
+            border: 1px solid #1F2A3F;
+        }
+        .interactive-section {
+            background: #151C2C;
+            border: 1px solid #243048;
+            border-radius: 16px;
+            padding: 24px 32px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        .interactive-section h3 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: #FCE4A6;
+        }
+        .buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            background: #1E293B;
+            color: #E2E8F0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        button:hover {
+            background: #334155;
+            border-color: #475569;
+        }
+        button.active {
+            background: #B88E34;
+            color: #0B0F1C;
+            border-color: #E8C36F;
+        }
+        #interactive-status {
+            font-size: 13px;
+            color: #94A3B8;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Сирин — Визуальный элемент "Перо Сирин"</h1>
+        <p class="subtitle">Концепция 4 состояний: Disconnected, Connecting, Connected, Error</p>
+    </header>
+
+    <div class="grid">
+        <!-- 1. Disconnected -->
+        <div class="card state-disconnected">
+            <h2>Disconnected</h2>
+            <p class="desc">Серое перо, наклон 0°, без свечения</p>
+            <canvas id="canvas-disconnected" width="400" height="400"></canvas>
+        </div>
+
+        <!-- 2. Connecting -->
+        <div class="card state-connecting">
+            <h2>Connecting</h2>
+            <p class="desc">Золотое, наклон 0°→15°, пульсация 1.5 с</p>
+            <canvas id="canvas-connecting" width="400" height="400"></canvas>
+        </div>
+
+        <!-- 3. Connected -->
+        <div class="card state-connected">
+            <h2>Connected</h2>
+            <p class="desc">Золото + синий акцент, парение ±3px, искры</p>
+            <canvas id="canvas-connected" width="400" height="400"></canvas>
+        </div>
+
+        <!-- 4. Error -->
+        <div class="card state-error">
+            <h2>Error</h2>
+            <p class="desc">Красное, наклон 30° (упало), дрожание</p>
+            <canvas id="canvas-error" width="400" height="400"></canvas>
+        </div>
+    </div>
+
+    <!-- Интерактивный переключатель -->
+    <div class="interactive-section">
+        <h3>Интерактивная проверка переключения</h3>
+        <canvas id="canvas-interactive" width="400" height="400"></canvas>
+        <div class="buttons">
+            <button onclick="setInteractiveState('disconnected', this)" class="active">Disconnected</button>
+            <button onclick="setInteractiveState('connecting', this)">Connecting</button>
+            <button onclick="setInteractiveState('connected', this)">Connected</button>
+            <button onclick="setInteractiveState('error', this)">Error</button>
+        </div>
+        <div id="interactive-status">Текущее состояние: <strong>DISCONNECTED</strong></div>
+    </div>
+
+    <script src="sirin-feather.js"></script>
+    <script>
+        // Инициализация статических демонстрационных canvas
+        const fDisconnected = new SirinFeather(document.getElementById('canvas-disconnected'), 'disconnected');
+        const fConnecting = new SirinFeather(document.getElementById('canvas-connecting'), 'connecting');
+        const fConnected = new SirinFeather(document.getElementById('canvas-connected'), 'connected');
+        const fError = new SirinFeather(document.getElementById('canvas-error'), 'error');
+
+        // Интерактивный canvas
+        const fInteractive = new SirinFeather(document.getElementById('canvas-interactive'), 'disconnected');
+
+        function setInteractiveState(state, btn) {
+            fInteractive.setState(state);
+            document.querySelectorAll('.buttons button').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            document.getElementById('interactive-status').innerHTML = 'Текущее состояние: <strong>' + state.toUpperCase() + '</strong>';
+        }
+    </script>
+</body>
+</html>

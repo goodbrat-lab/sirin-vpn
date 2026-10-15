@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import ru.guseynovia.sirin.ui.SirinFeather
+import ru.guseynovia.sirin.ui.FeatherState
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -316,26 +318,23 @@ fun TunnelScreen(modifier: Modifier = Modifier, onSettings: () -> Unit = {}) {
             access == Access.State.KEYED ||
             Access.checking()
 
-        // ПЛАНЕТА — она же кнопка. Нажатие подключает и отключает.
+        // ПЕРО СИРИН — оно же кнопка. Нажатие подключает и отключает.
         //
-        // Без доступа она неподвижна и не нажимается: что делать
-        // дальше, объясняет блок под ней, а не отсутствующая кнопка.
+        // Без доступа оно неподвижно и не нажимается: что делать
+        // дальше, объясняет блок под ним, а не отсутствующая кнопка.
+        val featherState = when {
+            connected -> FeatherState.CONNECTED
+            TunnelState.busy.value -> FeatherState.CONNECTING
+            Notice.bad.value -> FeatherState.ERROR
+            else -> FeatherState.DISCONNECTED
+        }
+
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            Planet(
-                connected = connected,
-                busy = TunnelState.busy.value,
-                white = TunnelState.white.value,
-                // ПОКА ПОДНИМАЕМСЯ — НАЖАТИЕ ОСТАНАВЛИВАЕТ ПОДЪЁМ
-                // (просьба владельца 24.09).
-                //
-                // Раньше планета во время подъёма не нажималась: из лога
-                // 25.08 — шесть заходов в одну секунду, каждый со своим
-                // потоком и AUTH. Теперь нажатие не повторяет подключение,
-                // а отменяет его — то же «Отключить», что и у поднятого
-                // туннеля. Повторного подъёма из него не выйдет.
+            SirinFeather(
+                state = featherState,
                 enabled = canConnect,
                 onClick = {
                     if (connected || TunnelState.busy.value) {

@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Золотой градиент правого полу-опахала (светлее, переход к белесому кончику) -->
+    <linearGradient id="featherGoldLight" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8C631A" />
+      <stop offset="25%" stop-color="#BA8F35" />
+      <stop offset="55%" stop-color="#E8C36F" />
+      <stop offset="85%" stop-color="#FCE4A6" />
+      <stop offset="100%" stop-color="#FFF8E0" />
+    </linearGradient>
+
+    <!-- Теневая левая сторона (чуть уже, глубже) -->
+    <linearGradient id="featherGoldDark" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6E4A0E" />
+      <stop offset="30%" stop-color="#9C7323" />
+      <stop offset="65%" stop-color="#CCA140" />
+      <stop offset="90%" stop-color="#F2D183" />
+      <stop offset="100%" stop-color="#FFF2CA" />
+    </linearGradient>
+
+    <!-- Градиент стержня (рахис) -->
+    <linearGradient id="shaftGold" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#6E4A0E" />
+      <stop offset="35%" stop-color="#E8C36F" />
+      <stop offset="75%" stop-color="#FFF2CA" />
+      <stop offset="100%" stop-color="#FFF8E0" />
+    </linearGradient>
+
+    <!-- Градиент очина (основания): темнее основного на 15-20% -->
+    <linearGradient id="calamusGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#4E3309" />
+      <stop offset="50%" stop-color="#6B470D" />
+      <stop offset="100%" stop-color="#8C631A" />
+    </linearGradient>
+
+    <!-- Лазурный акцент Сирин у основания -->
+    <linearGradient id="sirinBlue" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3E8A" />
+      <stop offset="50%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#93C5FD" />
+    </linearGradient>
+
+    <!-- Свечение пера -->
+    <filter id="featherGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feColorMatrix type="matrix" values="1 0 0 0 0.91  0 1 0 0 0.76  0 0 1 0 0.43  0 0 0 0.35 0" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Тень под пером (для Connected) -->
+    <filter id="shadowBlur" x="-30%" y="-50%" width="160%" height="200%">
+      <feGaussianBlur stdDeviation="4" />
+    </filter>
+  </defs>
+
+  <!-- Деликатная тень под пером (эллипс 60x8, rgba(0,0,0,0.30), blur 4px) на cy+60 -->
+  <ellipse cx="256" cy="475" rx="45" ry="6" fill="#000000" opacity="0.3" filter="url(#shadowBlur)" />
+
+  <g filter="url(#featherGlow)">
+    <!-- ЛЕВОЕ ОПАХАЛО (компактнее, S-образный наклон) -->
+    <path d="M 254,398
+             C 241,390 226,370 218,348
+             C 225,344 235,346 244,352
+             C 214,330 198,298 196,266
+             C 206,262 218,266 229,274
+             C 200,244 196,204 207,166
+             C 216,162 228,166 238,174
+             C 216,140 224,102 246,70
+             C 252,60 256,54 260,50
+             C 256,150 250,270 254,398 Z"
+          fill="url(#featherGoldDark)" />
+
+    <!-- ПРАВОЕ ОПАХАЛО (на 12% шире, с выразительными летящими волнами) -->
+    <path d="M 257,398
+             C 272,390 292,370 302,348
+             C 293,344 280,346 270,352
+             C 305,330 326,298 328,266
+             C 316,262 300,266 287,274
+             C 324,244 329,204 316,166
+             C 304,162 288,166 277,174
+             C 308,140 302,102 278,70
+             C 271,60 266,54 260,50
+             C 258,150 253,270 257,398 Z"
+          fill="url(#featherGoldLight)" />
+
+    <!-- Лазурный акцент Сирин у основания -->
+    <path d="M 254,398
+             C 243,392 229,374 222,354
+             C 229,350 238,354 246,362
+             C 251,372 253,386 254,398 Z"
+          fill="url(#sirinBlue)" opacity="0.85" />
+
+    <path d="M 257,398
+             C 270,392 288,374 297,354
+             C 288,350 276,354 267,362
+             C 261,372 258,386 257,398 Z"
+          fill="url(#sirinBlue)" opacity="0.85" />
+
+    <!-- Текстурные бородки (штрихи лучей пера) -->
+    <g stroke="#FFF8E0" stroke-linecap="round" opacity="0.45">
+      <!-- Правая сторона (более широкая) -->
+      <line x1="256" y1="352" x2="288" y2="328" stroke-width="1.5" />
+      <line x1="252" y1="274" x2="310" y2="244" stroke-width="1.6" />
+      <line x1="254" y1="193" x2="306" y2="150" stroke-width="1.6" />
+      <line x1="258" y1="118" x2="288" y2="82"  stroke-width="1.4" />
+    </g>
+
+    <g stroke="#FFF2CA" stroke-linecap="round" opacity="0.32">
+      <!-- Левая сторона -->
+      <line x1="254" y1="352" x2="228" y2="330" stroke-width="1.4" />
+      <line x1="250" y1="274" x2="206" y2="246" stroke-width="1.5" />
+      <line x1="252" y1="193" x2="208" y2="152" stroke-width="1.5" />
+      <line x1="256" y1="118" x2="234" y2="84"  stroke-width="1.3" />
+    </g>
+
+    <!-- ОЧИН (основание): утолщение внизу стержня (~x1.8), полая птичья форма, цвет темнее на 15-20% -->
+    <path d="M 253,465
+             C 252,450 251.5,430 252.5,400
+             L 258.5,400
+             C 259.5,430 259,450 258,465
+             C 257.5,468 253.5,468 253,465 Z"
+          fill="url(#calamusGrad)" />
+    <!-- Полый срез очина в самом низу -->
+    <ellipse cx="255.5" cy="465.5" rx="2.5" ry="1.2" fill="#3D2806" opacity="0.7" />
+
+    <!-- Центральный стержень (рахис) с живым лёгким S-изгибом (отклонение 2-3%) -->
+    <path d="M 254,400
+             C 249,280 253,160 259.2,50
+             L 260.8,50
+             C 255,160 251,280 257,400 Z"
+          fill="url(#shaftGold)" />
+
+    <!-- Блик света на гребне стержня -->
+    <path d="M 256,390
+             C 250,280 254,160 260,54"
+          stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" opacity="0.9" />
+
+    <!-- Закруглённый кончик (радиус ~3% от высоты пера, мягкий купол) с переходом в #FFF8E0 -->
+    <path d="M 255.5,53
+             C 256.5,47 263.5,47 264.5,53
+             C 264.5,56 255.5,56 255.5,53 Z"
+          fill="#FFF8E0" />
+    <circle cx="260" cy="51" r="3" fill="#FFF8E0" opacity="0.95" />
+  </g>
+</svg>

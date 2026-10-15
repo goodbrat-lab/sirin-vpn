@@ -1,3 +1,6 @@
+// DEPRECATED: заменён на SirinFeather.kt (A2-int).
+// Сохранён как референс. Будет удалён после финальной проверки.
+
 package ru.guseynovia.sirin
 
 import androidx.compose.foundation.Canvas
