@@ -32,7 +32,7 @@ func TestFailureTextHasNoKey(t *testing.T) {
 func TestVersionHeadersSent(t *testing.T) {
 	var gotV, gotP string
 	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotV, gotP = r.Header.Get("X-Meridian-Version"), r.Header.Get("X-Meridian-Platform")
+		gotV, gotP = r.Header.Get("X-Sirin-Version"), r.Header.Get("X-Sirin-Platform")
 		apiHandler(liveAnonymous).ServeHTTP(w, r)
 	}))
 	defer s.Close()

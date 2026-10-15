@@ -244,8 +244,8 @@ object ApiClient {
      * по договору, а здесь тело — сам лог.
      *
      * Тело — text/plain, сжатое gzip. Заголовки (договор кота 1):
-     * X-Meridian-Platform, X-Meridian-Version, X-Meridian-Key-Label (первые 8
-     * hex sha256 ключа; без ключа не шлём), X-Meridian-Device (4 знака).
+     * X-Sirin-Platform, X-Sirin-Version, X-Sirin-Key-Label (первые 8
+     * hex sha256 ключа; без ключа не шлём), X-Sirin-Device (4 знака).
      *
      * ЗВАТЬ ТОЛЬКО С ФОНОВОГО ПОТОКА.
      */
@@ -427,8 +427,8 @@ object ApiClient {
             conn.setRequestProperty("Accept", "application/json")
             // Версия и платформа заголовками (просьба кота 1, 01.10): формат версии
             // тот же, что у /v1/logs.
-            conn.setRequestProperty("X-Meridian-Platform", "android")
-            conn.setRequestProperty("X-Meridian-Version", appVersion(appCtx ?: return Result.Unavailable("нет контекста")))
+            conn.setRequestProperty("X-Sirin-Platform", "android")
+            conn.setRequestProperty("X-Sirin-Version", appVersion(appCtx ?: return Result.Unavailable("нет контекста")))
 
             // ТОКЕНА ЗДЕСЬ НЕТ И НЕ БУДЕТ. Наружные ручки его не
             // проверяют, и это решение кота 2, а не упущение: секрет,

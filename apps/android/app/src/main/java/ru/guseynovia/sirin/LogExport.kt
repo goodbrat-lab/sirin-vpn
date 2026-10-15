@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -127,16 +127,16 @@ object LogExport {
         }.toByteArray()
 
         val headers = HashMap<String, String>()
-        headers["X-Meridian-Platform"] = "android"
-        headers["X-Meridian-Version"] = appVersion(ctx)
+        headers["X-Sirin-Platform"] = "android"
+        headers["X-Sirin-Version"] = appVersion(ctx)
         val key = Access.password()
         if (key.isNotEmpty()) {
             val h = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(key.toByteArray(Charsets.UTF_8))
-            headers["X-Meridian-Key-Label"] = h.take(4).joinToString("") { "%02x".format(it) }
+            headers["X-Sirin-Key-Label"] = h.take(4).joinToString("") { "%02x".format(it) }
         }
         val dev = Access.deviceId(ctx)
-        if (dev.length >= 4) headers["X-Meridian-Device"] = dev.takeLast(4)
+        if (dev.length >= 4) headers["X-Sirin-Device"] = dev.takeLast(4)
 
         val r = ApiClient.postLog(gz, headers)
         TunnelLog.add(
