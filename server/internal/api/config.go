@@ -7,13 +7,16 @@ import (
 )
 
 type Config struct {
-	ListenAddr  string `toml:"listen_addr"`  // ":8080"
-	StoragePath string `toml:"storage_path"` // "/etc/sirin/clients.json"
-	AdminToken  string `toml:"admin_token"`  // Bearer для /v1/admin/*
-	ServerHost  string `toml:"server_host"`  // "94.183.159.114" для /v1/params
-	ServerPort  int    `toml:"server_port"`  // 56005
-	ServerID    string `toml:"server_id"`    // "sirin-main"
-	Generation  int64  `toml:"generation"`   // 1
+	ListenAddr   string `toml:"listen_addr"`   // ":8080"
+	StoragePath  string `toml:"storage_path"`  // "/etc/sirin/clients.json"
+	AdminToken   string `toml:"admin_token"`   // Bearer для /v1/admin/*
+	ServerHost   string `toml:"server_host"`   // адрес сервера для /v1/params
+	ServerPort   int    `toml:"server_port"`   // 56005
+	ServerID     string `toml:"server_id"`     // "sirin-main"
+	Generation   int64  `toml:"generation"`    // 1
+	VLESSEnabled bool   `toml:"vless_enabled"` // включить ли VLESS entry в /v1/params
+	VLESSHost    string `toml:"vless_host"`    // адрес сервера VLESS (e.g. crp.guseynovia.ru)
+	VLESSPort    int    `toml:"vless_port"`    // 443
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -29,6 +32,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if c.Generation == 0 {
 		c.Generation = 1
+	}
+	if c.VLESSPort == 0 {
+		c.VLESSPort = 443
 	}
 	return &c, nil
 }

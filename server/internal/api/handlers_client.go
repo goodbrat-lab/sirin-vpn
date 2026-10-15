@@ -128,6 +128,23 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	if s.cfg.VLESSEnabled && s.cfg.VLESSHost != "" {
+		port := s.cfg.VLESSPort
+		if port == 0 {
+			port = 443
+		}
+		resp.Entries = append(resp.Entries, ParamsEntry{
+			ID:        s.cfg.ServerID + "-vless",
+			Host:      s.cfg.VLESSHost,
+			Port:      port,
+			DTLS:      false,
+			Transport: "vless",
+			SNI:       "dl.google.com",
+			PBK:       "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
+			SID:       "8283f99ec6a0f52e",
+		})
+	}
+
 	writeJSON(w, 200, resp)
 }
 

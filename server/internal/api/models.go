@@ -30,6 +30,8 @@ type ParamsEntry struct {
 	DTLS      bool   `json:"dtls"`
 	Transport string `json:"transport"`
 	SNI       string `json:"sni"`
+	PBK       string `json:"pbk,omitempty"`
+	SID       string `json:"sid,omitempty"`
 }
 
 // ParamsRelay — секция relay в /v1/params.

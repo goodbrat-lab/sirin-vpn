@@ -98,6 +98,57 @@ func TestHandleParams(t *testing.T) {
 	}
 }
 
+func TestHandleParamsWithVLESS(t *testing.T) {
+	srv, storage := testServer(t)
+	srv.cfg.VLESSEnabled = true
+	srv.cfg.VLESSHost = "94.183.159.114"
+	srv.cfg.VLESSPort = 443
+
+	c, _ := storage.Add("VLESSUser", 0)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/params?key="+c.UUID, nil)
+	w := httptest.NewRecorder()
+	srv.HandleParams(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+
+	var p ParamsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if len(p.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(p.Entries))
+	}
+
+	udpEntry := p.Entries[0]
+	if udpEntry.Transport != "udp" || udpEntry.Port != 56005 {
+		t.Fatalf("unexpected UDP entry: %+v", udpEntry)
+	}
+
+	vlessEntry := p.Entries[1]
+	if vlessEntry.Transport != "vless" {
+		t.Fatalf("expected transport vless, got %s", vlessEntry.Transport)
+	}
+	if vlessEntry.PBK == "" {
+		t.Fatal("expected non-empty PBK")
+	}
+	if vlessEntry.SID == "" {
+		t.Fatal("expected non-empty SID")
+	}
+	if vlessEntry.Port != 443 {
+		t.Fatalf("expected port 443, got %d", vlessEntry.Port)
+	}
+	if vlessEntry.Host != "94.183.159.114" {
+		t.Fatalf("expected host 94.183.159.114, got %s", vlessEntry.Host)
+	}
+	if vlessEntry.SNI != "dl.google.com" {
+		t.Fatalf("expected SNI dl.google.com, got %s", vlessEntry.SNI)
+	}
+}
+
 func TestHandleAdminCreate(t *testing.T) {
 	srv, _ := testServer(t)
 
