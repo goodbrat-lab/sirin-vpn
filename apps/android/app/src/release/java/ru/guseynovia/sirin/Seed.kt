@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 /**
  * Засев пула ссылок VK — В РЕЛИЗЕ ЕГО НЕТ.
@@ -48,7 +48,7 @@ fun deepProbe(): Boolean = false
 /**
  * Откуда брать обновления — РЕЛИЗ: открытый репозиторий с раздачей.
  */
-fun updateRepo(): String = "JinComputers/meridian-android"
+fun updateRepo(): String = ""  // Автообновление отключено
 
 /**
  * Нужен ли токен для скачивания — РЕЛИЗ: НЕТ.

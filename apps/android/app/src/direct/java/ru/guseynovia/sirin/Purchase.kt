@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -31,8 +31,8 @@ fun PurchaseOffer(modifier: Modifier = Modifier, onNote: (String) -> Unit) {
     ) { Text("Купить ключ") }
 }
 
-private const val BOT_URL = "https://t.me/jincomputers_bot"
-private const val BOT_NAME = "jincomputers_bot"
+private const val BOT_URL = "https://t.me/sirin_crp_bot"
+private const val BOT_NAME = "sirin_crp_bot"
 
 /**
  * Открывает бота в Telegram, а не в браузере.

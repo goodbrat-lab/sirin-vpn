@@ -11,7 +11,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Почта поддержки (решение владельца 25.09). Общая для всех клиентов. */
-const val SUPPORT_EMAIL = "support@meridianvpn.org"
+const val SUPPORT_EMAIL = "support@guseynovia.ru"
 
 /**
  * Вынос лога наружу: в буфер обмена и файлом через «Поделиться».

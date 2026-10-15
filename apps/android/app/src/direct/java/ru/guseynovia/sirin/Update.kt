@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -357,6 +357,11 @@ object Update {
     }
 
     private fun run(ctx: Context, quiet: Boolean) {
+        if (repo().isEmpty() && PUBLIC_REPO.isEmpty()) {
+            TunnelLog.add("обновление: автообновление отключено (репозиторий не настроен)")
+            if (!quiet) post { stage.value = Stage.LATEST }
+            return
+        }
         busy = true
         if (!quiet) post { stage.value = Stage.CHECKING; problem.value = "" }
         val app = ctx.applicationContext
@@ -487,7 +492,7 @@ object Update {
             s.connect(java.net.InetSocketAddress(TUNNEL_HOST, TUNNEL_PORT), CHECK_CONNECT_MS)
             s.soTimeout = READ_MS
             s.getOutputStream().write(
-                ("GET $path HTTP/1.0\r\nHost: $TUNNEL_HOST\r\nUser-Agent: meridian-app\r\n" +
+                ("GET $path HTTP/1.0\r\nHost: $TUNNEL_HOST\r\nUser-Agent: sirin-app\r\n" +
                     (if (from > 0) "Range: bytes=$from-\r\n" else "") + "\r\n")
                     .toByteArray(Charsets.US_ASCII)
             )
@@ -544,6 +549,7 @@ object Update {
 
     /** Описание с зеркала; null — зеркало молчит или ответило негодным. */
     private fun mirrorManifest(): Info? {
+        if (PUBLIC_REPO.isEmpty()) return null
         var res: Info? = null
         val t0 = System.currentTimeMillis()
         val t = thread(name = "meridian-update-mirror") {
@@ -572,8 +578,9 @@ object Update {
         return res
     }
 
-    /** Открытый релизный репозиторий — его и только его отдаёт зеркало. */
-    private const val PUBLIC_REPO = "JinComputers/meridian-android"
+    // Автообновление отключено (репозиторий пока не создан).
+    // После публикации на GitHub — указать свой: "user/sirin-android"
+    private const val PUBLIC_REPO = ""
 
     private fun withDeadline(ms: Long, net: android.net.Network?): Info {
         var res: Info? = null
@@ -687,7 +694,7 @@ object Update {
             // Android своё имя подставляет сам, но полагаться на это
             // незачем: строка ничего не стоит и ни о чём не говорит
             // постороннему.
-            c.setRequestProperty("User-Agent", "meridian-app")
+            c.setRequestProperty("User-Agent", "sirin-app")
             if (from > 0) c.setRequestProperty("Range", "bytes=$from-")
             if (carry) token()?.let { c.setRequestProperty("Authorization", "Bearer $it") }
             val code = c.responseCode
