@@ -32,7 +32,7 @@ import android.content.Intent
  */
 object TrialAlarm {
 
-    private const val CHANNEL_ID = "meridian_trial"
+    private const val CHANNEL_ID = "sirin_trial"
     private const val NOTIFICATION_ID = 3
 
     const val ACTION_REMIND = "ru.guseynovia.sirin.TRIAL_REMIND"

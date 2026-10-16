@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import android.os.Handler
@@ -35,7 +35,7 @@ object TunnelLog {
      * отрисовки и ни одной нашей строки, потому что раньше мы в
      * системный лог не писали вовсе.
      */
-    private const val TAG = "Meridian"
+    private const val TAG = "Sirin"
 
     private const val MAX_LINES = 200
 
@@ -84,7 +84,7 @@ object TunnelLog {
     /** Сколько строк переживает перезапуск. Малое число намеренно. */
     private const val PERSIST_LINES = 80
 
-    private const val PREFS = "meridian_log"
+    private const val PREFS = "sirin_log"
     private const val KEY_TAIL = "tail"
     private const val FLUSH_DELAY_MS = 400L
 

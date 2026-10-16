@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 
@@ -21,7 +21,7 @@ import android.content.Context
  * следующую попытку раньше времени.
  */
 object EdgeCache {
-    private const val PREFS = "meridian_edge"
+    private const val PREFS = "sirin_edge"
     private const val K_LAST_GOOD = "last_good_ip"
 
     fun get(ctx: Context): String? = try {

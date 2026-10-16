@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * надёжного способа на сегодняшнем Android нет.
  */
 object CaptchaGate {
-    private const val CHANNEL_ID = "meridian_captcha"
+    private const val CHANNEL_ID = "sirin_captcha"
     private const val NOTIFICATION_ID = 2
 
     /** Сколько ждём человека. То же число, что в движке. */

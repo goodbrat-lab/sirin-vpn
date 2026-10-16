@@ -52,7 +52,7 @@ object SplitTunnel {
     /** Выбранные пакеты. Для экрана. */
     val chosen = mutableStateOf<Set<String>>(emptySet())
 
-    private const val PREFS = "meridian_split"
+    private const val PREFS = "sirin_split"
     private const val K_MODE = "mode"
     private const val K_PACKAGES = "packages"
 

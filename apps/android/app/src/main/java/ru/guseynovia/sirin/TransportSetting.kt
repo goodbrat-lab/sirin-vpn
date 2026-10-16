@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
@@ -16,7 +16,7 @@ import androidx.compose.runtime.mutableStateOf
  * тот, что задумывался.
  */
 object TransportSetting {
-    private const val PREFS = "meridian_debug"
+    private const val PREFS = "sirin_debug"
     private const val KEY = "transport"
 
     val mode = mutableStateOf(Config.TRANSPORT_MODE)

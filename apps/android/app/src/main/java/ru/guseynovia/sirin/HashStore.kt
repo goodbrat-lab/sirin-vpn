@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
@@ -24,7 +24,7 @@ import java.util.Locale
  * себя до того, как это станет важно.
  */
 object HashStore {
-    private const val PREFS = "meridian_hashes"
+    private const val PREFS = "sirin_hashes"
     private const val KEY = "hashes"
 
     /** Статусы. Пустой — не проверялся. */

@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -20,7 +20,7 @@ import java.net.Inet4Address
  * просто пойдёт дальше.
  */
 object PathMemory {
-    private const val PREFS = "meridian_paths"
+    private const val PREFS = "sirin_paths"
 
     /**
      * Счётчик подряд проигранных релею попыток на этой сети.

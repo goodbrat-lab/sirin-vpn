@@ -35,7 +35,7 @@ import kotlin.random.Random
  */
 object LinkWatch {
 
-    private const val PREFS = "meridian_linkwatch"
+    private const val PREFS = "sirin_linkwatch"
     private const val K_LAST = "last_at"
     private const val CHECK_EVERY_MS = 24L * 60 * 60 * 1000
     private const val PAUSE_MIN_MS = 3000L

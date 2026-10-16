@@ -96,7 +96,7 @@ object ApiClient {
      * ради которого потолок выше и вводился.
      */
 
-    private const val PREFS = "meridian_api"
+    private const val PREFS = "sirin_api"
     private const val K_LAST_OK = "last_ok"
 
     private var appCtx: Context? = null

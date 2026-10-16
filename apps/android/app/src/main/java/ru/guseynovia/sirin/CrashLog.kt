@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Context
 import java.text.SimpleDateFormat
@@ -16,7 +16,7 @@ import java.util.Locale
  * кадра. Полный отчёт всё равно пишет система, дублировать его незачем.
  */
 object CrashLog {
-    private const val PREFS = "meridian_crash"
+    private const val PREFS = "sirin_crash"
     private const val KEY_LAST = "last"
     private const val FRAMES = 3
 
@@ -60,7 +60,7 @@ object CrashLog {
         // Под нашим тегом тоже: полный отчёт системы приходится искать
         // отдельно, а здесь падение окажется в той же ленте, что и всё
         // остальное, ровно на своём месте по времени.
-        android.util.Log.i("Meridian", "ПАДЕНИЕ: $text")
+        android.util.Log.i("Sirin", "ПАДЕНИЕ: $text")
 
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
