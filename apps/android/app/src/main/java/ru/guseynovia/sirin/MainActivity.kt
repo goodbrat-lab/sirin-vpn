@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
         // Отдельным потоком: внутри поход в сеть, а мы в onCreate на
         // главном. Экран при этом не ждёт ничего: он рисуется по
         // сохранённым числам, а придёт ответ — состояние обновится само.
-        thread(name = "meridian-keycheck") {
+        thread(name = "sirin-keycheck") {
             try {
                 Access.refreshKey()
                 // И, если сутки идут местные, — попробовать догнать

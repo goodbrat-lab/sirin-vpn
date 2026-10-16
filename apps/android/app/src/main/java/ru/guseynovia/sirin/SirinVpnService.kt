@@ -765,7 +765,7 @@ class SirinVpnService : VpnService() {
             else "подключение начато") + ", сборка " + appVersion(this)
         )
 
-        thread(name = "meridian-connect") {
+        thread(name = "sirin-connect") {
             // УДЕРЖАНИЕ ПРОЦЕССОРА НА ВРЕМЯ ПОДЪЁМА.
             //
             // 27.08 пульс движка показал, что нас останавливают ЦЕЛИКОМ
@@ -784,7 +784,7 @@ class SirinVpnService : VpnService() {
             // своей же ошибки нельзя.
             val wake = try {
                 val pm = getSystemService(PowerManager::class.java)
-                pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "meridian:connect")
+                pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sirin:connect")
                     ?.apply { acquire(WAKE_LIMIT_MS) }
             } catch (e: Throwable) {
                 TunnelLog.add("удержание процессора не вышло: ${e.message}")
@@ -1008,7 +1008,7 @@ class SirinVpnService : VpnService() {
                 if (Params.haveSaved()) {
                     if (Params.timeToRefresh()) {
                         TunnelLog.add("параметры: срок вышел — обновляю в фоне, подключаюсь по сохранённым")
-                        thread(name = "meridian-params-refresh") {
+                        thread(name = "sirin-params-refresh") {
                             try {
                                 Params.refreshIfDue()
                             } catch (e: Throwable) {
@@ -1090,7 +1090,7 @@ class SirinVpnService : VpnService() {
                 // Теперь прямой пробуется на каждом подключении; цена на
                 // закрытой сети — секунды гонки перед релеем.
                 val skipDirectRace = false
-                // НЕМОТА — ПО ВХОДУ, А НЕ ПО ВСЕМУ ПРЯМОМУ (03.10). Кот 1 по
+                // НЕМОТА — ПО ВХОДУ, А НЕ ПО ВСЕМУ ПРЯМОМУ (03.10). По анализу
                 // захвату: ступень через пересыльщика в Алматы глохнет после
                 // первых пакетов, а через другой вход прямой на той же сети
                 // держится. Онемевший вход обходим (avoidHosts ниже); мимо
@@ -1254,7 +1254,7 @@ class SirinVpnService : VpnService() {
                     // ждал причину отказа лишние десять секунд. Новый список
                     // нужен следующей попытке, а не этой.
                     if (!networkChanged()) {
-                        thread(name = "meridian-params-after-fail") {
+                        thread(name = "sirin-params-after-fail") {
                             try {
                                 Params.refreshAfterAllFailed()
                             } catch (t: Throwable) {
@@ -1355,12 +1355,12 @@ class SirinVpnService : VpnService() {
                     // их адреса попадают под маршрут по умолчанию выше,
                     // наружу запрос выходит уже на шлюзе. Резолвер
                     // оператора при этом не спрашивается вовсе — а он,
-                    // по замеру кота 1 от 04.09, отдаёт заблокированным
+                    // при замере от 04.09, отдаёт заблокированным
                     // доменам заглушку 87.228.47.204, одну на все.
                     //
                     // Второй нужен как запас: один резолвер — единичная
                     // точка отказа, и на роутере это уже стоило дня
-                    // работы 04.09. Своего резолвера у нас нет — кот 2
+                    // работы 04.09. Своего резолвера у нас нет — в спецификации
                     // Для IPv6 минимальный допустимый MTU в ядре Linux — 1280 (RFC 8200).
                     // При MTU < 1280 ядро возвращает EINVAL на установку IPv6-адреса ("Cannot set address").
                     .setMtu(1280.coerceAtLeast(mtu))
@@ -1385,7 +1385,7 @@ class SirinVpnService : VpnService() {
 
                 // IPv6 ЗАБИРАЕМ В ТУННЕЛЬ, ЧТОБЫ ОН НЕ ШЁЛ МИМО НЕГО.
                 //
-                // Шлюз v6 не несёт совсем — кот 2 замерил: ни адреса, ни
+                // Шлюз v6 не несёт совсем — по замерам протокола: ни адреса, ни
                 // маршрута по умолчанию, forwarding=0, WG клиентам v6 не
                 // выдаёт. Рабочим маршрутом ::/0 сделать нельзя, на том
                 // конце его никто не примет.
@@ -1525,7 +1525,7 @@ class SirinVpnService : VpnService() {
                 // увидеть сразу. Плохой вердикт ключа сам сменит строку на
                 // экране (Access ставит Notice.problem), и он точнее нашей.
                 if (Access.hasKey() && !networkChanged()) {
-                    thread(name = "meridian-key-after-fail") {
+                    thread(name = "sirin-key-after-fail") {
                         try {
                             Access.refreshKey(force = true)
                         } catch (t: Throwable) {
@@ -1724,7 +1724,7 @@ class SirinVpnService : VpnService() {
      * access — Private DNS server cannot be accessed» при строгом режиме
      * с именем dns.google. Уведомление названо явно: беда на СОТОВОЙ
      * сети, то есть оператор не пропускает DoT на 853-й порт. Ни шлюз,
-     * ни клиент к этому отношения не имеют — кот 2 замерил, что порт с
+     * ни клиент к этому отношения не имеют — по замерам протокола, что порт с
      * нашей стороны открыт, а MTU у нас 1100 при его потолке 1200.
      *
      * Но человеку видно одно: включил VPN — интернет пропал. Строгий
@@ -1918,7 +1918,7 @@ class SirinVpnService : VpnService() {
      * не «поднялся и сразу упал» (QUICK_DROP_*).
      */
     private fun speedGuard(gen: Int, path: String, relayReady: Boolean, netKey: String) {
-        thread(name = "meridian-speed-guard") {
+        thread(name = "sirin-speed-guard") {
             try {
                 var st = 0
                 for (i in 0 until 100) {
@@ -2296,7 +2296,7 @@ class SirinVpnService : VpnService() {
         TunnelLog.add("адрес шлюза из кэша: $cached — подключаюсь сразу, имя проверяю параллельно")
         val fresh = AtomicReference<String?>(null)
         val resolved = CountDownLatch(1)
-        thread(name = "meridian-edge-resolve") {
+        thread(name = "sirin-edge-resolve") {
             try {
                 val a = Engine.resolveName(Config.EDGE_HOST, protector, logger)
                 if (a.isNotEmpty()) fresh.set(a)
@@ -2458,7 +2458,7 @@ class SirinVpnService : VpnService() {
             val code = letters[n.id] ?: Paths.directName(ordered.indexOf(n))
             ids[code] = n.id
             when (n.transport) {
-                // ПОТОКОВЫЕ СТУПЕНИ (кот 2): TCP и TLS. Запомненными не
+                // ПОТОКОВЫЕ СТУПЕНИ (протокол): TCP и TLS. Запомненными не
                 // помечаются — движок пробует их последовательно после
                 // UDP, как запасной путь, порядок задан сервером.
                 "tcp" -> {

@@ -104,7 +104,7 @@ object LogExport {
         return try {
             val cm = ctx.getSystemService(ClipboardManager::class.java)
                 ?: return "буфер обмена недоступен"
-            cm.setPrimaryClip(ClipData.newPlainText("Meridian", body))
+            cm.setPrimaryClip(ClipData.newPlainText("Sirin", body))
             "скопировано: ${TunnelLog.lines.size} строк, ${body.length / 1024} КБ"
         } catch (e: Throwable) {
             "скопировать не вышло: ${e.message}"
@@ -121,7 +121,7 @@ object LogExport {
      */
     fun sendToSupport(ctx: Context): ApiClient.LogResult {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        val body = "Meridian Android ${appVersion(ctx)}, лог $stamp\n" + text()
+        val body = "Sirin Android ${appVersion(ctx)}, лог $stamp\n" + text()
         val gz = java.io.ByteArrayOutputStream().also { out ->
             java.util.zip.GZIPOutputStream(out).use { it.write(body.toByteArray(Charsets.UTF_8)) }
         }.toByteArray()
@@ -164,7 +164,7 @@ object LogExport {
         dir.listFiles()?.forEach { it.delete() }
 
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        val file = File(dir, "meridian-$stamp.txt")
+        val file = File(dir, "sirin-$stamp.txt")
         file.writeText(text())
 
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.logs", file)
@@ -172,11 +172,11 @@ object LogExport {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
             // ПОЧТА ПОДДЕРЖКИ И ТЕМА — ОДНОГО ВИДА НА ВСЕХ КЛИЕНТАХ (решение
-            // владельца 25.09): «Meridian <платформа> <версия>, лог <время>».
+            // владельца 25.09): «Sirin <платформа> <версия>, лог <время>».
             // Почтовое приложение подставит адрес само; мессенджеры его
             // игнорируют, и «поделиться» работает как раньше.
             putExtra(Intent.EXTRA_EMAIL, arrayOf(SUPPORT_EMAIL))
-            putExtra(Intent.EXTRA_SUBJECT, "Meridian Android ${appVersion(ctx)}, лог $stamp")
+            putExtra(Intent.EXTRA_SUBJECT, "Sirin Android ${appVersion(ctx)}, лог $stamp")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val chooser = Intent.createChooser(send, "Отправить лог")

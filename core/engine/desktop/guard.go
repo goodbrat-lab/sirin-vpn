@@ -7,7 +7,7 @@ import (
 	"meridian/engine"
 )
 
-// DefaultTunnelDNS — DNS внутри туннеля у Android (MeridianVpnService.DNS_SERVERS).
+// DefaultTunnelDNS — DNS внутри туннеля у Android (SirinVpnService.DNS_SERVERS).
 // Тот же набор по умолчанию и здесь: настольный клиент ставит их на интерфейс
 // туннеля, и запросы на них обязаны идти В туннель.
 var DefaultTunnelDNS = []string{"1.1.1.1", "8.8.8.8"}

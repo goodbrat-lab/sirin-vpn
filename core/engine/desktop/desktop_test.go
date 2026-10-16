@@ -29,7 +29,7 @@ func (fakeProtector) Protect(int32) bool { return true }
 // ПОЛНЫЙ live-путь (реальный Connect до шлюза, затем Stop/отмена ctx) этим
 // тестом не покрыт: climb/race не подменяются фиктивной сетью нигде в
 // движке, а поднимать настоящую сессию в юнит-тесте — значит зависеть от
-// живого шлюза. Живой прогон — на стороне кота 5/кота 6 с настоящим TUN.
+// живого шлюза. Живой прогон — при комплексном тестировании с настоящим TUN.
 func TestStartClosesEventsOnConnectFailure(t *testing.T) {
 	cfg := Config{
 		Gateway:   "127.0.0.1",
@@ -174,7 +174,7 @@ func TestGuardedProtectorNilAndMissingHooks(t *testing.T) {
 }
 
 // TestEventSinkSendAfterCloseNoPanic — паника «send on closed channel»,
-// найденная котом 5 на Маке (engine-v1.8.0): OnStopped закрывал канал
+// выявленная при тестировании на macOS (engine-v1.8.0): OnStopped закрывал канал
 // событий напрямую, а горутины лестницы/growSlots, ещё дозаписывающие
 // логи, писали в него после закрытия — падал весь помощник, не только
 // сессия. eventSink.send() после close() должен быть тихим no-op.

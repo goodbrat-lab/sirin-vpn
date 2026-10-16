@@ -97,7 +97,7 @@ func (s *session) dialStream(
 	}
 
 	// TCP_NODELAY обязателен: без него Nagle склеит мелкие кадры и
-	// добавит десятки миллисекунд на каждый обмен (слово кота 2).
+	// добавит десятки миллисекунд на каждый обмен (по спецификации).
 	if tc, ok := raw.(*net.TCPConn); ok {
 		if err := tc.SetNoDelay(true); err != nil {
 			raw.Close()

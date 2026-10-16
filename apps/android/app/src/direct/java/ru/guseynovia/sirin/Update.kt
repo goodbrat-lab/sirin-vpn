@@ -365,7 +365,7 @@ object Update {
         busy = true
         if (!quiet) post { stage.value = Stage.CHECKING; problem.value = "" }
         val app = ctx.applicationContext
-        thread(name = "meridian-update") {
+        thread(name = "sirin-update") {
             try {
                 sweep(app)
                 val info = fetchManifestFast(app)
@@ -451,7 +451,7 @@ object Update {
         val info = try {
             withDeadline(CHECK_TOTAL_MS, null)
         } catch (e: Throwable) {
-            // ПОСЛЕДНЯЯ СТУПЕНЬ — ЧЕРЕЗ ТУННЕЛЬ (поручение владельца 04.10, кот 2):
+            // ПОСЛЕДНЯЯ СТУПЕНЬ — ЧЕРЕЗ ТУННЕЛЬ (поручение владельца 04.10, спецификация):
             // при белых списках молчат и GitHub, и зеркало, а туннель жив.
             // Только релизная сборка: в туннеле лежит открытый релиз.
             if (updatePrivate() || !vpnUp(ctx)) throw e
@@ -463,7 +463,7 @@ object Update {
     }
 
     // ------------------------------------------------------------------
-    // Через туннель: http://10.77.77.1:8080/apps/android/ (кот 2, 04.10)
+    // Через туннель: http://10.77.77.1:8080/apps/android/ (по спецификации, 04.10)
     // ------------------------------------------------------------------
 
     private const val TUNNEL_HOST = "10.77.77.1"
@@ -520,7 +520,7 @@ object Update {
         }
     }
 
-    /** Описание через туннель в формате кота 2: version, build, file, sha256, size. */
+    /** Описание через туннель по спецификации: version, build, file, sha256, size. */
     private fun tunnelManifest(): Info? = try {
         val (input, s) = tunnelGet(TUNNEL_DIR + "latest.json")
         val body = try { input.readBytes(64 * 1024).toString(Charsets.UTF_8) } finally { s.close() }
@@ -552,7 +552,7 @@ object Update {
         if (PUBLIC_REPO.isEmpty()) return null
         var res: Info? = null
         val t0 = System.currentTimeMillis()
-        val t = thread(name = "meridian-update-mirror") {
+        val t = thread(name = "sirin-update-mirror") {
             try {
                 val c = ApiClient.openMirror(MIRROR_PATH + "latest.json", "application/json",
                     CHECK_CONNECT_MS, CHECK_READ_MS) ?: return@thread
@@ -585,7 +585,7 @@ object Update {
     private fun withDeadline(ms: Long, net: android.net.Network?): Info {
         var res: Info? = null
         var err: Throwable? = null
-        val t = thread(name = "meridian-update-check") {
+        val t = thread(name = "sirin-update-check") {
             checkNet = net
             try { res = fetchManifest() } catch (e: Throwable) { err = e }
         }
@@ -677,7 +677,7 @@ object Update {
      * токен дальше НЕ несём.
      */
     private fun isCheckThread(): Boolean =
-        Thread.currentThread().name == "meridian-update-check"
+        Thread.currentThread().name == "sirin-update-check"
 
     private fun open(url: String, accept: String, auth: Boolean, from: Long = 0): HttpURLConnection {
         var current = url
@@ -801,7 +801,7 @@ object Update {
             totalBytes.value = found?.size ?: 0L
             problem.value = ""
         }
-        thread(name = "meridian-update-get") {
+        thread(name = "sirin-update-get") {
             try {
                 // ОПИСАНИЕ РЕЛИЗА МОГЛО И НЕ ЧИТАТЬСЯ. Подсказка службы
                 // говорит "новая версия есть", но ни адреса, ни суммы у
@@ -835,7 +835,7 @@ object Update {
      * недокачанный файл однажды выдадут за целый.
      */
     private fun fetchApk(ctx: Context, info: Info): File {
-        val part = File(dir(ctx), "meridian-${info.code}.part")
+        val part = File(dir(ctx), "sirin-${info.code}.part")
         part.delete()
         val name = info.url.substringAfterLast('/')
 
@@ -937,7 +937,7 @@ object Update {
             part.delete()
             throw IllegalStateException("сборка не совпала с описанием")
         }
-        val done = File(dir(ctx), "meridian-${info.code}.apk")
+        val done = File(dir(ctx), "sirin-${info.code}.apk")
         done.delete()
         if (!part.renameTo(done)) throw IllegalStateException("файл не переименовался")
         return done
@@ -1066,7 +1066,7 @@ object Update {
             params.setAppPackageName(app.packageName)
             val id = installer.createSession(params)
             installer.openSession(id).use { session ->
-                session.openWrite("meridian", 0, file.length()).use { out ->
+                session.openWrite("sirin", 0, file.length()).use { out ->
                     file.inputStream().use { it.copyTo(out) }
                     session.fsync(out)
                 }

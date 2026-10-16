@@ -2,7 +2,7 @@ package engine
 
 // Noise NK — проверка подлинности шлюза ДО отправки пароля, для путей БЕЗ
 // DTLS (прямой UDP, релей через VK, TCP-поток). Формат — из документа
-// Кота1 (MOBILNYJ-KLIENT-PROTOKOL.md, meridian-backup, коммит e6afeb4):
+// спецификации (MOBILNYJ-KLIENT-PROTOKOL.md, коммит e6afeb4):
 // Noise_NK_25519_AESGCM_SHA256, пролог пустой, версия протокола 0x01 первым
 // байтом payload msg1. Здесь — ТОЛЬКО роль инициатора (клиент); роль
 // ответчика (шлюз) — на сервере, не наша территория.
@@ -79,7 +79,7 @@ type cipherState struct {
 
 // nonceBytes — 4 нулевых байта + 8 байт big-endian счётчика, отдельно по
 // документу (не общее правило Noise по умолчанию, а именно то, что
-// проверено вектором cacophony у Кота1).
+// проверено вектором cacophony на эталонной реализации).
 func nonceBytes(n uint64) [12]byte {
 	var nonce [12]byte
 	binary.BigEndian.PutUint64(nonce[4:], n)
@@ -151,7 +151,7 @@ type symmetricState struct {
 
 // newSymmetricState — InitializeSymmetric.
 //
-// ЛОВУШКА, НА КОТОРОЙ УЖЕ ОБОЖГЛИСЬ (документ Кота1): имя протокола длиной
+// ЛОВУШКА, НА КОТОРОЙ УЖЕ ОБОЖГЛИСЬ (документация протокола): имя протокола длиной
 // <= 32 байт НЕ хешируется, а дополняется нулями до 32 (спецификация Noise,
 // §5.2). "Noise_NK_25519_AESGCM_SHA256" — 28 байт, попадает сюда. Длиннее
 // 32 — было бы SHA-256 от имени; ветка держится для полноты, в этом
@@ -219,13 +219,13 @@ type nkInitiator struct {
 
 func newNKInitiatorFrom(rs *ecdh.PublicKey, ePriv *ecdh.PrivateKey, prologue []byte) *nkInitiator {
 	ss := newSymmetricState(nkProtocolName)
-	ss.mixHash(prologue)   // пролог: пустой в бою (документ Кота1), непустой в тестовом векторе cacophony
+	ss.mixHash(prologue)   // пролог: пустой в бою (спецификация протокола), непустой в тестовом векторе cacophony
 	ss.mixHash(rs.Bytes()) // предсообщение "<- s"
 	return &nkInitiator{ss: ss, ePriv: ePriv, rs: rs}
 }
 
 // newNKInitiator — рабочий конструктор для подключения к шлюзу: эфемерный
-// ключ случайный, пролог пустой (документ Кота1).
+// ключ случайный, пролог пустой (спецификация протокола).
 func newNKInitiator(rs *ecdh.PublicKey) (*nkInitiator, error) {
 	ePriv, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {

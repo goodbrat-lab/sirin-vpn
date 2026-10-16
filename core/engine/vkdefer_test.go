@@ -62,7 +62,7 @@ func TestDeferredHashIsSkippedWhileOthersLive(t *testing.T) {
 //
 // ЭТОТ ТЕСТ ОБЯЗАН КРАСНЕТЬ, если убрать вызов unfreezeIfAllDeferred из
 // перебора или сделать его пустышкой. Проверка мутацией — требование
-// кота 1, чья это область.
+// спецификации для подсистемы VK.
 func TestAllDeferredUnfreezesAtOnce(t *testing.T) {
 	hs := []string{"a", "b", "c"}
 	c := newTestCache(hs)

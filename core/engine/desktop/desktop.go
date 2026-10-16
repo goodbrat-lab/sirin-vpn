@@ -152,7 +152,7 @@ func (a stateAdapter) OnStopped(reason string) {
 }
 
 // eventSink — общий для logger и stateAdapter держатель канала событий с
-// защитой от паники «send on closed channel» (найдено котом 5 на Маке,
+// защитой от паники «send on closed channel» (выявлено при тестировании на macOS,
 // engine-v1.8.0: OnStopped закрывал канал, а горутины лестницы/growSlots,
 // ещё добирающие слоты, писали в logger после этого — падал весь помощник,
 // не только сессия). mu сериализует send() и close() друг с другом; closed

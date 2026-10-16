@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Meridian"
+rootProject.name = "Sirin"
 include(":app")

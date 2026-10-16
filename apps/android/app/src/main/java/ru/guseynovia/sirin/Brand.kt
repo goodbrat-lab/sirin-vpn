@@ -31,8 +31,8 @@ object Brand {
     /** Контур и точки в логотипе. */
     val edgeLogo = Color(0xFF5B8AFF)
 
-    /** Меридианы в логотипе. */
-    val meridianLogo = Color(0xFF454E69)
+    /** Линии в логотипе. */
+    val sirinLogo = Color(0xFF454E69)
 
     // --- для чёрного экрана ---
 
@@ -45,8 +45,8 @@ object Brand {
     /** Контур и точки на чёрном. */
     val edge = Color(0xFF6F98FF)
 
-    /** Меридианы на чёрном. */
-    val meridian = Color(0xFF525D80)
+    /** Линии на чёрном. */
+    val sirin = Color(0xFF525D80)
 
     /** Контур и точки в белом режиме (туннель на релее, белые списки). */
     val edgeWhite = Color(0xFFFFFFFF)
@@ -54,8 +54,8 @@ object Brand {
     /** Контур и полюса, пока связи нет. */
     val edgeOff = Color(0xFF3A4358)
 
-    /** Меридианы, пока связи нет. */
-    val meridianOff = Color(0xFF272D3A)
+    /** Линии, пока связи нет. */
+    val sirinOff = Color(0xFF272D3A)
 
     /** Основной текст. Не чисто белый: на чёрном он режет глаз. */
     val text = Color(0xFFD7DCE8)
@@ -71,7 +71,7 @@ object Brand {
 fun GearButton(
     modifier: Modifier = Modifier,
     size: Dp = 40.dp,
-    tint: Color = Brand.meridian,
+    tint: Color = Brand.sirin,
     onClick: () -> Unit,
 ) {
     Canvas(

@@ -20,7 +20,7 @@ const (
 
 // LadderOptions — всё, что Android берёт для лестницы помимо /v1/params.
 //
-// Откуда что берётся на Android (MeridianVpnService.buildLadder):
+// Откуда что берётся на Android (SirinVpnService.buildLadder):
 //   - Known/SkipDirect/SkipStreams — память путей клиента (PathMemory:
 //     какая ступень выиграла на этой сети и счётчики «прямой/поток
 //     проиграли релею или онемели»). Состояние КЛИЕНТА, служба его не знает:
@@ -111,7 +111,7 @@ func letter(i int) string {
 }
 
 // BuildLadder собирает лестницу транспорта тем же порядком, что
-// MeridianVpnService.buildLadder у Android.
+// SirinVpnService.buildLadder у Android.
 //
 // Узлы берутся ТОЛЬКО из ответа службы (зашитых запасных у настольного
 // клиента нет). Порядок узлов — подсказка о предпочтении, список остаётся

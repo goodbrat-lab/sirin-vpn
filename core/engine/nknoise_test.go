@@ -17,7 +17,7 @@ func hexBytes(t *testing.T, s string) []byte {
 }
 
 // TestNKAgainstCacophonyVector — тот же вектор и то же имя теста, что у
-// Кота1 на сервере (github.com/haskell-cryptography/cacophony,
+// эталонных векторов сервера (github.com/haskell-cryptography/cacophony,
 // vectors/cacophony.txt, Noise_NK_25519_AESGCM_SHA256). Здесь проверяется
 // ТОЛЬКО роль инициатора (клиент): msg1 на отправку, msg2 на приём,
 // handshake_hash после рукопожатия, и четыре транспортных сообщения через
@@ -34,7 +34,7 @@ func TestNKAgainstCacophonyVector(t *testing.T) {
 	msg1Payload := hexBytes(t, "4c756477696720766f6e204d69736573")
 	msg1Cipher := hexBytes(t, "ca35def5ae56cec33dc2036731ab14896bc4c75dbb07a61f879f8e3afa4c794475ab4d66d222457dd414bc5f296bc7b4078cc7d72af5192628b68bca7d28844b")
 	// Payload msg2 в ЭТОМ векторе НЕ пуст ("Murray Rothbard") — генерик-вектор
-	// cacophony, не боевой протокол шлюза (там msg2 пуст, документ Кота1).
+	// cacophony, не боевой протокол шлюза (там msg2 пуст, спецификация протокола).
 	msg2Payload := hexBytes(t, "4d757272617920526f746862617264")
 	msg2Cipher := hexBytes(t, "95ebc60d2b1fa672c1f46a8aa265ef51bfe38e7ccb39ec5be34069f14480884303c7d89310502baa8299520ba451624c3c0492e2698f8d457c32400b91fd8a")
 
@@ -115,7 +115,7 @@ func TestNKAgainstCacophonyVector(t *testing.T) {
 
 func TestSymmetricStateProtocolNamePadding(t *testing.T) {
 	// "Noise_NK_25519_AESGCM_SHA256" — 28 байт, <= 32: дополняется нулями,
-	// НЕ хешируется. Ровно та ловушка, о которой предупредил Кот1.
+	// НЕ хешируется. Ровно та ловушка, о  предупреждает спецификация.
 	ss := newSymmetricState(nkProtocolName)
 	var want [32]byte
 	copy(want[:], nkProtocolName)

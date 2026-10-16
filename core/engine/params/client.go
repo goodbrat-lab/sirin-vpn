@@ -1,4 +1,4 @@
-// Package params — клиент API Meridian для настольных клиентов: поход за
+// Package params — клиент API Sirin для настольных клиентов: поход за
 // /v1/params и /v1/key, закрепление ключа сервера, обход запасных адресов.
 //
 // Портирован с Kotlin (ApiClient.kt, ApiPins.kt, Params.kt, часть Api.kt)
@@ -315,7 +315,7 @@ func (c *Client) one(ctx context.Context, a Address, path string, params map[str
 		return Unavailable{Why: scrubErr(err)}
 	}
 	req.Header.Set("Accept", "application/json")
-	// Версия и платформа заголовками (просьба кота 1, 01.10): значения из конверта.
+	// Версия и платформа заголовками (согласно требованиям API, 01.10): значения из конверта.
 	if v := params["app_version"]; v != "" {
 		req.Header.Set("X-Sirin-Version", v)
 	}
@@ -403,7 +403,7 @@ func (c *Client) resolvingDial(d *net.Dialer) func(ctx context.Context, network,
 // scrubErr — текст ошибки запроса БЕЗ адреса запроса. *url.Error всегда несёт
 // полный URL, а параметры (в том числе key) у нас идут в строке запроса:
 // сырой err.Error() клал ключ подписчика в текст, который платформы пишут в
-// журнал как есть (найдено котом 5 при замере скорости, 26.09).
+// журнал как есть (выявлено при тестировании на macOS при замере скорости, 26.09).
 func scrubErr(err error) string {
 	var ue *url.Error
 	if errors.As(err, &ue) {

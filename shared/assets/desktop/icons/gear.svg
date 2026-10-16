@@ -1,4 +1,4 @@
-<!-- Шестерёнка настроек (GearButton в Planet.kt), поле 40×40, цвет Brand.meridian. -->
+<!-- Шестерёнка настроек (GearButton в Brand.kt), поле 40×40, цвет Brand.sirin. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="#525D80">
   <circle cx="20" cy="20" r="9.6" stroke-width="4.032"/>
   <g stroke-width="3.226" stroke-linecap="round">

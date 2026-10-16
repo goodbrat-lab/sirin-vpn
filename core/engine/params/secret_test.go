@@ -28,7 +28,7 @@ func TestFailureTextHasNoKey(t *testing.T) {
 	}
 }
 
-// Версия и платформа из конверта уходят заголовками (просьба кота 1, 01.10).
+// Версия и платформа из конверта уходят заголовками (согласно требованиям API, 01.10).
 func TestVersionHeadersSent(t *testing.T) {
 	var gotV, gotP string
 	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
