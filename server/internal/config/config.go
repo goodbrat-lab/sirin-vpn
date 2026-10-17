@@ -19,6 +19,7 @@ type Config struct {
 	ClientSubnet   string   `toml:"client_subnet"`
 	AllowedUUIDs   []string `toml:"allowed_uuids"`
 	SessionTTL     int      `toml:"session_ttl"` // секунды, по умолчанию 120
+	ClientsPath    string   `toml:"clients_path"` // /etc/sirin/clients.json
 }
 
 func Load(path string) (*Config, error) {
@@ -30,6 +31,10 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("разбор TOML: %w", err)
+	}
+
+	if cfg.ClientsPath == "" {
+		cfg.ClientsPath = "/etc/sirin/clients.json"
 	}
 
 	if cfg.TCPListenAddr == "" {
@@ -80,7 +85,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("неверный формат client_subnet: %w", err)
 	}
 
-	if len(c.AllowedUUIDs) == 0 {
+	if len(c.AllowedUUIDs) == 0 && c.ClientsPath == "" {
 		return errors.New("список allowed_uuids не должен быть пустым")
 	}
 

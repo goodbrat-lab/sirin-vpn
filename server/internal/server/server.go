@@ -27,7 +27,10 @@ type Server struct {
 	tun        *tun.Device
 	tunEnabled bool
 
-	wrapKeys map[string][]byte // UUID -> 32-байтный wrapKey
+	wrapMu         sync.RWMutex      // защита wrapKeys
+	wrapKeys       map[string][]byte // UUID -> 32-байтный wrapKey
+	clientsPath    string            // путь к clients.json
+	clientsModTime time.Time         // mtime последней загрузки
 
 	mu       sync.RWMutex
 	sessions map[string]*Session // key = addr.String()
@@ -43,22 +46,35 @@ func New(cfg *config.Config, staticPriv []byte) (*Server, error) {
 		return nil, errors.New("staticPriv должен содержать 32 байта")
 	}
 
-	wrapKeys := make(map[string][]byte, len(cfg.AllowedUUIDs))
-	for _, uuid := range cfg.AllowedUUIDs {
+	clientsPath := cfg.ClientsPath
+	if clientsPath == "" {
+		clientsPath = "/etc/sirin/clients.json"
+	}
+
+	uuids, modTime, err := loadAllowedUUIDs(clientsPath, cfg.AllowedUUIDs)
+	if err != nil {
+		log.Printf("[Sirin Server] WARN: clients.json: %v (fallback на toml)", err)
+	}
+
+	wrapKeys := make(map[string][]byte, len(uuids))
+	for _, uuid := range uuids {
 		key, err := obfs.DeriveWrapKey(uuid)
 		if err != nil {
-			return nil, fmt.Errorf("вывод wrapKey для UUID %s: %w", uuid, err)
+			return nil, fmt.Errorf("derive key %s: %w", uuid, err)
 		}
 		wrapKeys[uuid] = key
 	}
+	log.Printf("[Sirin Server] Загружено %d ключей (clients.json + toml fallback)", len(wrapKeys))
 
 	s := &Server{
-		cfg:        cfg,
-		staticPriv: append([]byte{}, staticPriv...),
-		wrapKeys:   wrapKeys,
-		sessions:   make(map[string]*Session),
-		byTunIP:    make(map[string]*Session),
-		stopCh:     make(chan struct{}),
+		cfg:            cfg,
+		staticPriv:     append([]byte{}, staticPriv...),
+		wrapKeys:       wrapKeys,
+		clientsPath:    clientsPath,
+		clientsModTime: modTime,
+		sessions:       make(map[string]*Session),
+		byTunIP:        make(map[string]*Session),
+		stopCh:         make(chan struct{}),
 	}
 	s.clientIPSeq.Store(1) // чтобы первый клиент получил .2 (10.77.77.2)
 
@@ -121,6 +137,12 @@ func (s *Server) Start() error {
 	s.wg.Add(2)
 	go s.readLoop()
 	go s.sessionCleanupLoop()
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.syncClientsLoop(s.stopCh)
+	}()
 
 	if s.tunEnabled {
 		s.wg.Add(1)
@@ -195,7 +217,14 @@ func (s *Server) handleNewSession(addr *net.UDPAddr, pkt []byte) {
 	var msg1Payload []byte
 
 	// 1. Попытка демаскировки ChaCha20-Poly1305 ключами разрешённых пользователей
-	for uuid, key := range s.wrapKeys {
+	s.wrapMu.RLock()
+	keysCopy := make(map[string][]byte, len(s.wrapKeys))
+	for k, v := range s.wrapKeys {
+		keysCopy[k] = v
+	}
+	s.wrapMu.RUnlock()
+
+	for uuid, key := range keysCopy {
 		state, err := obfs.NewState(key)
 		if err != nil {
 			continue
@@ -500,7 +529,14 @@ func (s *Server) handleTCPConn(conn net.Conn) {
 	var matchedKey []byte
 	var msg1Payload []byte
 
-	for uuid, key := range s.wrapKeys {
+	s.wrapMu.RLock()
+	keysCopy := make(map[string][]byte, len(s.wrapKeys))
+	for k, v := range s.wrapKeys {
+		keysCopy[k] = v
+	}
+	s.wrapMu.RUnlock()
+
+	for uuid, key := range keysCopy {
 		state, err := obfs.NewState(key)
 		if err != nil {
 			continue

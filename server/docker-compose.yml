@@ -47,8 +47,7 @@ services:
     restart: unless-stopped
     command: ["sirind", "-config", "/etc/sirin/sirind.toml"]
     volumes:
-      - /etc/sirin/sirind.toml:/etc/sirin/sirind.toml:ro
-      - /etc/sirin/static_priv.hex:/etc/sirin/static_priv.hex:ro
+      - /etc/sirin:/etc/sirin:ro    # ro: только чтение (sirind не пишет)
       - /var/log/sirin:/var/log/sirin
     devices:
       - /dev/net/tun:/dev/net/tun

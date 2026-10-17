@@ -6,6 +6,7 @@ tun_ip = "10.77.77.1"
 tun_netmask = "255.255.255.0"
 client_subnet = "10.77.77.0/24"
 session_ttl = 120
+clients_path = "/etc/sirin/clients.json"
 allowed_uuids = [
     "REPLACE_WITH_YOUR_UUID",
 ]
