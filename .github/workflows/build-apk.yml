@@ -81,7 +81,7 @@ jobs:
 
       # 7. Загружаем APK как артефакт (для истории, даже если релиз не создаётся)
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sirin-apk
           path: apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
