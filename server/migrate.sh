@@ -23,7 +23,7 @@ systemctl disable nginx xray sirind sirinapi sirinbot 2>/dev/null || true
 # 2. Собрать образ
 echo ""
 echo "Сборка sirin-server:latest..."
-docker build -t sirin-server:latest .
+docker build --network host -t sirin-server:latest .
 
 # 3. Запустить compose
 echo ""
