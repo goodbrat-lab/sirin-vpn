@@ -1,0 +1,20 @@
+# Бинарники (собираются внутри)
+sirind
+sirinapi
+sirinbot
+*.exe
+*-linux-amd64
+
+# Конфиги с секретами (монтируются через volumes)
+configs/*.toml
+*.json
+
+# Git
+.git
+.gitignore
+
+# Тесты (не нужны в production образе)
+**/*_test.go
+
+# Docs
+*.md
