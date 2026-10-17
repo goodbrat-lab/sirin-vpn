@@ -7,6 +7,5 @@ tun_netmask = "255.255.255.0"
 client_subnet = "10.77.77.0/24"
 session_ttl = 120
 allowed_uuids = [
-    "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-    "550e8400-e29b-41d4-a716-446655440000",
+    "REPLACE_WITH_YOUR_UUID",
 ]

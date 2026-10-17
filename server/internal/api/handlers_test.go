@@ -20,7 +20,7 @@ func testServer(t *testing.T) (*Server, *Storage) {
 		ListenAddr:  ":0",
 		StoragePath: filepath.Join(dir, "clients.json"),
 		AdminToken:  "test-admin-token",
-		ServerHost:  "94.183.159.114",
+		ServerHost:  "198.51.100.1",
 		ServerPort:  56005,
 		ServerID:    "sirin-main",
 		Generation:  1,
@@ -93,7 +93,7 @@ func TestHandleParams(t *testing.T) {
 	if p.Relay.Enabled {
 		t.Fatal("relay.enabled must be false")
 	}
-	if p.Entries[0].Host != "94.183.159.114" || p.Entries[0].Port != 56005 {
+	if p.Entries[0].Host != "198.51.100.1" || p.Entries[0].Port != 56005 {
 		t.Fatalf("wrong entry: %+v", p.Entries[0])
 	}
 }
@@ -101,7 +101,7 @@ func TestHandleParams(t *testing.T) {
 func TestHandleParamsWithVLESS(t *testing.T) {
 	srv, storage := testServer(t)
 	srv.cfg.VLESSEnabled = true
-	srv.cfg.VLESSHost = "94.183.159.114"
+	srv.cfg.VLESSHost = "198.51.100.1"
 	srv.cfg.VLESSPort = 443
 
 	c, _ := storage.Add("VLESSUser", 0)
@@ -141,8 +141,8 @@ func TestHandleParamsWithVLESS(t *testing.T) {
 	if vlessEntry.Port != 443 {
 		t.Fatalf("expected port 443, got %d", vlessEntry.Port)
 	}
-	if vlessEntry.Host != "94.183.159.114" {
-		t.Fatalf("expected host 94.183.159.114, got %s", vlessEntry.Host)
+	if vlessEntry.Host != "198.51.100.1" {
+		t.Fatalf("expected host 198.51.100.1, got %s", vlessEntry.Host)
 	}
 	if vlessEntry.SNI != "sun8-21.userapi.com" {
 		t.Fatalf("expected SNI sun8-21.userapi.com, got %s", vlessEntry.SNI)
