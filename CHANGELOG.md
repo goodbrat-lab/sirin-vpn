@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.0] - 2026-10-18
+
+### Added
+- SNI rotation: 4 domains (sun8-21.userapi.com, kinopoisk.ru, wildberries.ru, ikea.com). Auto-fallback if one blocked.
+- Testbench scenario: exact SNI blocking via NFQUEUE
+
+### Resilience
+- Before: 1 SNI (sun8-21) + UDP = 2 points of failure
+- After: 4 SNI + UDP = 5 points of failure
+- Verified: block sun8-21 -> switch to kinopoisk in 4.5s
+
+### Infrastructure
+- Xray serverNames: 4 domains
+- API /v1/params: SNIs[] array
+- Android client: parses snis, passes to engine
+
 ## [1.1.1] - 2026-10-17
 
 ### Added
