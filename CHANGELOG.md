@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0] - 2026-10-17
+
+Automatic client key synchronization between clients.json and sirind.
+
+### Added
+- Auto-sync: `sirind` reads allowed UUIDs directly from `/etc/sirin/clients.json` with fallback to `sirind.toml`
+- Background sync loop: checks `clients.json` mtime every 30 seconds
+- Thread-safe key handling via `sync.RWMutex`
+- Key caching: avoids re-deriving X25519 wrap keys for unchanged UUIDs
+- Unit test suite for client synchronization (`sync_test.go`)
+- Support for generating and using keys from Telegram bot without restarting `sirind`
+
+### Changed
+- `sirind` container mounts `/etc/sirin` directory as read-only (`ro`)
+- Configuration accepts optional `clients_path` parameter
+
 ## [1.0.1] - 2026-10-17
 
 Working release with production configuration via GitHub Secrets.
