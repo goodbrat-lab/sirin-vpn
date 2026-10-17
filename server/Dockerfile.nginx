@@ -1,0 +1,20 @@
+FROM nginx:1.27-alpine
+
+# 1. Создать пользователя www-data (нужен для "user www-data;" в nginx.conf)
+#    В Alpine нет www-data, только nginx. Создаём группу и пользователя.
+RUN addgroup -S www-data 2>/dev/null || true && \
+    adduser -D -S -G www-data -H -s /sbin/nologin www-data 2>/dev/null || \
+    adduser -D -S www-data
+
+# 2. Создать пустую папку modules-enabled (в nginx.conf есть include)
+RUN mkdir -p /etc/nginx/modules-enabled
+
+# 3. Убедиться, что стандартные директории существуют с правильными правами
+RUN mkdir -p /var/log/nginx /var/cache/nginx /run && \
+    chown -R www-data:www-data /var/cache/nginx /var/log/nginx
+
+# 4. Удалить дефолтный конфиг (мы монтируем свой)
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+# 5. Проверить, что nginx -V содержит with-stream (на случай, если базовый образ изменится)
+RUN nginx -V 2>&1 | grep -q "with-stream" || (echo "ERROR: nginx without stream module" && exit 1)
