@@ -1,7 +1,0 @@
-listen_addr = ":8080"
-storage_path = "/etc/sirin/clients.json"
-admin_token = "REPLACE_WITH_LONG_RANDOM_TOKEN"
-server_host = "94.183.159.114"
-server_port = 56005
-server_id = "sirin-main"
-generation = 1
