@@ -1,0 +1,32 @@
+Sirin Project
+==============
+Copyright (c) 2026 Sirin Project
+
+This software is based on Meridian VPN (JinComputers),
+which was distributed under the MIT License.
+
+Portions of this software are derived from Meridian VPN source code.
+The original MIT License terms are preserved in LICENSE.
+
+Modifications by Sirin Project include:
+- Complete rebranding (Meridian -> Sirin)
+- Own server infrastructure (UDP Noise NK + VLESS Reality)
+- Own API with HTTPS (crp.guseynovia.ru)
+- Telegram bot for key management (@sirin_crp_bot)
+- New visual design (Sirin Feather)
+- XTLS Vision support
+- SNI-based TSPU bypass (sun8-21.userapi.com)
+- IPv6 leak fix + MTU mismatch fix
+- Full code cleanup (grep meridian = 0)
+
+THIRD-PARTY SOFTWARE:
+- github.com/refraction-networking/utls (MIT)
+- github.com/pion/* (MIT)
+- github.com/songgao/water (MIT)
+- github.com/BurntSushi/toml (MIT)
+- github.com/google/uuid (BSD-3-Clause)
+- gopkg.in/telebot.v3 (MIT)
+- golang.org/x/crypto (BSD-3-Clause)
+- Xray-core (MPL 2.0)
+
+See individual repositories for full license texts.
