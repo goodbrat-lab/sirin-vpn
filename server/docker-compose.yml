@@ -1,0 +1,87 @@
+services:
+  # nginx: SNI-роутинг, HTTPS для API, stream для Xray
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: sirin-nginx
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /etc/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+      - /etc/nginx/snippets:/etc/nginx/snippets:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/log/nginx:/var/log/nginx
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      - sirinapi
+      - xray
+
+  # xray: VLESS+Reality (TCP 443 → 127.0.0.1:4430)
+  xray:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: sirin-xray
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /usr/local/etc/xray/config.json:/etc/xray/config.json:ro
+      - /var/log/xray:/var/log/xray
+    command: ["run", "-config", "/etc/xray/config.json"]
+    cap_add:
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+
+  # sirind: UDP 56005 (Noise NK) + TCP 56006 (от Xray)
+  # Требует TUN + NET_ADMIN
+  sirind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sirin-server:latest
+    container_name: sirin-sirind
+    network_mode: host
+    restart: unless-stopped
+    command: ["sirind", "-config", "/etc/sirin/sirind.toml"]
+    volumes:
+      - /etc/sirin/sirind.toml:/etc/sirin/sirind.toml:ro
+      - /etc/sirin/static_priv.hex:/etc/sirin/static_priv.hex:ro
+      - /var/log/sirin:/var/log/sirin
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    user: "0:0"  # root (нужен для TUN)
+
+  # sirinapi: HTTP API на 127.0.0.1:8080
+  sirinapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sirin-server:latest
+    container_name: sirin-sirinapi
+    network_mode: host
+    restart: unless-stopped
+    command: ["sirinapi", "-config", "/etc/sirin/sirinapi.toml"]
+    volumes:
+      - /etc/sirin/sirinapi.toml:/etc/sirin/sirinapi.toml:ro
+      - /etc/sirin/clients.json:/etc/sirin/clients.json
+      - /var/log/sirin:/var/log/sirin
+    user: "0:0"  # root (нужен для записи в /etc/sirin/clients.json)
+
+  # sirinbot: Telegram bot
+  sirinbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sirin-server:latest
+    container_name: sirin-sirinbot
+    network_mode: host
+    restart: unless-stopped
+    command: ["sirinbot", "-config", "/etc/sirin/sirinbot.toml"]
+    volumes:
+      - /etc/sirin/sirinbot.toml:/etc/sirin/sirinbot.toml:ro
+      - /etc/sirin/bot_users.json:/etc/sirin/bot_users.json
+      - /var/log/sirin:/var/log/sirin
+    user: "1000:1000"  # sirin (не нужен root)
+    depends_on:
+      - sirinapi
