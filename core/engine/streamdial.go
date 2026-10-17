@@ -65,8 +65,10 @@ func (s *session) dialStream(
 			PublicKey:   c.vlessPublicKey,
 			ShortID:     c.vlessShortID,
 			SNI:         c.sni,
+			SNIList:     c.sniList,
 			Fingerprint: "chrome",
 			Control:     protectDialControl(prot, s.logf, c.name),
+			Logf:        s.logf,
 		}
 		client := vless.NewClient(c.vlessUUID, cfg)
 

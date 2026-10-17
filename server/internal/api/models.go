@@ -28,9 +28,10 @@ type ParamsEntry struct {
 	Host      string `json:"host"`
 	Port      int    `json:"port"`
 	DTLS      bool   `json:"dtls"`
-	Transport string `json:"transport"`
-	SNI       string `json:"sni"`
-	PBK       string `json:"pbk,omitempty"`
+	Transport string   `json:"transport"`
+	SNI       string   `json:"sni"`
+	SNIs      []string `json:"snis,omitempty"`
+	PBK       string   `json:"pbk,omitempty"`
 	SID       string `json:"sid,omitempty"`
 }
 

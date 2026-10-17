@@ -18,9 +18,12 @@ func TestLadderAddVLESS(t *testing.T) {
 	sni := "dl.google.com"
 	target := "127.0.0.1:56006"
 
-	err := ladder.AddVLESS("vless-test", "crp.guseynovia.ru", 443, uuidStr, pubKeyBase64, shortIDHex, sni, target)
+	err := ladder.AddVLESS("vless-test", "crp.guseynovia.ru", 443, uuidStr, pubKeyBase64, shortIDHex, sni, target, "sun8-21.userapi.com,www.kinopoisk.ru")
 	if err != nil {
 		t.Fatalf("AddVLESS failed: %v", err)
+	}
+	if len(ladder.items[0].sniList) != 2 {
+		t.Fatalf("expected 2 snis in sniList, got %d", len(ladder.items[0].sniList))
 	}
 
 	if ladder.Len() != 1 {

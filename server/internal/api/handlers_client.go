@@ -150,8 +150,14 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 			DTLS:      false,
 			Transport: "vless",
 			SNI:       "sun8-21.userapi.com",
-			PBK:       "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
-			SID:       "8283f99ec6a0f52e",
+			SNIs: []string{
+				"sun8-21.userapi.com",
+				"www.kinopoisk.ru",
+				"wildberries.ru",
+				"www.ikea.com",
+			},
+			PBK: "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
+			SID: "8283f99ec6a0f52e",
 		})
 	}
 

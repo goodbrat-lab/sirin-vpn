@@ -258,6 +258,7 @@ object Params {
         val transport: String,
         /** SNI для tls-ступени; для прочих пусто. Привязан к IP. */
         val sni: String,
+        val snis: List<String> = emptyList(),
         val pbk: String = "",
         val sid: String = "",
     )
@@ -283,6 +284,14 @@ object Params {
                 val host = o.optString("host")
                 val port = o.optInt("port", 0)
                 if (host.isEmpty() || port <= 0) continue
+                val snisArray = o.optJSONArray("snis")
+                val snisList = ArrayList<String>()
+                if (snisArray != null) {
+                    for (j in 0 until snisArray.length()) {
+                        val item = snisArray.optString(j)
+                        if (item.isNotEmpty()) snisList.add(item)
+                    }
+                }
                 out.add(
                     Node(
                         id = o.optString("id").ifEmpty { "$host:$port" },
@@ -293,6 +302,7 @@ object Params {
                         // udp-запись, как и предусмотрено спецификацией.
                         transport = o.optString("transport").ifEmpty { "udp" },
                         sni = o.optString("sni"),
+                        snis = snisList,
                         pbk = o.optString("pbk"),
                         sid = o.optString("sid"),
                     )

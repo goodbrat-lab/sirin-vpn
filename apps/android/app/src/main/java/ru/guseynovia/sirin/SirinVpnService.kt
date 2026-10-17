@@ -2393,7 +2393,7 @@ class SirinVpnService : VpnService() {
         val all: List<Node> = when {
             mode == Config.TransportMode.RELAY_ONLY -> emptyList()
             fromService -> nodes.map {
-                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.pbk, it.sid)
+                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid)
             }
             else -> Config.DIRECT_CANDIDATES.mapIndexed { i, c ->
                 Node(Paths.directName(i), "", c.port, c.useDtls)
@@ -2420,7 +2420,7 @@ class SirinVpnService : VpnService() {
         val directs: List<Node> = when {
             only != null -> (all.filter { it.id == only }.ifEmpty {
                 manualNode(only)?.split(':')?.let { p ->
-                    listOf(Node(only, p[0], p[1].toInt(), p[2] == "1", p.getOrElse(3) { "udp" }, p.getOrElse(4) { "" }, p.getOrElse(5) { "" }, p.getOrElse(6) { "" }))
+                    listOf(Node(only, p[0], p[1].toInt(), p[2] == "1", p.getOrElse(3) { "udp" }, p.getOrElse(4) { "" }, emptyList(), p.getOrElse(5) { "" }, p.getOrElse(6) { "" }))
                 } ?: emptyList()
             }).also {
                 TunnelLog.add("ОТЛАДКА: только ступень $only (${it.size}), без релея")
@@ -2472,8 +2472,9 @@ class SirinVpnService : VpnService() {
                 "vless" -> {
                     val vlessUUID = "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
                     streams.add(code)
+                    val snisCsv = if (n.snis.isNotEmpty()) n.snis.joinToString(",") else n.sni
                     try {
-                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "")
+                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "", snisCsv)
                     } catch (e: Throwable) {
                         TunnelLog.add("узел $code: vless ошибка — ${e.message}")
                     }
@@ -2622,6 +2623,7 @@ class SirinVpnService : VpnService() {
         val dtls: Boolean,
         val transport: String = "udp",
         val sni: String = "",
+        val snis: List<String> = emptyList(),
         val pbk: String = "",
         val sid: String = "",
     )

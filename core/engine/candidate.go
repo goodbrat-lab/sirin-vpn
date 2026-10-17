@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"sirin/engine/vless"
@@ -79,7 +80,8 @@ type candidate struct {
 	// sni — имя для TLS-ступени, приходит из /v1/params (привязано к IP,
 	// переезжает вместе с host). Пусто — движок берёт запаску
 	// tlsGatewaySNI.
-	sni string
+	sni     string
+	sniList []string // NEW: пул SNI для ротации при сбое
 
 	// Для transVLESS:
 	vlessUUID      [16]byte // VLESS UUID (секрет Xray)
@@ -265,6 +267,7 @@ func (l *Ladder) AddVLESS(
 	shortIDHex string,
 	sni string,
 	target string,
+	sniListCSV string,
 ) error {
 	uuid, err := vless.ParseUUID(uuidStr)
 	if err != nil {
@@ -284,12 +287,25 @@ func (l *Ladder) AddVLESS(
 	if target == "" {
 		target = "127.0.0.1:56006"
 	}
+	var sniList []string
+	if sniListCSV != "" {
+		for _, s := range strings.Split(sniListCSV, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				sniList = append(sniList, s)
+			}
+		}
+	}
+	if len(sniList) == 0 && sni != "" {
+		sniList = []string{sni}
+	}
 	l.items = append(l.items, candidate{
 		name:           name,
 		host:           host,
 		port:           port,
 		transport:      transVLESS,
 		sni:            sni,
+		sniList:        sniList,
 		vlessUUID:      uuid,
 		vlessPublicKey: pubKey,
 		vlessShortID:   shortID,

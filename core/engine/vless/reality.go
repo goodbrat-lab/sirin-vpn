@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/crypto/hkdf"
-	"syscall"
 )
 
 type RealityConfig struct {
@@ -22,15 +22,47 @@ type RealityConfig struct {
 	ServerPort  int
 	PublicKey   []byte
 	ShortID     []byte
-	SNI         string // например, dl.google.com
-	Fingerprint string // "chrome"
+	SNI         string   // например, sun8-21.userapi.com
+	SNIList     []string // NEW: список SNI для перебора
+	Fingerprint string   // "chrome"
 	Control     func(network, address string, c syscall.RawConn) error
+	Logf        func(format string, args ...any)
 }
 
 // Dial выполняет TCP-соединение и TLS 1.3 рукопожатие по протоколу Reality с маскировкой под Chrome.
+// Если SNIList не пустой — пробует каждый SNI по очереди.
 func Dial(ctx context.Context, cfg *RealityConfig) (net.Conn, error) {
+	snis := cfg.SNIList
+	if len(snis) == 0 {
+		if cfg.SNI != "" {
+			snis = []string{cfg.SNI}
+		} else {
+			snis = []string{""}
+		}
+	}
+
+	logf := cfg.Logf
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+
+	var lastErr error
+	for _, sni := range snis {
+		logf("[engine] vless: trying SNI %s", sni)
+		conn, err := dialOne(ctx, cfg, sni)
+		if err == nil {
+			logf("[engine] vless: handshake OK")
+			return conn, nil
+		}
+		logf("[engine] vless: handshake failed (%v)", err)
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func dialOne(ctx context.Context, cfg *RealityConfig, sni string) (net.Conn, error) {
 	d := &net.Dialer{
-		Timeout: 10 * time.Second,
+		Timeout: 5 * time.Second,
 		Control: cfg.Control,
 	}
 	addr := net.JoinHostPort(cfg.ServerHost, fmt.Sprintf("%d", cfg.ServerPort))
@@ -40,7 +72,7 @@ func Dial(ctx context.Context, cfg *RealityConfig) (net.Conn, error) {
 	}
 
 	tlsConfig := &utls.Config{
-		ServerName:             cfg.SNI,
+		ServerName:             sni,
 		InsecureSkipVerify:     true,
 		SessionTicketsDisabled: true,
 	}
@@ -103,7 +135,10 @@ func Dial(ctx context.Context, cfg *RealityConfig) (net.Conn, error) {
 	aead.Seal(hello.SessionId[:0], hello.Random[20:], hello.SessionId[:16], hello.Raw)
 	copy(hello.Raw[39:], hello.SessionId)
 
-	if err := uConn.HandshakeContext(ctx); err != nil {
+	hsCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	if err := uConn.HandshakeContext(hsCtx); err != nil {
 		rawConn.Close()
 		return nil, fmt.Errorf("utls reality handshake: %w", err)
 	}
