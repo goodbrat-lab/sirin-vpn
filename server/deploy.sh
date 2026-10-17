@@ -72,7 +72,14 @@ fi
 cd "$(dirname "$0")"
 echo ""
 echo "Сборка sirin-server:latest..."
-docker build -t sirin-server:latest .
+docker build --network host -t sirin-server:latest .
+
+# 8.5. Права на /var/log/xray (xray в контейнере работает под UID 65532)
+if [ -d "/var/log/xray" ]; then
+  chown -R 65532:65532 /var/log/xray
+  chmod 755 /var/log/xray
+  echo "Fixed /var/log/xray permissions (UID 65532)"
+fi
 
 # 9. Запуск
 echo ""

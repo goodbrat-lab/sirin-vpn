@@ -25,6 +25,13 @@ echo ""
 echo "Сборка sirin-server:latest..."
 docker build --network host -t sirin-server:latest .
 
+# Права на /var/log/xray (xray в контейнере работает под UID 65532)
+if [ -d "/var/log/xray" ]; then
+  chown -R 65532:65532 /var/log/xray
+  chmod 755 /var/log/xray
+  echo "Fixed /var/log/xray permissions (UID 65532)"
+fi
+
 # 3. Запустить compose
 echo ""
 echo "Запуск docker compose..."

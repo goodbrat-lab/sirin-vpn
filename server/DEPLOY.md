@@ -151,3 +151,6 @@ sudo systemctl enable --now nginx xray sirind sirinapi sirinbot
 - **TUN не создаётся** → проверить `/dev/net/tun`, `cap_add: NET_ADMIN`
 - **nginx в контейнере не видит сертификаты** → проверить volume `/etc/letsencrypt`
 - **sirind не может писать в `/var/log`** → проверить `user: root` и volume
+- **xray падает: permission denied /var/log/xray/access.log** → 
+  xray в контейнере работает под UID 65532. Исправить:
+  `chown -R 65532:65532 /var/log/xray && chmod 755 /var/log/xray`
