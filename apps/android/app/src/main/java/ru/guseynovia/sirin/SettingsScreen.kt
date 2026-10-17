@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import android.content.Intent
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -24,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +52,9 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onConnect: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    var showChangeKeyDialog by remember { mutableStateOf(false) }
+
     Column(
         // ПРОКРУТКА (03.10): отладочные строки вытеснили строку версии за
         // нижний край, и обновиться было нечем.
@@ -75,6 +81,12 @@ fun SettingsScreen(
                 ", выбрано " + SplitTunnel.chosen.value.size,
             icon = { AppsIcon() },
             onClick = onSplit,
+        )
+        Entry(
+            title = "Сменить ключ",
+            hint = "ввести новый UUID",
+            icon = { KeyIcon() },
+            onClick = { showChangeKeyDialog = true },
         )
         Entry(
             title = "Обход белых списков",
@@ -140,6 +152,57 @@ fun SettingsScreen(
         // занимается магазин. Экран не знает, какая сборка, — как и с
         // покупкой, разница живёт в раздельных исходниках.
         UpdateRow(Modifier)
+    }
+
+    if (showChangeKeyDialog) {
+        var newKey by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showChangeKeyDialog = false },
+            title = { Text("Сменить ключ") },
+            text = {
+                Column {
+                    Text("Введите новый UUID (получить можно в @sirin_crp_bot):")
+                    OutlinedTextField(
+                        value = newKey,
+                        onValueChange = { newKey = it.trim() },
+                        placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    if (newKey.isNotEmpty() && newKey.length != 36) {
+                        Text(
+                            "UUID должен быть 36 символов",
+                            color = Color.Red,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newKey.length == 36,
+                    onClick = {
+                        Access.acceptKey(newKey)
+                        showChangeKeyDialog = false
+                        TunnelLog.add("ключ сменён через настройки")
+                        if (TunnelState.connected.value) {
+                            context.startService(
+                                Intent(context, SirinVpnService::class.java)
+                                    .setAction(SirinVpnService.ACTION_RECONNECT)
+                            )
+                        }
+                    },
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showChangeKeyDialog = false }) {
+                    Text("Отмена")
+                }
+            },
+        )
     }
 }
 

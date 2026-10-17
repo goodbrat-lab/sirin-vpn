@@ -242,3 +242,24 @@ fun LogIcon(modifier: Modifier = Modifier, tint: Color = Brand.edge) {
         }
     }
 }
+
+/** Ключ: кольцо и бородка. */
+@Composable
+fun KeyIcon(modifier: Modifier = Modifier, tint: Color = Brand.edge) {
+    IconBtn(modifier = modifier, tint = tint) { c1, r ->
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val w = r * 0.22f
+        val headC = Offset(c.x - r * 0.35f, c.y - r * 0.35f)
+        drawCircle(c1, r * 0.4f, headC, style = Stroke(width = w))
+        val shaftStart = Offset(headC.x + r * 0.28f, headC.y + r * 0.28f)
+        val shaftEnd = Offset(c.x + r * 0.75f, c.y + r * 0.75f)
+        drawLine(c1, shaftStart, shaftEnd, strokeWidth = w, cap = StrokeCap.Round)
+        val tooth1Start = Offset(shaftEnd.x - r * 0.25f, shaftEnd.y - r * 0.25f)
+        val tooth1End = Offset(tooth1Start.x + r * 0.25f, tooth1Start.y - r * 0.25f)
+        drawLine(c1, tooth1Start, tooth1End, strokeWidth = w, cap = StrokeCap.Round)
+        val tooth2Start = shaftEnd
+        val tooth2End = Offset(tooth2Start.x + r * 0.25f, tooth2Start.y - r * 0.25f)
+        drawLine(c1, tooth2Start, tooth2End, strokeWidth = w, cap = StrokeCap.Round)
+    }
+}
+

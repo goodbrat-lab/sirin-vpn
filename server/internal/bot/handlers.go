@@ -61,13 +61,20 @@ func (b *Bot) handleNewKey(c tele.Context) error {
 		CreatedAt:  time.Now().Unix(),
 	})
 
-	infoText := fmt.Sprintf("✅ *Ключ создан*\n\n"+
+	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", resp.Key)
+	btn := &tele.ReplyMarkup{}
+	btnOpen := btn.URL("🕊 Открыть в Сирин", openURL)
+	btn.Inline(btn.Row(btnOpen))
+
+	text := fmt.Sprintf("✅ *Ключ создан*\n\n"+
 		"Имя: `%s`\n"+
 		"Срок: %d дней\n\n"+
-		"Нажми на ключ ниже, чтобы скопировать, и введи в приложении «Сирин»:", name, days)
-	_ = c.Send(infoText, tele.ModeMarkdown)
+		"🔑 Нажми на ключ ниже, чтобы скопировать:\n"+
+		"`%s`\n\n"+
+		"Или нажми на кнопку ниже, чтобы открыть приложение «Сирин» и применить ключ:\n"+
+		"[Открыть в Сирин](%s)", name, days, resp.Key, openURL)
 
-	return c.Send(fmt.Sprintf("`%s`", resp.Key), tele.ModeMarkdown)
+	return c.Send(text, btn, tele.ModeMarkdown)
 }
 
 func (b *Bot) handleMyKey(c tele.Context) error {
@@ -77,8 +84,19 @@ func (b *Bot) handleMyKey(c tele.Context) error {
 		return c.Send("У тебя пока нет ключа. Используй /newkey Имя")
 	}
 
-	_ = c.Send("🔑 Нажми на ключ ниже, чтобы скопировать, и введи в приложении «Сирин»:", tele.ModeMarkdown)
-	return c.Send(fmt.Sprintf("`%s`", uk.UUID), tele.ModeMarkdown)
+	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", uk.UUID)
+	btn := &tele.ReplyMarkup{}
+	btnOpen := btn.URL("🕊 Открыть в Сирин", openURL)
+	btn.Inline(btn.Row(btnOpen))
+
+	text := fmt.Sprintf("🔑 *Твой ключ*\n\n"+
+		"Имя: `%s`\n\n"+
+		"Нажми на ключ ниже, чтобы скопировать:\n"+
+		"`%s`\n\n"+
+		"Или нажми на кнопку ниже, чтобы открыть приложение «Сирин» и применить ключ:\n"+
+		"[Открыть в Сирин](%s)", uk.Name, uk.UUID, openURL)
+
+	return c.Send(text, btn, tele.ModeMarkdown)
 }
 
 func (b *Bot) handleStatus(c tele.Context) error {

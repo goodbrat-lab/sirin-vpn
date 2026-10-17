@@ -1,4 +1,4 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
 import android.content.Intent
 import androidx.compose.runtime.mutableStateOf
@@ -31,10 +31,11 @@ object KeyLink {
     fun take(intent: Intent?) {
         if (!KEY_ENTRY) return
         val uri = intent?.data ?: return
-        if (intent.action != Intent.ACTION_VIEW) return
-        if (uri.scheme != "sirin" || uri.host != "key") return
-        // sirin://key/<ключ> или sirin://key?k=<ключ>
-        val raw = uri.lastPathSegment ?: uri.getQueryParameter("k") ?: return
+        val isSirinScheme = uri.scheme == "sirin" && uri.host == "key"
+        val isHttpsLink = uri.scheme == "https" && uri.host == "crp.guseynovia.ru" && (uri.path?.startsWith("/key") == true)
+        if (!isSirinScheme && !isHttpsLink) return
+        // sirin://key/<ключ>, sirin://key?uuid=<ключ>, https://crp.guseynovia.ru/key?uuid=<ключ>
+        val raw = uri.getQueryParameter("uuid") ?: uri.getQueryParameter("k") ?: uri.lastPathSegment ?: return
         val k = raw.trim()
         if (k.length < 8) {
             TunnelLog.add("ссылка с ключом: ключ слишком короткий — пропускаю")
