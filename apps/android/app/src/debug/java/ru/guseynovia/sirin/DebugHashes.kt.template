@@ -1,0 +1,5 @@
+package ru.guseynovia.sirin
+
+object DebugHashes {
+    val VK_HASHES: List<String> = emptyList()
+}

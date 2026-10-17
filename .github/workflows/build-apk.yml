@@ -50,6 +50,17 @@ jobs:
           # Собираем AAR для всех архитектур
           ./build-aar.sh --all
 
+      # 4.5. Копируем Config.kt и DebugHashes.kt из шаблонов
+      - name: Prepare Config files
+        run: |
+          # Для CI: используем шаблоны (пустой пароль, APK соберётся)
+          # Для реальных релизов: использовать secrets (см. комментарий ниже)
+          cp apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt.template \
+             apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+          cp apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt.template \
+             apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt
+          echo "Config.kt and DebugHashes.kt created from templates"
+
       # 5. Собираем APK через Gradle
       - name: Build APK
         run: |

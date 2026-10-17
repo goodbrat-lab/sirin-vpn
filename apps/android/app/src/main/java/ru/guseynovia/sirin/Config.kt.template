@@ -1,0 +1,33 @@
+package ru.guseynovia.sirin
+
+// TEMPLATE: этот файл копируется в Config.kt при сборке.
+// Значения-плейсхолдеры для CI. Для реальной сборки — копируется
+// локальный Config.kt (gitignored) ИЛИ подставляются из secrets.
+
+object Config {
+    enum class TransportMode { AUTO, RELAY_ONLY, DIRECT_ONLY }
+    data class Candidate(val port: Int, val useDtls: Boolean)
+
+    const val EDGE_HOST = "crp.guseynovia.ru"
+    const val GATEWAY = "94.183.159.114"
+    const val PASSWORD = ""  // CI: пустой, локально: реальный UUID
+
+    val DIRECT_CANDIDATES = listOf(
+        Candidate(port = 56005, useDtls = false)
+    )
+
+    const val TURN_ADDR_BACKUP = "95.163.34.180:19302"
+    const val TURN_REALM = ""
+    const val RELAY_GATEWAY_PORT = 56005
+    const val RELAY_USE_DTLS = false
+
+    const val SLOTS_START = 0
+    const val SLOTS_MAX = 16
+    const val SLOTS_AUTO = true
+
+    const val SIMULATE_DIRECT_BLOCKED = false
+    const val SIMULATE_VK_TIMEOUT = false
+
+    const val SKIP_API_KEY_CHECK = false
+    const val SKIP_API_PARAMS_FETCH = false
+}
