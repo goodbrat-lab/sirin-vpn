@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"meridian/engine/vless"
+	"sirin/engine/vless"
 )
 
 // transportKind — каким транспортом идёт ПРЯМАЯ ступень.

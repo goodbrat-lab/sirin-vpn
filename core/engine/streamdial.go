@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"meridian/engine/vless"
+	"sirin/engine/vless"
 )
 
 // raiseStream поднимает потоковую ступень (TCP 56004 или TLS 443).

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"meridian/engine"
+	"sirin/engine"
 )
 
 // fakeFlow — минимальный PacketFlow: сразу отдаёт nil (поток пуст/закрыт),

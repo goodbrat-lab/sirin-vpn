@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"meridian/engine"
-	"meridian/engine/vless"
+	"sirin/engine"
+	"sirin/engine/vless"
 )
 
 func main() {

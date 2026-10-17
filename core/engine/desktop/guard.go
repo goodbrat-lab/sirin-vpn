@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net"
 
-	"meridian/engine"
+	"sirin/engine"
 )
 
 // DefaultTunnelDNS — DNS внутри туннеля у Android (SirinVpnService.DNS_SERVERS).

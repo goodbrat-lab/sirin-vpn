@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"meridian/engine"
+	"sirin/engine"
 )
 
 // Mode — режим транспорта, как Config.TransportMode у Android.

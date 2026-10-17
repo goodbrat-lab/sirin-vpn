@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"meridian/engine/vless"
+	"sirin/engine/vless"
 )
 
 func TestLadderAddVLESS(t *testing.T) {

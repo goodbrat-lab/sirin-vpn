@@ -3,7 +3,7 @@ package desktop
 import (
 	"encoding/binary"
 
-	"meridian/engine"
+	"sirin/engine"
 )
 
 // MSS clamp для настольного пути (PacketFlow).

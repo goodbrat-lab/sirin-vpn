@@ -23,7 +23,7 @@ import (
 	"strings"
 	"sync"
 
-	"meridian/engine"
+	"sirin/engine"
 )
 
 // Config — всё, что нужно для одной попытки подключения.

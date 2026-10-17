@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"meridian/engine/vless"
+	"sirin/engine/vless"
 )
 
 func main() {
