@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.1] - 2026-10-17
+
+### Added
+- Deep-link support: https://crp.guseynovia.ru/key?uuid=... opens app
+- "Change key" button in Settings with immediate reconnect
+- Telegram bot: HTTPS link + inline button "Open in Sirin"
+- KeyIcon in brand style
+
+### Fixed
+- APK v1.1.0 was missing deep-link and change-key features (not committed)
+- v1.1.1 includes all previous features + new ones
+
 ## [1.1.0] - 2026-10-17
 
 Automatic client key synchronization between clients.json and sirind.
