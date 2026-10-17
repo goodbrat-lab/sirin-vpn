@@ -50,16 +50,25 @@ jobs:
           # Собираем AAR для всех архитектур
           ./build-aar.sh --all
 
-      # 4.5. Копируем Config.kt и DebugHashes.kt из шаблонов
-      - name: Prepare Config files
+      # 4.5. Готовим Config.kt и DebugHashes.kt (с секретом, если доступен)
+      - name: Prepare Config files (with secret if available)
+        env:
+          SIRIN_CONFIG_KT: ${{ secrets.SIRIN_CONFIG_KT }}
         run: |
-          # Для CI: используем шаблоны (пустой пароль, APK соберётся)
-          # Для реальных релизов: использовать secrets (см. комментарий ниже)
-          cp apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt.template \
-             apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+          # Если секрет есть — используем его (рабочий APK)
+          # Если нет — шаблон (dev APK, VPN не подключится)
+          if [ -n "$SIRIN_CONFIG_KT" ]; then
+            echo "$SIRIN_CONFIG_KT" > apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+            echo "Using real Config.kt from GitHub Secrets"
+          else
+            cp apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt.template \
+               apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+            echo "WARNING: SIRIN_CONFIG_KT not set, using template (VPN will not connect)"
+          fi
+
+          # DebugHashes всегда из шаблона (пустой список)
           cp apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt.template \
              apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt
-          echo "Config.kt and DebugHashes.kt created from templates"
 
       # 5. Собираем APK через Gradle
       - name: Build APK

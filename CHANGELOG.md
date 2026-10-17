@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1] - 2026-10-17
+
+Working release with production configuration via GitHub Secrets.
+
+### Changed
+- CI: use `SIRIN_CONFIG_KT` secret for release builds to produce production-ready APK
+- Fixed `version.properties` formatting (versionCode: 2, versionName: 1.0.1)
+
 ## [1.0.0] - 2026-10-17
 
 First public release of Sirin VPN.
