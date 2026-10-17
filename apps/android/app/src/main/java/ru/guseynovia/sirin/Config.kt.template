@@ -6,6 +6,9 @@ package ru.guseynovia.sirin
 
 object Config {
     enum class TransportMode { AUTO, RELAY_ONLY, DIRECT_ONLY }
+
+    // Дефолтный режим транспорта (пользователь может изменить в UI)
+    val TRANSPORT_MODE = TransportMode.AUTO
     data class Candidate(val port: Int, val useDtls: Boolean)
 
     const val EDGE_HOST = "crp.guseynovia.ru"
