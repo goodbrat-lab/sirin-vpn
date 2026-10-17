@@ -67,8 +67,7 @@ services:
     restart: unless-stopped
     command: ["sirinapi", "-config", "/etc/sirin/sirinapi.toml"]
     volumes:
-      - /etc/sirin/sirinapi.toml:/etc/sirin/sirinapi.toml:ro
-      - /etc/sirin/clients.json:/etc/sirin/clients.json
+      - /etc/sirin:/etc/sirin
       - /var/log/sirin:/var/log/sirin
     user: "0:0"  # root (нужен для записи в /etc/sirin/clients.json)
 
@@ -83,8 +82,7 @@ services:
     restart: unless-stopped
     command: ["sirinbot", "-config", "/etc/sirin/sirinbot.toml"]
     volumes:
-      - /etc/sirin/sirinbot.toml:/etc/sirin/sirinbot.toml:ro
-      - /etc/sirin/bot_users.json:/etc/sirin/bot_users.json
+      - /etc/sirin:/etc/sirin
       - /var/log/sirin:/var/log/sirin
     user: "1000:1000"  # sirin (не нужен root)
     depends_on:

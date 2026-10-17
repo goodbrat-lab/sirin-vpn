@@ -154,3 +154,5 @@ sudo systemctl enable --now nginx xray sirind sirinapi sirinbot
 - **xray падает: permission denied /var/log/xray/access.log** → 
   xray в контейнере работает под UID 65532. Исправить:
   `chown -R 65532:65532 /var/log/xray && chmod 755 /var/log/xray`
+- **500 при создании ключа через API/bot** → 
+  проверьте, что `/etc/sirin` смонтирован как директория (`/etc/sirin:/etc/sirin`), а не отдельные файлы. Атомарный `os.Rename` временного файла не работает поверх bind mount файла (`EBUSY: device or resource busy`).
