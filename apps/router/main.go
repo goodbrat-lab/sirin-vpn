@@ -37,13 +37,19 @@ func main() {
 
 	// 1. Определение WAN интерфейса и шлюза
 	wan := detectWan()
-	if cfg.WanInterface != "" {
+	if cfg.WanInterface != "" && cfg.WanInterface != "wan" && cfg.WanInterface != "auto" {
+		wan.iface = cfg.WanInterface
+	} else if wan.iface == "" && cfg.WanInterface != "" {
 		wan.iface = cfg.WanInterface
 	}
 	if cfg.WanGateway != "" {
 		wan.gw = cfg.WanGateway
 	}
-	log.Printf("[net] Обнаружен WAN: iface=%s, gw=%s", wan.iface, wan.gw)
+	if wan.iface == "" {
+		log.Printf("[net] ВНИМАНИЕ: WAN-интерфейс не обнаружен автоматически (default route отсутствует)")
+	} else {
+		log.Printf("[net] Обнаружен WAN: iface=%s, gw=%s", wan.iface, wan.gw)
+	}
 
 	// 2. Создание виртуального TUN интерфейса
 	tun, err := openTun(cfg.TunName, cfg.TunMTU)
@@ -74,6 +80,9 @@ func main() {
 		Protector: protector,
 		TunnelDNS: desktop.DefaultTunnelDNS,
 		ClampMSS:  true,
+		LogFunc: func(line string) {
+			log.Printf("[engine] %s", line)
+		},
 	}
 
 	// 5. Запуск движка через универсальный фасад
@@ -98,7 +107,7 @@ func main() {
 					log.Printf("[route] Ошибка настройки маршрутов: %v", err)
 				}
 			case "log":
-				log.Printf("[engine] %s", ev.Reason)
+				// Логи выводятся в реальном времени через desktopCfg.LogFunc
 			case "stopping":
 				log.Printf("[engine] Остановка: %s", ev.Reason)
 			case "stopped":

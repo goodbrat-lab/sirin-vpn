@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"sirin/engine/desktop"
@@ -22,31 +23,123 @@ type wanInfo struct {
 	gw    string
 }
 
-// detectWan определяет физический WAN-интерфейс и шлюз по умолчанию
-func detectWan() wanInfo {
-	out, err := exec.Command("ip", "route", "show", "default").Output()
-	if err != nil || len(out) == 0 {
-		return wanInfo{}
+// parseDefaultRoute разбирает вывод команды `ip route show default`.
+// Корректно определяет интерфейсы с PPPoE (например, dev pppoe-wan без via),
+// а также выбирает маршрут с наименьшей метрикой, если маршрутов по умолчанию несколько.
+func parseDefaultRoute(output []byte) wanInfo {
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	var bestWan wanInfo
+	bestMetric := -1
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// Проверяем строки маршрутов по умолчанию
+		if !strings.HasPrefix(line, "default") && !strings.HasPrefix(line, "0.0.0.0/0") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		var gw, dev string
+		metric := 0
+		hasMetric := false
+
+		for i := 0; i < len(fields); i++ {
+			if fields[i] == "via" && i+1 < len(fields) {
+				gw = fields[i+1]
+			}
+			if fields[i] == "dev" && i+1 < len(fields) {
+				dev = fields[i+1]
+			}
+			if fields[i] == "metric" && i+1 < len(fields) {
+				if m, err := strconv.Atoi(fields[i+1]); err == nil {
+					metric = m
+					hasMetric = true
+				}
+			}
+		}
+
+		if dev != "" {
+			// Если метрика не указана явно, в Linux по умолчанию metric 0
+			if !hasMetric {
+				metric = 0
+			}
+			if bestMetric == -1 || metric < bestMetric {
+				bestMetric = metric
+				bestWan = wanInfo{iface: dev, gw: gw}
+			}
+		}
+	}
+	return bestWan
+}
+
+// parseProcNetRoute разбирает текстовый формат /proc/net/route на Linux,
+// находя интерфейс для шлюза 00000000 (0.0.0.0/0).
+func parseProcNetRoute(data []byte) wanInfo {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// Первая строка — заголовки (Iface Destination Gateway Flags ...)
+	if scanner.Scan() {
+		_ = scanner.Text()
 	}
 
-	scanner := bufio.NewScanner(bytes.NewReader(out))
+	var bestWan wanInfo
+	bestMetric := -1
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		fields := strings.Fields(line)
-		// default via 192.168.1.1 dev eth0 ...
-		var gw, dev string
-		for i := 0; i < len(fields)-1; i++ {
-			if fields[i] == "via" {
-				gw = fields[i+1]
-			}
-			if fields[i] == "dev" {
-				dev = fields[i+1]
+		if len(fields) < 4 {
+			continue
+		}
+		iface := fields[0]
+		dest := fields[1]
+		gwHex := fields[2]
+		metric := 0
+		if len(fields) >= 7 {
+			if m, err := strconv.Atoi(fields[6]); err == nil {
+				metric = m
 			}
 		}
-		if dev != "" {
-			return wanInfo{iface: dev, gw: gw}
+
+		if dest == "00000000" {
+			var gw string
+			if len(gwHex) == 8 && gwHex != "00000000" {
+				if b, err := strconv.ParseUint(gwHex, 16, 32); err == nil {
+					gw = fmt.Sprintf("%d.%d.%d.%d", byte(b), byte(b>>8), byte(b>>16), byte(b>>24))
+				}
+			}
+			if bestMetric == -1 || metric < bestMetric {
+				bestMetric = metric
+				bestWan = wanInfo{iface: iface, gw: gw}
+			}
 		}
 	}
+	return bestWan
+}
+
+// detectWan определяет физический WAN-интерфейс и шлюз по умолчанию
+func detectWan() wanInfo {
+	out, err := exec.Command("ip", "-4", "route", "show", "default").Output()
+	if err != nil || len(out) == 0 {
+		out, _ = exec.Command("ip", "route", "show", "default").Output()
+	}
+	if len(out) > 0 {
+		wan := parseDefaultRoute(out)
+		if wan.iface != "" {
+			return wan
+		}
+	}
+
+	// Запасной вариант через /proc/net/route
+	if data, err := os.ReadFile("/proc/net/route"); err == nil && len(data) > 0 {
+		wan := parseProcNetRoute(data)
+		if wan.iface != "" {
+			return wan
+		}
+	}
+
 	return wanInfo{}
 }
 

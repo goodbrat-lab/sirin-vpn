@@ -58,7 +58,7 @@ func (s *session) dialStream(
 
 	// NEW: VLESS+Reality
 	if c.transport == transVLESS {
-		s.logf("%s: открываю VLESS+Reality поток до %s:%d", c.name, host, c.port)
+		s.logf("переключение на VLESS: открываю VLESS+Reality поток %s до %s:%d (SNI: %s)", c.name, host, c.port, c.sni)
 		cfg := &vless.RealityConfig{
 			ServerHost:  host,
 			ServerPort:  int(c.port),
