@@ -1,0 +1,407 @@
+#!/bin/sh
+
+CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
+VERSION="1.1.0"
+
+get_input() {
+    if [ "$MODE" = "call" ] && [ -n "$ARG3" ]; then
+        echo "$ARG3"
+    elif [ "$MODE" != "call" ] && [ -n "$ARG2" ]; then
+        echo "$ARG2"
+    else
+        cat 2>/dev/null
+    fi
+}
+
+method_status() {
+    pid=$(pgrep -f "/usr/bin/sirin-client" 2>/dev/null | head -n1)
+    if [ -z "$pid" ]; then
+        pid=$(pgrep -f "sirin-client" 2>/dev/null | head -n1)
+    fi
+
+    running=false
+    pid_val=0
+    uptime_sec=0
+    if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+        running=true
+        pid_val=$pid
+        now=$(date +%s 2>/dev/null || echo 0)
+        start=$(date -r "/proc/$pid" +%s 2>/dev/null || stat -c %Y "/proc/$pid" 2>/dev/null || echo 0)
+        if [ "$now" -gt 0 ] && [ "$start" -gt 0 ] && [ "$now" -ge "$start" ]; then
+            uptime_sec=$((now - start))
+        fi
+    fi
+
+    enabled=false
+    if ls /etc/rc.d/S*sirin >/dev/null 2>&1; then
+        enabled=true
+    fi
+
+    transport=""
+    if [ "$running" = "true" ]; then
+        logs=$( (logread 2>/dev/null || cat /var/log/messages 2>/dev/null) | grep -i sirin | tail -n 100 )
+        if echo "$logs" | grep -qiE "vless|поток"; then
+            transport="vless"
+        elif echo "$logs" | grep -qiE "udp|noise"; then
+            transport="udp"
+        fi
+    fi
+
+    printf '{"running":%s,"enabled":%s,"pid":%d,"version":"%s","transport":"%s","uptime_sec":%d}\n' \
+        "$running" "$enabled" "$pid_val" "$VERSION" "$transport" "$uptime_sec"
+}
+
+method_get_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        printf '{"gateway":"","password":"","device_id":"","ru_direct":false,"tun_mtu":1280}\n'
+        return
+    fi
+
+    awk '
+    BEGIN {
+        in_top = 1
+        gateway = ""
+        password = ""
+        device_id = ""
+        ru_direct = "false"
+        tun_mtu = 1280
+    }
+    /^\[\[/ { in_top = 0 }
+    in_top && /^[ \t]*gateway[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) gateway = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_top && /^[ \t]*password[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) password = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_top && /^[ \t]*device_id[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) device_id = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_top && /^[ \t]*ru_direct[ \t]*=/ {
+        if ($0 ~ /true/i) ru_direct = "true"
+        else ru_direct = "false"
+    }
+    in_top && /^[ \t]*tun_mtu[ \t]*=/ {
+        sub(/^[ \t]*tun_mtu[ \t]*=[ \t]*/, "")
+        if (match($0, /[0-9]+/)) tun_mtu = substr($0, RSTART, RLENGTH)
+    }
+    END {
+        masked_pw = password
+        if (length(password) > 8) {
+            masked_pw = substr(password, 1, 8) "…"
+        }
+        gsub(/"/, "\\\"", gateway)
+        gsub(/"/, "\\\"", masked_pw)
+        gsub(/"/, "\\\"", device_id)
+        printf "{\"gateway\":\"%s\",\"password\":\"%s\",\"device_id\":\"%s\",\"ru_direct\":%s,\"tun_mtu\":%d}\n", gateway, masked_pw, device_id, ru_direct, tun_mtu
+    }
+    ' "$CONFIG_FILE"
+}
+
+method_set_config() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    # Extract fields from JSON input
+    eval $(awk -v json="$raw_input" '
+    function get_field(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*\"", "", val)
+            sub("\"$", "", val)
+            return val
+        } else if (match(json, "\"" k "\"[ \t]*:[ \t]*[^,}]*")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*", "", val)
+            gsub(/[ \t]/, "", val)
+            return val
+        }
+        return ""
+    }
+    BEGIN {
+        gw = get_field("gateway")
+        pw = get_field("password")
+        did = get_field("device_id")
+        rud = get_field("ru_direct")
+        mtu = get_field("tun_mtu")
+        # Sanitize for shell eval
+        gsub(/'\''/, "'\''\\'\'''\''", gw)
+        gsub(/'\''/, "'\''\\'\'''\''", pw)
+        gsub(/'\''/, "'\''\\'\'''\''", did)
+        gsub(/'\''/, "'\''\\'\'''\''", rud)
+        gsub(/'\''/, "'\''\\'\'''\''", mtu)
+        printf "NEW_GW='\''%s'\''; NEW_PW='\''%s'\''; NEW_DID='\''%s'\''; NEW_RUD='\''%s'\''; NEW_MTU='\''%s'\'';\n", gw, pw, did, rud, mtu
+    }
+    ')
+
+    # Validation
+    # 1. Gateway: hostname or IPv4, non-empty, no spaces
+    if [ -z "$NEW_GW" ] || echo "$NEW_GW" | grep -qE "[^a-zA-Z0-9.-]"; then
+        printf '{"ok":false,"error":"gateway: неверный формат хоста или IP"}\n'
+        return
+    fi
+
+    # 2. Password: non-empty
+    if [ -z "$NEW_PW" ]; then
+        printf '{"ok":false,"error":"password: ключ доступа не может быть пустым"}\n'
+        return
+    fi
+
+    # If password is still masked with "…", retrieve existing real password
+    if echo "$NEW_PW" | grep -q "…"; then
+        if [ -f "$CONFIG_FILE" ]; then
+            EXISTING_PW=$(awk -F= '
+                /^\[\[/ { exit }
+                /^[ \t]*password[ \t]*=/ {
+                    sub(/^[ \t]*password[ \t]*=[ \t]*/, "")
+                    gsub(/^[ \t]*["\047]|["\047].*$/, "")
+                    print $0
+                    exit
+                }
+            ' "$CONFIG_FILE")
+            if [ -n "$EXISTING_PW" ]; then
+                NEW_PW="$EXISTING_PW"
+            fi
+        fi
+    fi
+
+    # 3. Device ID: [a-zA-Z0-9._-]{1,64}
+    if [ -z "$NEW_DID" ] || echo "$NEW_DID" | grep -qE "[^a-zA-Z0-9._-]" || [ ${#NEW_DID} -gt 64 ]; then
+        printf '{"ok":false,"error":"device_id: допустимы символы a-z, 0-9, ., _, -, длина до 64"}\n'
+        return
+    fi
+
+    # 4. TUN MTU: 576..1500
+    if ! echo "$NEW_MTU" | grep -qE "^[0-9]+$" || [ "$NEW_MTU" -lt 576 ] || [ "$NEW_MTU" -gt 1500 ]; then
+        printf '{"ok":false,"error":"tun_mtu: должно быть от 576 до 1500"}\n'
+        return
+    fi
+
+    # 5. RuDirect: bool
+    if [ "$NEW_RUD" != "true" ] && [ "$NEW_RUD" != "false" ]; then
+        NEW_RUD="false"
+    fi
+
+    # Create directory if missing
+    mkdir -p /etc/sirin
+
+    # Backup existing config
+    if [ -f "$CONFIG_FILE" ]; then
+        cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s 2>/dev/null || echo $$)"
+    fi
+
+    # Update or create /etc/sirin/client.toml preserving [[ladder]]
+    TMP_CONF="/tmp/client.toml.tmp.$$"
+    awk -v new_gw="$NEW_GW" \
+        -v new_pw="$NEW_PW" \
+        -v new_did="$NEW_DID" \
+        -v new_rud="$NEW_RUD" \
+        -v new_mtu="$NEW_MTU" '
+    BEGIN {
+        in_top = 1
+        seen_gw = 0
+        seen_pw = 0
+        seen_did = 0
+        seen_rud = 0
+        seen_mtu = 0
+    }
+    /^\[\[/ {
+        if (in_top) {
+            # Append any missing top-level keys before first [[ladder]]
+            if (!seen_gw) print "gateway = \"" new_gw "\""
+            if (!seen_pw) print "password = \"" new_pw "\""
+            if (!seen_did) print "device_id = \"" new_did "\""
+            if (!seen_mtu) print "tun_mtu = " new_mtu
+            if (!seen_rud) print "ru_direct = " new_rud
+            print ""
+            in_top = 0
+        }
+    }
+    in_top && /^[ \t]*gateway[ \t]*=/ {
+        print "gateway = \"" new_gw "\""
+        seen_gw = 1
+        next
+    }
+    in_top && /^[ \t]*password[ \t]*=/ {
+        print "password = \"" new_pw "\""
+        seen_pw = 1
+        next
+    }
+    in_top && /^[ \t]*device_id[ \t]*=/ {
+        print "device_id = \"" new_did "\""
+        seen_did = 1
+        next
+    }
+    in_top && /^[ \t]*tun_mtu[ \t]*=/ {
+        print "tun_mtu = " new_mtu
+        seen_mtu = 1
+        next
+    }
+    in_top && /^[ \t]*ru_direct[ \t]*=/ {
+        print "ru_direct = " new_rud
+        seen_rud = 1
+        next
+    }
+    { print $0 }
+    END {
+        if (in_top) {
+            if (!seen_gw) print "gateway = \"" new_gw "\""
+            if (!seen_pw) print "password = \"" new_pw "\""
+            if (!seen_did) print "device_id = \"" new_did "\""
+            if (!seen_mtu) print "tun_mtu = " new_mtu
+            if (!seen_rud) print "ru_direct = " new_rud
+        }
+    }
+    ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
+
+    if [ -s "$TMP_CONF" ]; then
+        mv "$TMP_CONF" "$CONFIG_FILE"
+        printf '{"ok":true}\n'
+    else
+        rm -f "$TMP_CONF"
+        printf '{"ok":false,"error":"Не удалось записать конфигурацию"}\n'
+    fi
+}
+
+method_service() {
+    action="$1"
+    err_out=$(/etc/init.d/sirin "$action" 2>&1)
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        printf '{"ok":true}\n'
+    else
+        clean_err=$(echo "$err_out" | tr '\n' ' ' | sed 's/"/\\"/g')
+        printf '{"ok":false,"error":"%s"}\n' "$clean_err"
+    fi
+}
+
+method_get_logs() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    lines=$(echo "$raw_input" | awk '
+        match($0, /"lines"[ \t]*:[ \t]*[0-9]+/) {
+            v = substr($0, RSTART, RLENGTH)
+            sub(/^"lines"[ \t]*:[ \t]*/, "", v)
+            print v
+            exit
+        }
+    ')
+    if [ -z "$lines" ] || [ "$lines" -le 0 ] 2>/dev/null; then
+        lines=200
+    fi
+    if [ "$lines" -gt 1000 ] 2>/dev/null; then
+        lines=1000
+    fi
+
+    ( (logread 2>/dev/null || cat /var/log/messages 2>/dev/null) | grep -i sirin | tail -n "$lines" ) | awk '
+    BEGIN {
+        printf "{\"lines\":["
+        first = 1
+    }
+    {
+        gsub(/\\/, "\\\\")
+        gsub(/"/, "\\\"")
+        gsub(/\r/, "")
+        if (!first) printf ","
+        printf "\"%s\"", $0
+        first = 0
+    }
+    END {
+        printf "]}\n"
+    }
+    '
+}
+
+method_test_connection() {
+    rudirect_via_tunnel=false
+    if ip route get 77.88.8.8 2>/dev/null | grep -q sirin0; then
+        rudirect_via_tunnel=true
+    fi
+
+    public_ip=$(wget -qO- --timeout=5 https://api.ipify.org 2>/dev/null | tr -d '\r\n ')
+    ip_ok=false
+    if [ -n "$public_ip" ]; then
+        ip_ok=true
+    else
+        public_ip="нет ответа"
+    fi
+
+    if [ "$rudirect_via_tunnel" = "false" ]; then
+        raw="RuDirect: трафик РФ идёт напрямую через WAN"
+    else
+        raw="ВНИМАНИЕ: трафик РФ идёт через VPN"
+    fi
+
+    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"raw":"%s"}\n' \
+        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$raw"
+}
+
+# Entry point
+case "$1" in
+    list)
+        cat << 'EOF'
+{
+  "status": {},
+  "get_config": {},
+  "set_config": {
+    "gateway": "str",
+    "password": "str",
+    "device_id": "str",
+    "ru_direct": "bool",
+    "tun_mtu": "int"
+  },
+  "start": {},
+  "stop": {},
+  "restart": {},
+  "enable": {},
+  "disable": {},
+  "get_logs": {
+    "lines": "int"
+  },
+  "test_connection": {}
+}
+EOF
+        exit 0
+        ;;
+    call)
+        cmd="$2"
+        MODE="call"
+        ARG2="$2"
+        ARG3="$3"
+        ;;
+    *)
+        cmd="$1"
+        MODE="direct"
+        ARG2="$2"
+        ARG3="$3"
+        ;;
+esac
+
+case "$cmd" in
+    status)
+        method_status
+        ;;
+    get_config)
+        method_get_config
+        ;;
+    set_config)
+        method_set_config "$(get_input)"
+        ;;
+    start|stop|restart|enable|disable)
+        method_service "$cmd"
+        ;;
+    get_logs)
+        method_get_logs "$(get_input)"
+        ;;
+    test_connection)
+        method_test_connection
+        ;;
+    *)
+        printf '{"error":"Unknown method: %s"}\n' "$cmd"
+        exit 1
+        ;;
+esac

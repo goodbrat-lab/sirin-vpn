@@ -2,7 +2,16 @@
 # Универсальный установщик для OpenWrt 24.x (opkg) и 25.x (apk)
 set -e
 
-ARCH=${1:-}
+UI_MODE="auto"
+ARCH=""
+for arg in "$@"; do
+    case "$arg" in
+        --with-ui) UI_MODE="with" ;;
+        --no-ui)   UI_MODE="no" ;;
+        mips|mipsle|armv7|arm64|x86_64) ARCH="$arg" ;;
+    esac
+done
+
 if [ -z "$ARCH" ]; then
     echo "Detecting architecture..."
     M=$(uname -m)
@@ -17,7 +26,7 @@ if [ -z "$ARCH" ]; then
     echo "Detected: $ARCH"
 fi
 
-VERSION=${VERSION:-1.0.1}
+VERSION=${VERSION:-1.1.0}
 URL="https://github.com/goodbrat-lab/sirin-vpn/releases/download/router-v$VERSION/sirin-client-$VERSION-$ARCH.tar.gz"
 
 # Определить пакетный менеджер
@@ -61,7 +70,7 @@ else
     exit 1
 fi
 
-# 3. Конфиг
+# 3. Конфиг (сохраняем существующий при обновлении)
 if [ ! -f /etc/sirin/client.toml ]; then
     CONF_SRC=""
     for p in /tmp/client.toml.example /tmp/configs/client.toml.example /tmp/client.toml.template /tmp/configs/client.toml.template; do
@@ -102,7 +111,59 @@ else
     echo "WARNING: init-скрипт sirin не найден"
 fi
 
-# 5. Зависимости (kmod-tun + nftables)
+# 5. Веб-интерфейс LuCI
+HAS_LUCI=0
+if [ -d /www/luci-static/resources ] && [ -d /usr/share/luci ]; then
+    HAS_LUCI=1
+fi
+
+INSTALL_UI=0
+case "$UI_MODE" in
+    with)
+        INSTALL_UI=1
+        ;;
+    no)
+        INSTALL_UI=0
+        ;;
+    auto)
+        if [ "$HAS_LUCI" = 1 ]; then
+            INSTALL_UI=1
+        fi
+        ;;
+esac
+
+UI_INSTALLED=0
+if [ "$INSTALL_UI" = 1 ]; then
+    LUCI_DIR=""
+    for p in /tmp/luci-app-sirin /tmp/*/luci-app-sirin; do
+        if [ -d "$p" ]; then
+            LUCI_DIR="$p"
+            break
+        fi
+    done
+
+    if [ -n "$LUCI_DIR" ]; then
+        echo "Installing LuCI Web UI..."
+        if [ -d "$LUCI_DIR/root" ]; then
+            cp -r "$LUCI_DIR/root/"* / 2>/dev/null || true
+        fi
+        if [ -d "$LUCI_DIR/htdocs" ]; then
+            mkdir -p /www
+            cp -r "$LUCI_DIR/htdocs/"* /www/ 2>/dev/null || true
+        fi
+        chmod +x /usr/libexec/rpcd/sirin 2>/dev/null || true
+        /etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart 2>/dev/null || true
+        rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null || true
+        UI_INSTALLED=1
+        echo "UI: http://<router-ip>/cgi-bin/luci/admin/services/sirin"
+    else
+        echo "WARNING: каталог luci-app-sirin не найден в архиве"
+    fi
+else
+    echo "UI: пропущен (LuCI не обнаружен или --no-ui)"
+fi
+
+# 6. Зависимости (kmod-tun + nftables)
 echo "Installing dependencies..."
 if [ "$PKG" = "apk" ]; then
     apk update 2>/dev/null || true
@@ -114,18 +175,21 @@ else
     opkg install kmod-tun nftables ip-full 2>/dev/null || true
 fi
 
-# 6. Проверить, что TUN доступен
+# 7. Проверить, что TUN доступен
 if [ ! -c /dev/net/tun ]; then
     echo "WARNING: /dev/net/tun не найден. Установите kmod-tun:"
     echo "  $PKG_INSTALL kmod-tun"
 fi
 
-# 7. Включить автозапуск
+# 8. Включить автозапуск
 /etc/init.d/sirin enable 2>/dev/null || true
 
 echo ""
 echo "=== Sirin Router Client установлен ==="
 echo "Конфигурация: /etc/sirin/client.toml"
+if [ "$UI_INSTALLED" = 1 ]; then
+    echo "Веб-интерфейс LuCI: http://<router-ip>/cgi-bin/luci/admin/services/sirin"
+fi
 echo "1. Отредактируйте конфиг и вставьте ваш UUID из @sirin_crp_bot:"
 echo "   vi /etc/sirin/client.toml"
 echo "2. Запустите службу:"

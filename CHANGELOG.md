@@ -1,5 +1,12 @@
 # Changelog
 
+## [router-v1.1.0] - 2026-10-18
+
+### Added
+- LuCI-приложение luci-app-sirin (веб-UI): статус, настройки, диагностика, логи
+- install.sh: флаги --with-ui / --no-ui, авто-детект LuCI
+- RPCD-бэкенд /usr/libexec/rpcd/sirin (ubus object «sirin»)
+
 ## [router-v1.0.1] - 2026-10-18
 
 ### Fixed

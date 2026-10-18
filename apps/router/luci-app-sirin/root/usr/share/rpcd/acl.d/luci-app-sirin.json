@@ -1,0 +1,33 @@
+{
+  "luci-app-sirin": {
+    "description": "Sirin VPN — управление Router-клиентом",
+    "read": {
+      "ubus": {
+        "sirin": [
+          "status",
+          "get_config",
+          "get_logs",
+          "test_connection"
+        ]
+      },
+      "file": {
+        "/etc/sirin/client.toml": [ "read" ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "sirin": [
+          "set_config",
+          "start",
+          "stop",
+          "restart",
+          "enable",
+          "disable"
+        ]
+      },
+      "file": {
+        "/etc/sirin/client.toml": [ "write" ]
+      }
+    }
+  }
+}
