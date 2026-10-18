@@ -38,8 +38,13 @@ secrets.properties
 /apps/android/.idea/
 
 # === Desktop (Wails) ===
-/apps/desktop/build/
+/apps/desktop/bin/
+/apps/desktop/dist/
+/apps/desktop/.task/
+/apps/desktop/frontend/dist/
+/apps/desktop/frontend/node_modules/
 /apps/desktop/node_modules/
+!/apps/desktop/build/windows/wintun.dll
 
 # === Router ===
 /apps/router/artifacts/

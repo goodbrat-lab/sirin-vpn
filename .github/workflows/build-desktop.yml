@@ -1,0 +1,73 @@
+name: Build Desktop (Windows Installer)
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'   # например, desktop-v1.0.0
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: |
+            core/engine/go.sum
+            apps/desktop/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails v3
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Install Task
+        run: choco install go-task -y
+
+      - name: Copy wintun.dll to bin (if missing)
+        run: |
+          if (!(Test-Path "apps/desktop/bin/wintun.dll")) {
+            New-Item -ItemType Directory -Force -Path "apps/desktop/bin"
+            Copy-Item "apps/desktop/build/windows/wintun.dll" -Destination "apps/desktop/bin/wintun.dll"
+          }
+
+      - name: Build Wails app
+        working-directory: apps/desktop
+        run: wails3 build
+
+      - name: Compile Inno Setup installer
+        working-directory: apps/desktop/build/windows
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+          & $iscc installer.iss
+
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: sirin-desktop-installer
+          path: apps/desktop/dist/Sirin-VPN-*-Setup.exe
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop/dist/Sirin-VPN-*-Setup.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false

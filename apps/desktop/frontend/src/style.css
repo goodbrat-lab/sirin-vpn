@@ -1,0 +1,205 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--m-space);
+    color: var(--m-text);
+    font-family: var(--m-font);
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.app {
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    justify-content: space-between;
+}
+
+.header {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 48px;
+}
+
+.status-label {
+    font-size: var(--m-fs-notice);
+    color: var(--m-dim);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--m-dim);
+    font-size: 20px;
+    width: var(--m-icon);
+    height: var(--m-icon);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s;
+}
+
+.icon-btn:hover {
+    background: var(--m-sphere);
+    color: var(--m-text);
+}
+
+.main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 12px;
+}
+
+#feather {
+    width: 200px;
+    height: 200px;
+}
+
+.state-text {
+    font-size: var(--m-fs-title);
+    font-weight: 600;
+    color: var(--m-text);
+}
+
+.transport-text {
+    font-size: var(--m-fs-small);
+    color: var(--m-dim);
+    min-height: 16px;
+}
+
+.footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: 16px;
+}
+
+.connect-btn {
+    width: 100%;
+    max-width: 320px;
+    height: 48px;
+    background: var(--m-edge);
+    color: var(--m-on-accent);
+    border: none;
+    border-radius: 24px;
+    font-size: var(--m-fs-body);
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(111, 152, 255, 0.35);
+    transition: transform 0.1s, opacity 0.2s, background 0.2s;
+}
+
+.connect-btn:hover {
+    opacity: 0.95;
+    transform: translateY(-1px);
+}
+
+.connect-btn:active {
+    transform: translateY(1px);
+}
+
+.connect-btn.danger {
+    background: #E53935;
+    color: #FFFFFF;
+    box-shadow: 0 4px 14px rgba(229, 57, 53, 0.4);
+}
+
+/* Dialog */
+dialog {
+    background: var(--m-sphere);
+    color: var(--m-text);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    margin: auto;
+    width: 320px;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+}
+
+dialog h2 {
+    font-size: var(--m-fs-title);
+    margin-bottom: 16px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.field label {
+    font-size: var(--m-fs-notice);
+    color: var(--m-dim);
+}
+
+.field input {
+    background: var(--m-space);
+    border: 1px solid var(--m-accent-off);
+    border-radius: var(--m-radius-input);
+    color: var(--m-text);
+    padding: 10px 12px;
+    font-size: var(--m-fs-body-medium);
+    font-family: monospace;
+    outline: none;
+}
+
+.field input:focus {
+    border-color: var(--m-edge);
+}
+
+.buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.buttons button {
+    padding: 8px 16px;
+    border-radius: 16px;
+    border: none;
+    font-size: var(--m-fs-body-medium);
+    font-weight: 500;
+    cursor: pointer;
+}
+
+#save-settings {
+    background: var(--m-edge);
+    color: var(--m-on-accent);
+}
+
+#close-settings {
+    background: transparent;
+    color: var(--m-dim);
+}
+
+#close-settings:hover {
+    color: var(--m-text);
+}

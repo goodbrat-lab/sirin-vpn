@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сирин</title>
+    <link rel="stylesheet" href="/src/tokens.css">
+    <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <span class="status-label" id="status-label">Отключено</span>
+            <button class="icon-btn" id="settings-btn" title="Настройки">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+        </header>
+        <main class="main">
+            <canvas id="feather" width="200" height="200"></canvas>
+            <p class="state-text" id="state-text">Не подключено</p>
+            <p class="transport-text" id="transport-text"></p>
+        </main>
+        <footer class="footer">
+            <button class="connect-btn" id="connect-btn">Подключить</button>
+        </footer>
+    </div>
+    
+    <!-- Settings dialog -->
+    <dialog id="settings-dialog">
+        <h2>Настройки</h2>
+        <div class="field">
+            <label>Ключ доступа (UUID)</label>
+            <input type="text" id="key-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" maxlength="36">
+        </div>
+        <div class="buttons">
+            <button id="save-settings">Сохранить</button>
+            <button id="close-settings">Отмена</button>
+        </div>
+    </dialog>
+    
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

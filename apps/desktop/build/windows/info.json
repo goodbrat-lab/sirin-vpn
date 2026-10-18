@@ -1,0 +1,16 @@
+{
+	"fixed": {
+		"file_version": "1.0.0.0",
+		"product_version": "1.0.0.0"
+	},
+	"info": {
+		"0409": {
+			"ProductVersion": "1.0.0",
+			"CompanyName": "Sirin Project",
+			"FileDescription": "Sirin VPN Desktop Client",
+			"LegalCopyright": "Copyright © 2026 Sirin Project",
+			"ProductName": "Sirin VPN",
+			"Comments": "VPN with censorship resistance"
+		}
+	}
+}

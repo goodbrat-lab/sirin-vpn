@@ -1,0 +1,19 @@
+{
+  "name": "Sirin",
+  "outputfilename": "sirin",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Sirin Project",
+    "email": "support@guseynovia.ru"
+  },
+  "info": {
+    "companyName": "Sirin Project",
+    "productName": "Sirin VPN",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026 Sirin Project",
+    "comments": "VPN with censorship resistance"
+  }
+}
