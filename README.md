@@ -61,7 +61,7 @@ VPN с защитой от блокировок ТСПУ. Собственный
 wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/install.sh | sh
 ```
 
-Или вручную: скачать `sirin-client-<version>-<arch>.tar.gz` из Releases, распаковать, запустить `install.sh`.
+Подробная инструкция: [docs/ROUTER.md](docs/ROUTER.md)
 
 ### Архитектуры
 
@@ -72,12 +72,6 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 | armv7 | Keenetic Hopper, Xiaomi AX1800 |
 | arm64 | Raspberry Pi, NanoPi, Keenetic Titan |
 | x86_64 | Мини-ПК |
-
-### Настройка
-
-1. Отредактировать `/etc/sirin/client.toml` — вставить UUID из @sirin_crp_bot
-2. Запустить: `/etc/init.d/sirin start`
-3. Проверить: `logread -f | grep sirin`
 
 ## Credits
 
