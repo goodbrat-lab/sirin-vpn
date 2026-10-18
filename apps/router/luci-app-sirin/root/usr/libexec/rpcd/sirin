@@ -142,28 +142,34 @@ method_set_config() {
         return
     fi
 
-    # 2. Password: non-empty
-    if [ -z "$NEW_PW" ]; then
-        printf '{"ok":false,"error":"password: ключ доступа не может быть пустым"}\n'
-        return
-    fi
-
     # If password is still masked with "…", retrieve existing real password
-    if echo "$NEW_PW" | grep -q "…"; then
+    if echo "$NEW_PW" | grep -qE "(…|\.\.\.)"; then
         if [ -f "$CONFIG_FILE" ]; then
-            EXISTING_PW=$(awk -F= '
+            EXISTING_PW=$(awk '
                 /^\[\[/ { exit }
                 /^[ \t]*password[ \t]*=/ {
-                    sub(/^[ \t]*password[ \t]*=[ \t]*/, "")
-                    gsub(/^[ \t]*["\047]|["\047].*$/, "")
-                    print $0
-                    exit
+                    if (match($0, /"[^"]*"/)) {
+                        print substr($0, RSTART + 1, RLENGTH - 2)
+                        exit
+                    }
                 }
             ' "$CONFIG_FILE")
             if [ -n "$EXISTING_PW" ]; then
                 NEW_PW="$EXISTING_PW"
             fi
         fi
+    fi
+
+    # 2. Password: non-empty check
+    if [ -z "$NEW_PW" ]; then
+        printf '{"ok":false,"error":"password: пустой ключ"}\n'
+        return
+    fi
+
+    PW_WARN=""
+    UUID_REGEX="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    if ! echo "$NEW_PW" | grep -qE "$UUID_REGEX"; then
+        PW_WARN="не похоже на UUID v4"
     fi
 
     # 3. Device ID: [a-zA-Z0-9._-]{1,64}
@@ -184,7 +190,7 @@ method_set_config() {
     fi
 
     # Create directory if missing
-    mkdir -p /etc/sirin
+    mkdir -p "$(dirname "$CONFIG_FILE")"
 
     # Backup existing config
     if [ -f "$CONFIG_FILE" ]; then
@@ -257,7 +263,11 @@ method_set_config() {
 
     if [ -s "$TMP_CONF" ]; then
         mv "$TMP_CONF" "$CONFIG_FILE"
-        printf '{"ok":true}\n'
+        if [ -n "$PW_WARN" ]; then
+            printf '{"ok":true,"warn":"%s"}\n' "$PW_WARN"
+        else
+            printf '{"ok":true}\n'
+        fi
     else
         rm -f "$TMP_CONF"
         printf '{"ok":false,"error":"Не удалось записать конфигурацию"}\n'
