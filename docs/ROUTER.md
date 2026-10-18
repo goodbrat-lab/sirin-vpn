@@ -225,7 +225,17 @@ logread -f | grep sirin
    - **Проверить подключение:** определяет внешний публичный IP и проверяет корректность прямого маршрута для Рунета.
    - **Показать логи:** просмотр последних записей журнала работы клиента в удобном модальном окне с возможностью обновления.
 
-### 6.4. Установка LuCI на чистых системах
+### 6.4. Внешний вид интерфейса (скриншоты)
+
+Интерфейс адаптируется под установленную в системе тему оформления LuCI:
+
+| Тема оформления | Скриншот |
+|---|---|
+| **Bootstrap** (стандартная тема OpenWrt) | ![LuCI Bootstrap Theme](screenshots/sirin-ui-bootstrap.png) |
+| **Argon** (популярная сторонняя тема) | ![LuCI Argon Theme](screenshots/sirin-ui-argon.png) |
+| **OpenWrt 2020** (современный стиль) | ![LuCI OpenWrt 2020 Theme](screenshots/sirin-ui-openwrt-2020.png) |
+
+### 6.5. Установка LuCI на чистых системах
 
 Если LuCI не был установлен в вашей прошивке OpenWrt:
 ```bash
@@ -266,6 +276,25 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/install.sh | sh
 /etc/init.d/sirin start
 ```
+
+### 8.1. Откат на предыдущую версию (Rollback)
+
+Если после обновления вам потребовалось вернуться на предыдущую стабильную версию клиента (например, v1.0.1 без веб-интерфейса):
+
+1. Запустите установку с указанием желаемого тега релиза и целевой архитектуры (`mips`, `mipsle`, `armv7`, `arm64`, `x86_64`):
+   ```bash
+   wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/router-v1.0.1/apps/router/install.sh | sh -s -- x86_64
+   ```
+   *(конфигурационный файл `/etc/sirin/client.toml` с вашим UUID и узлами `[[ladder]]` сохраняется без изменений).*
+
+2. Если веб-интерфейс больше не требуется, удалите остаточные компоненты LuCI и перезапустите менеджер RPC:
+   ```bash
+   rm -f /usr/libexec/rpcd/sirin \
+         /usr/share/rpcd/acl.d/luci-app-sirin.json \
+         /usr/share/luci/menu.d/luci-app-sirin.json \
+         /www/luci-static/resources/view/sirin/overview.js
+   /etc/init.d/rpcd reload
+   ```
 
 ---
 
