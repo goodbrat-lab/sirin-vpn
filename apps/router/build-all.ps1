@@ -8,7 +8,7 @@ if (!(Test-Path $OUT)) {
     New-Item -ItemType Directory -Force -Path $OUT | Out-Null
 }
 
-$VERSION = if ($env:VERSION) { $env:VERSION } else { "1.0.1" }
+$VERSION = if ($env:VERSION) { $env:VERSION } else { "1.1.0" }
 $LDFLAGS = "-s -w -X main.Version=$VERSION"
 
 Write-Host "Building sirin-client v$VERSION for 5 architectures..." -ForegroundColor Cyan
@@ -46,7 +46,7 @@ Write-Host "`nPackaging into tar.gz..." -ForegroundColor Cyan
 $archs = @("mips", "mipsle", "armv7", "arm64", "x86_64")
 foreach ($arch in $archs) {
     $tarFile = "$OUT/sirin-client-$VERSION-$arch.tar.gz"
-    tar.exe -czf $tarFile -C $OUT "sirin-client-$arch" -C $scriptDir "init.d/sirin" -C "$scriptDir/configs" "client.toml.example" -C $scriptDir "configs/client.toml.example"
+    tar.exe -czf $tarFile -C $OUT "sirin-client-$arch" -C $scriptDir "init.d/sirin" -C "$scriptDir/configs" "client.toml.example" -C $scriptDir "configs/client.toml.example" -C $scriptDir "luci-app-sirin"
 }
 
 Write-Host "`nArchives:" -ForegroundColor Green
