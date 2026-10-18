@@ -1,23 +1,35 @@
-name: "🐛 Баг-репорт: OpenWrt Router / LuCI UI"
+name: "🐛 Баг-репорт: Router (OpenWrt / LuCI)"
 description: Сообщить об ошибке в клиенте для роутеров или веб-интерфейсе LuCI
-title: "[Router Bug]: "
-labels: ["router", "bug"]
+title: "[Router]: "
+labels: ["platform/router", "type/bug", "feedback"]
 body:
   - type: markdown
     attributes:
       value: |
         Спасибо за обратную связь! Пожалуйста, заполните форму ниже, чтобы помочь нам быстрее локализовать и устранить проблему.
+        **Внимание:** никогда не указывайте ваш секретный UUID-ключ. Заменяйте его на `REDACTED`!
+  - type: dropdown
+    id: client_version
+    attributes:
+      label: Версия клиента Sirin Router
+      options:
+        - "1.1.1 (актуальная)"
+        - "1.1.0"
+        - "1.0.1"
+        - "1.0.0"
+        - "latest (master)"
+    validations:
+      required: true
   - type: dropdown
     id: architecture
     attributes:
-      label: Архитектура роутера (SoC Arch)
-      description: Выберите архитектуру процессора вашего роутера (`uname -m`)
+      label: Архитектура процессора роутера (`uname -m`)
       options:
+        - "arm64 (64-bit: MediaTek MT7981/MT7986, Rockchip, Raspberry Pi)"
+        - "armv7 (32-bit: Cortex-A7/A9, IPQ40xx, Keenetic Hopper/Carrier)"
         - "mips (big-endian: Atheros AR7xxx/AR9xxx, MediaTek MT7620/MT7628)"
-        - "mipsle (little-endian: MediaTek MT7621, MT76x8)"
-        - "armv7 (32-bit: Cortex-A7/A9/A15, IPQ40xx, BCM4709)"
-        - "arm64 (64-bit: Cortex-A53/A72, Filogic MT7981/MT7986, Rockchip)"
-        - "x86_64 (x86 роутер, x86 мини-ПК, VM)"
+        - "mipsle (little-endian: MediaTek MT7621, Keenetic Speedster/Viva)"
+        - "x86_64 (x86 роутер, мини-ПК, VM)"
         - "Другое"
     validations:
       required: true
@@ -26,56 +38,68 @@ body:
     attributes:
       label: Версия OpenWrt и пакетный менеджер
       options:
-        - "OpenWrt 24.x (opkg)"
+        - "OpenWrt 24.10.x (opkg)"
         - "OpenWrt 25.x / SNAPSHOT (apk)"
-        - "OpenWrt 23.x или более ранняя"
+        - "OpenWrt 23.05.x (opkg)"
         - "ImmortalWrt / кастомная сборка"
     validations:
       required: true
   - type: dropdown
-    id: luci_theme
+    id: luci_status
     attributes:
-      label: Тема LuCI
+      label: Веб-интерфейс LuCI и тема оформления
       options:
-        - "luci-theme-bootstrap (по умолчанию)"
-        - "luci-theme-argon"
-        - "luci-theme-openwrt-2020"
-        - "luci-theme-material"
-        - "Web UI не установлен (--no-ui)"
-        - "Другая тема"
+        - "LuCI установлен — тема Bootstrap (стандартная)"
+        - "LuCI установлен — тема Argon"
+        - "LuCI установлен — тема OpenWrt 2020"
+        - "LuCI установлен — тема Material"
+        - "LuCI установлен — другая тема"
+        - "LuCI не установлен (CLI-only, флаг --no-ui)"
     validations:
       required: true
-  - type: dropdown
-    id: client_version
+  - type: input
+    id: public_ip
     attributes:
-      label: Версия клиента Sirin Router
-      options:
-        - "v1.1.1 (актуальная)"
-        - "v1.1.0"
-        - "v1.0.1"
-        - "v1.0.0"
+      label: Внешний IP-адрес роутера (через curl ip.me или api.ipify.org)
+      description: Укажите ваш внешний IP до и после запуска Sirin VPN
+      placeholder: "До: <домашний_ip> / После: <ip_сервера> (или не изменился)"
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения проблемы
+      description: Опишите пошагово, как вызвать проблему
+      placeholder: |
+        1. Установил через install.sh
+        2. Заполнил UUID в веб-интерфейсе
+        3. Нажал 'Сохранить' и 'Запустить'
     validations:
       required: true
   - type: textarea
-    id: bug_description
+    id: expected_vs_actual
     attributes:
-      label: Описание проблемы
-      description: Что именно пошло не так? Какое поведение ожидалось и что произошло фактически?
-      placeholder: "Пример: после нажатия 'Сохранить' в LuCI..."
+      label: Ожидаемое и фактическое поведение
+      placeholder: |
+        Ожидалось: статус переходит в 'Работает', появляется интерфейс sirin0.
+        Фактически: статус остаётся 'Остановлен', в логе ошибка...
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Логи и диагностика
-      description: Приложите вывод команд `logread | grep sirin` и `ubus call sirin status` (если применимо)
+      label: Логи клиента (последние 50 строк)
+      description: Вывод команды `logread -f | grep sirin` или `logread | grep sirin | tail -n 50`
       render: shell
       placeholder: |
-        # logread | grep sirin
-        # ubus call sirin status
+        # logread | grep sirin | tail -n 50
+    validations:
+      required: false
   - type: textarea
     id: browser_console
     attributes:
-      label: Ошибки консоли браузера (если баг в LuCI UI)
-      description: Откройте DevTools (F12) -> Console и скопируйте ошибки при воспроизведении бага
+      label: Ошибки консоли браузера (если проблема в LuCI Web UI)
+      description: DevTools (F12) -> вкладка Console / Network
       render: text
+    validations:
+      required: false

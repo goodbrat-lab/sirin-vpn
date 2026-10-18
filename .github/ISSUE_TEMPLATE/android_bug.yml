@@ -1,0 +1,88 @@
+name: "🐛 Баг-репорт: Android-клиент"
+description: Сообщить об ошибке в приложении Сирин для Android
+title: "[Android]: "
+labels: ["platform/android", "type/bug", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за тестирование Android-клиента Сирин! Пожалуйста, заполните форму ниже.
+        **Внимание:** не публикуйте ваш секретный UUID-ключ в открытом виде.
+  - type: dropdown
+    id: apk_version
+    attributes:
+      label: Версия APK
+      options:
+        - "1.2.0 (актуальная)"
+        - "1.1.1"
+        - "1.1.0"
+        - "Другая сборка"
+    validations:
+      required: true
+  - type: input
+    id: device_info
+    attributes:
+      label: Модель устройства и версия Android
+      placeholder: "Например: Google Pixel 7 (Android 14) / Xiaomi 13 (HyperOS / Android 14)"
+    validations:
+      required: true
+  - type: dropdown
+    id: action_type
+    attributes:
+      label: Что именно выполнялось при возникновении проблемы
+      options:
+        - "Первичное подключение к VPN"
+        - "Раздельное туннелирование (Split Tunneling)"
+        - "Смена ключа доступа (Change Key)"
+        - "Автоподключение при старте системы"
+        - "Переход по deep-link ссылке"
+        - "Другое"
+    validations:
+      required: true
+  - type: dropdown
+    id: deeplink_status
+    attributes:
+      label: Работает ли deep-link (открытие приложения по ссылке из Telegram-бота)?
+      options:
+        - "Да, ключ подставляется автоматически"
+        - "Нет, ссылка не открывает приложение"
+        - "Приложение открывается, но ключ не сохраняется"
+        - "Не проверял(а)"
+    validations:
+      required: true
+  - type: input
+    id: ip_check
+    attributes:
+      label: Проверка IP-адреса (ip.me до и после подключения)
+      placeholder: "До: <домашний_ip> / После: <ip_сервера> (или приложите скриншот)"
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Открыл приложение
+        2. Вставил ключ
+        3. Нажал 'Подключить'
+    validations:
+      required: true
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Ожидаемое и фактическое поведение
+      placeholder: |
+        Ожидалось: статус 'Подключено', иконка щита в строке состояния.
+        Фактически: статус 'Ошибка', VPN не поднимается.
+    validations:
+      required: true
+  - type: textarea
+    id: logcat
+    attributes:
+      label: Логи Android (logcat -s Sirin:V, последние 100 строк)
+      description: Команда через ADB: `adb logcat -s Sirin:V | tail -n 100` (если есть доступ к ADB)
+      render: shell
+      placeholder: |
+        # adb logcat -s Sirin:V
+    validations:
+      required: false

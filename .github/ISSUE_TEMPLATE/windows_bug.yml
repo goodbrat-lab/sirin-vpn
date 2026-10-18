@@ -1,0 +1,82 @@
+name: "🐛 Баг-репорт: Windows-клиент (Desktop)"
+description: Сообщить об ошибке в клиенте Сирин для Windows
+title: "[Windows]: "
+labels: ["platform/windows", "type/bug", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за тестирование Windows-клиента Сирин! Пожалуйста, заполните форму ниже.
+        **Внимание:** не публикуйте ваш секретный UUID-ключ в открытом виде.
+  - type: dropdown
+    id: installer_version
+    attributes:
+      label: Версия клиента / установщика
+      options:
+        - "1.0.0 (актуальная)"
+        - "Другая сборка"
+    validations:
+      required: true
+  - type: input
+    id: windows_version
+    attributes:
+      label: Версия Windows и номер сборки (`winver`)
+      placeholder: "Например: Windows 11 Pro 23H2 (сборка 22631.3880) / Windows 10 22H2"
+    validations:
+      required: true
+  - type: dropdown
+    id: uac_prompt
+    attributes:
+      label: Запрос контроля учетных записей (UAC) при установке / запуске Wintun
+      options:
+        - "Был стандартный запрос UAC (нажал 'Да')"
+        - "Не было запроса UAC"
+        - "Ошибка прав доступа / UAC отклонён"
+    validations:
+      required: true
+  - type: dropdown
+    id: defender_warning
+    attributes:
+      label: Предупреждение Защитника Windows (SmartScreen / Defender)
+      options:
+        - "Не было предупреждений, запустилось сразу"
+        - "SmartScreen: синий экран 'Защита вашего компьютера' (нажал 'Подробнее' -> 'Выполнить в любом случае')"
+        - "Антивирус заблокировал / удалил файл"
+    validations:
+      required: true
+  - type: input
+    id: ip_check
+    attributes:
+      label: Проверка внешнего IP (ip.me до и после подключения)
+      placeholder: "До: <домашний_ip> / После: <ip_сервера> (или приложите скриншот)"
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Запустил установщик SirinSetup.exe
+        2. Открыл приложение из меню Пуск
+        3. Ввёл ключ и нажал 'Подключить'
+    validations:
+      required: true
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Ожидаемое и фактическое поведение
+      placeholder: |
+        Ожидалось: туннель поднялся, статус 'Подключено'.
+        Фактически: окно зависло / ошибка драйвера Wintun...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи клиента (%LOCALAPPDATA%\Sirin\logs\*.log, последние 100 строк)
+      description: Откройте проводник, введите `%LOCALAPPDATA%\Sirin\logs`, откройте свежий лог и скопируйте последние строки.
+      render: shell
+      placeholder: |
+        # %LOCALAPPDATA%\Sirin\logs\sirin.log
+    validations:
+      required: false
