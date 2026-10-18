@@ -1,0 +1,29 @@
+# Sirin Client для OpenWrt
+gateway = "crp.guseynovia.ru"
+password = "REPLACE_WITH_YOUR_UUID"  # получить в @sirin_crp_bot
+device_id = "router-01"
+
+tun_name = "sirin0"
+tun_mtu = 1280
+
+lan_interface = "br-lan"
+wan_interface = "wan"
+
+api_url = "https://crp.guseynovia.ru"
+ru_direct = false
+
+# Fallback: если API недоступен, использовать статический пул узлов
+[[ladder]]
+name = "A"
+transport = "udp"
+host = "94.183.159.114"
+port = 56005
+
+[[ladder]]
+name = "B"
+transport = "vless"
+host = "94.183.159.114"
+port = 443
+sni = "sun8-21.userapi.com"
+pbk = "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
+sid = "8283f99ec6a0f52e"
