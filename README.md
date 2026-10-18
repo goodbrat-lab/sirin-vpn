@@ -67,6 +67,7 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 
 | Архитектура | Где используется |
 |---|---|
+| mips | Роутеры на Atheros AR71xx/AR93xx (MIPS big-endian) |
 | mipsle | Xiaomi 4A, TP-Link, Keenetic (большинство) |
 | armv7 | Keenetic Hopper, Xiaomi AX1800 |
 | arm64 | Raspberry Pi, NanoPi, Keenetic Titan |
