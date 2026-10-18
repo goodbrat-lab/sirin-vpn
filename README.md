@@ -61,7 +61,7 @@ VPN с защитой от блокировок ТСПУ. Собственный
 wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/install.sh | sh
 ```
 
-Подробная инструкция: [docs/ROUTER.md](docs/ROUTER.md)
+Подробная инструкция: [docs/ROUTER.md](docs/ROUTER.md) | [Чеклист верификации](docs/ROUTER_INSTALL_VERIFICATION.md) | [Обратная связь](docs/FEEDBACK.md)
 
 ### Архитектуры
 

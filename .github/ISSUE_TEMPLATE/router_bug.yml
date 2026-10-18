@@ -1,0 +1,81 @@
+name: "🐛 Баг-репорт: OpenWrt Router / LuCI UI"
+description: Сообщить об ошибке в клиенте для роутеров или веб-интерфейсе LuCI
+title: "[Router Bug]: "
+labels: ["router", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за обратную связь! Пожалуйста, заполните форму ниже, чтобы помочь нам быстрее локализовать и устранить проблему.
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Архитектура роутера (SoC Arch)
+      description: Выберите архитектуру процессора вашего роутера (`uname -m`)
+      options:
+        - "mips (big-endian: Atheros AR7xxx/AR9xxx, MediaTek MT7620/MT7628)"
+        - "mipsle (little-endian: MediaTek MT7621, MT76x8)"
+        - "armv7 (32-bit: Cortex-A7/A9/A15, IPQ40xx, BCM4709)"
+        - "arm64 (64-bit: Cortex-A53/A72, Filogic MT7981/MT7986, Rockchip)"
+        - "x86_64 (x86 роутер, x86 мини-ПК, VM)"
+        - "Другое"
+    validations:
+      required: true
+  - type: dropdown
+    id: openwrt_version
+    attributes:
+      label: Версия OpenWrt и пакетный менеджер
+      options:
+        - "OpenWrt 24.x (opkg)"
+        - "OpenWrt 25.x / SNAPSHOT (apk)"
+        - "OpenWrt 23.x или более ранняя"
+        - "ImmortalWrt / кастомная сборка"
+    validations:
+      required: true
+  - type: dropdown
+    id: luci_theme
+    attributes:
+      label: Тема LuCI
+      options:
+        - "luci-theme-bootstrap (по умолчанию)"
+        - "luci-theme-argon"
+        - "luci-theme-openwrt-2020"
+        - "luci-theme-material"
+        - "Web UI не установлен (--no-ui)"
+        - "Другая тема"
+    validations:
+      required: true
+  - type: dropdown
+    id: client_version
+    attributes:
+      label: Версия клиента Sirin Router
+      options:
+        - "v1.1.1 (актуальная)"
+        - "v1.1.0"
+        - "v1.0.1"
+        - "v1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: bug_description
+    attributes:
+      label: Описание проблемы
+      description: Что именно пошло не так? Какое поведение ожидалось и что произошло фактически?
+      placeholder: "Пример: после нажатия 'Сохранить' в LuCI..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи и диагностика
+      description: Приложите вывод команд `logread | grep sirin` и `ubus call sirin status` (если применимо)
+      render: shell
+      placeholder: |
+        # logread | grep sirin
+        # ubus call sirin status
+  - type: textarea
+    id: browser_console
+    attributes:
+      label: Ошибки консоли браузера (если баг в LuCI UI)
+      description: Откройте DevTools (F12) -> Console и скопируйте ошибки при воспроизведении бага
+      render: text
