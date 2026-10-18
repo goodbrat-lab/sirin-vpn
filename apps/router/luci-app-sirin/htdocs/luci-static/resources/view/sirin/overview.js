@@ -243,6 +243,24 @@ return view.extend({
 			value: config.password || ''
 		});
 
+		var passWarnNode = E('div', {
+			class: 'cbi-value-description',
+			style: 'color: #d99b26; display: none; margin-top: 4px;'
+		}, 'Предупреждение: ключ не похож на UUID v4 (формат xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)');
+
+		function checkPasswordWarn() {
+			var val = inPassword.value.trim();
+			var uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+			if (val && val.indexOf('…') === -1 && val.indexOf('...') === -1 && !uuidRegex.test(val)) {
+				passWarnNode.style.display = 'block';
+			} else {
+				passWarnNode.style.display = 'none';
+			}
+		}
+
+		inPassword.addEventListener('input', checkPasswordWarn);
+		inPassword.addEventListener('change', checkPasswordWarn);
+
 		var btnTogglePass = E('button', {
 			class: 'btn cbi-button',
 			type: 'button',
@@ -463,6 +481,7 @@ return view.extend({
 							inPassword,
 							btnTogglePass
 						]),
+						passWarnNode,
 						E('div', { class: 'cbi-value-description' }, 'Персональный UUID-ключ клиента, выданный ботом @sirin_crp_bot')
 					])
 				]),
