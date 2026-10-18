@@ -7,7 +7,7 @@ ROOT_DIR="$(pwd)"
 OUT=dist
 mkdir -p "$OUT"
 
-VERSION=${VERSION:-1.0.0}
+VERSION=${VERSION:-1.0.1}
 LDFLAGS="-s -w -X main.Version=$VERSION"
 
 echo "Building sirin-client v$VERSION for 5 architectures..."
@@ -36,7 +36,7 @@ echo ""
 echo "Sizes:"
 ls -lh "$OUT"/sirin-client-* | grep -v '\.tar\.gz' | awk '{print $9, $5}'
 
-# Упаковать в tar.gz
+# Упаковать в tar.gz (включаем client.toml.example как в корне архива, так и в configs/)
 for bin in "$OUT"/sirin-client-*; do
     [ -f "$bin" ] || continue
     case "$bin" in
@@ -46,6 +46,7 @@ for bin in "$OUT"/sirin-client-*; do
     tar -czf "$OUT/sirin-client-$VERSION-$arch.tar.gz" \
         -C "$OUT" "sirin-client-$arch" \
         -C "$ROOT_DIR" "init.d/sirin" \
+        -C "$ROOT_DIR/configs" "client.toml.example" \
         -C "$ROOT_DIR" "configs/client.toml.example"
 done
 
