@@ -67,6 +67,10 @@ type Config struct {
 
 	Guard   engine.NetworkGuard
 	Captcha engine.CaptchaSolver
+
+	// LogFunc — колбэк для немедленного вывода логов движка в реальном времени,
+	// не дожидаясь завершения Connect.
+	LogFunc func(string)
 }
 
 // Event — одно сообщение о ходе сессии. Kind — "ready" (сессия поднята,
@@ -222,7 +226,12 @@ func (s *eventSink) close() {
 // уже поднята" тем же путём, что и у мобильных клиентов.
 func Start(ctx context.Context, cfg Config, tun engine.PacketFlow) (*Handle, <-chan Event, error) {
 	sink := newEventSink(64)
-	logger := logFunc(func(line string) { sink.send(Event{Kind: "log", Reason: line}) })
+	logger := logFunc(func(line string) {
+		if cfg.LogFunc != nil {
+			cfg.LogFunc(line)
+		}
+		sink.send(Event{Kind: "log", Reason: line})
+	})
 	listener := stateAdapter{sink: sink}
 
 	tunnelDNS := cfg.TunnelDNS

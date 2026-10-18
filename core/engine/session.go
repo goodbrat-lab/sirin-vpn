@@ -176,7 +176,7 @@ const (
 	// накрывают рукопожатие, прошедшее с первого раза, и не больше: если
 	// первый пакет потерян, дальше ждать её одну незачем.
 	rememberedHeadStart = 1200 * time.Millisecond
-	firstRungAuth      = 4 * time.Second
+	firstRungAuth       = 5 * time.Second
 
 	// raceHandshakeBudget — срок на ГОНКУ транспорта целиком.
 	//
@@ -907,9 +907,11 @@ func (s *session) climb(gateway string, ladder *Ladder, password, deviceID strin
 				if won.cand.remembered && !won.cand.spent {
 					early.hold()
 				}
+				s.logf("ступень %s: отправка запроса авторизации AUTH (таймаут %s)", won.cand.name, minDuration(firstRungAuth, ladderLeft()))
 				addr, aerr := s.authRung(won, password, deviceID,
 					minDuration(firstRungAuth, ladderLeft()))
 				if aerr != nil {
+					s.logf("ступень %s: соединение по UDP не установлено (%v), переключаюсь на fallback (VLESS)", won.cand.name, aerr)
 					// UDP-победитель не довёз — потоки сразу, без срока.
 					early.now()
 				}
@@ -1634,25 +1636,27 @@ func (s *session) auth(
 		if err != nil {
 			return "", fmt.Errorf("Noise NK, сборка msg1: %w", err)
 		}
+		s.logf("отправка UDP-пакета (Noise NK msg1)...")
 		_ = link.SetWriteDeadline(time.Now().Add(budget))
 		if _, err := link.Write(msg1); err != nil {
+			s.logf("ошибка отправки UDP-пакета: %v", err)
 			return "", fmt.Errorf("отправка msg1: %w", err)
 		}
 		buf := make([]byte, 2048)
+		s.logf("ожидание ответа по UDP (таймаут %s)...", budget)
 		_ = link.SetReadDeadline(time.Now().Add(budget))
 		n, err := link.Read(buf)
 		if err != nil {
-			// Тишина в ответ на msg1 — тот же исход, что и провал
-			// отпечатка на DTLS: подлинность не подтверждена, пароль
-			// не уходит вовсе (см. errGatewayNotAuthentic).
+			s.logf("таймаут ожидания ответа по UDP (%v) — шлюз не ответил", err)
 			return "", errGatewayNotAuthentic
 		}
 		if _, err := ni.readMsg2(buf[:n]); err != nil {
+			s.logf("ошибка верификации ответа Noise NK msg2: %v", err)
 			return "", errGatewayNotAuthentic
 		}
 		send, recv := ni.split()
 		nkSend, nkRecv = &send, &recv
-		s.logf("проверка подлинности шлюза (Noise NK) пройдена")
+		s.logf("проверка подлинности шлюза (Noise NK) пройдена успешно")
 	}
 
 	// AUTH|<пароль>|<устройство>|<возможности>
