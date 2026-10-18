@@ -1,6 +1,19 @@
 # Changelog
 
-## [1.2.0] - 2026-10-18
+## [router-v1.0.1] - 2026-10-18
+
+### Fixed
+- install.sh: корректная обработка отсутствующего client.toml.example
+- Синхронизирован состав архива с install.sh (шаблон конфигурации добавлен как в корень архива, так и в configs/)
+
+## [router-v1.0.0] - 2026-10-18
+
+### Added
+- Router-клиент для OpenWrt 24.x/25.x (MIPS, MIPSLE, ARMv7, ARM64, x86_64)
+- Split tunneling (RuDirect: 4945 CIDR через WAN)
+- Full tunnel через TUN sirin0 (0.0.0.0/1, 128.0.0.0/1)
+- Автоматический скрипт установки `install.sh` и init-скрипт procd
+
 
 ### Added
 - SNI rotation: 4 domains (sun8-21.userapi.com, kinopoisk.ru, wildberries.ru, ikea.com). Auto-fallback if one blocked.
