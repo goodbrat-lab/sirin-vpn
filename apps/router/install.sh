@@ -4,10 +4,15 @@ set -e
 
 UI_MODE="auto"
 ARCH=""
+CONFIG_FIREWALL=""
+STRICT_TUNNEL=0
 for arg in "$@"; do
     case "$arg" in
         --with-ui) UI_MODE="with" ;;
         --no-ui)   UI_MODE="no" ;;
+        --configure-firewall)    CONFIG_FIREWALL="1" ;;
+        --no-configure-firewall) CONFIG_FIREWALL="0" ;;
+        --strict-tunnel)         STRICT_TUNNEL=1 ;;
         mips|mipsle|armv7|arm64|x86_64) ARCH="$arg" ;;
     esac
 done
@@ -26,7 +31,7 @@ if [ -z "$ARCH" ]; then
     echo "Detected: $ARCH"
 fi
 
-VERSION=${VERSION:-1.1.2}
+VERSION=${VERSION:-1.1.3}
 URL="https://github.com/goodbrat-lab/sirin-vpn/releases/download/router-v$VERSION/sirin-client-$VERSION-$ARCH.tar.gz"
 
 # Определить пакетный менеджер
@@ -184,11 +189,72 @@ fi
 # 8. Включить автозапуск
 /etc/init.d/sirin enable 2>/dev/null || true
 
+# 9. Настройка Firewall (OpenWrt fw4 / uci)
+if [ -z "$CONFIG_FIREWALL" ]; then
+    if [ "$INSTALL_UI" = 1 ]; then
+        CONFIG_FIREWALL=1
+    else
+        CONFIG_FIREWALL=0
+    fi
+fi
+
+FIREWALL_CONFIGURED=0
+if [ "$CONFIG_FIREWALL" = 1 ]; then
+    if command -v uci >/dev/null 2>&1 && uci show firewall 2>/dev/null | grep -q "name='wan'"; then
+        WAN_ZONE=$(uci show firewall 2>/dev/null | grep -E "\.name='wan'" | head -n1 | cut -d. -f2 | cut -d= -f1)
+        [ -z "$WAN_ZONE" ] && WAN_ZONE="@zone[1]"
+
+        # Идемпотентная проверка: не добавлять дубликат, если sirin0 уже в списке
+        if ! uci get "firewall.$WAN_ZONE.device" 2>/dev/null | grep -qw "sirin0"; then
+            uci add_list "firewall.$WAN_ZONE.device=sirin0" 2>/dev/null || true
+        fi
+        uci set "firewall.$WAN_ZONE.masq=1" 2>/dev/null || true
+        uci set "firewall.$WAN_ZONE.mtu_fix=1" 2>/dev/null || true
+        uci commit firewall 2>/dev/null || true
+        FIREWALL_CONFIGURED=1
+        echo "Firewall: sirin0 добавлен в зону wan (masq=1, mtu_fix=1)"
+    else
+        echo "Firewall: зона wan не найдена в uci firewall, пропуск"
+    fi
+else
+    echo "Firewall: автонастройка пропущена (используйте --configure-firewall для включения)"
+fi
+
+# 10. Настройка DNS и предотвращение утечек IPv6 (--strict-tunnel)
+STRICT_TUNNEL_CONFIGURED=0
+if [ "$STRICT_TUNNEL" = 1 ]; then
+    if command -v uci >/dev/null 2>&1; then
+        echo "Configuring DNS and IPv6 (--strict-tunnel)..."
+        uci set dhcp.@dnsmasq[0].noresolv='1' 2>/dev/null || true
+        uci set dhcp.@dnsmasq[0].filter_aaaa='1' 2>/dev/null || true
+        if ! uci get dhcp.@dnsmasq[0].server 2>/dev/null | grep -qw "1.1.1.1"; then
+            uci add_list dhcp.@dnsmasq[0].server='1.1.1.1' 2>/dev/null || true
+        fi
+        if ! uci get dhcp.@dnsmasq[0].server 2>/dev/null | grep -qw "8.8.8.8"; then
+            uci add_list dhcp.@dnsmasq[0].server='8.8.8.8' 2>/dev/null || true
+        fi
+
+        uci set dhcp.lan.ra='disabled' 2>/dev/null || true
+        uci set dhcp.lan.dhcpv6='disabled' 2>/dev/null || true
+        uci commit dhcp 2>/dev/null || true
+        STRICT_TUNNEL_CONFIGURED=1
+        echo "DNS/IPv6: серверы 1.1.1.1/8.8.8.8, filter_aaaa=1, IPv6 RA/DHCPv6 отключены"
+    fi
+fi
+
 echo ""
 echo "=== Sirin Router Client установлен ==="
 echo "Конфигурация: /etc/sirin/client.toml"
 if [ "$UI_INSTALLED" = 1 ]; then
     echo "Веб-интерфейс LuCI: http://<router-ip>/cgi-bin/luci/admin/services/sirin"
+fi
+if [ "$FIREWALL_CONFIGURED" = 1 ]; then
+    echo "Для применения: /etc/init.d/firewall reload"
+fi
+if [ "$STRICT_TUNNEL_CONFIGURED" = 1 ]; then
+    echo "Для применения: /etc/init.d/dnsmasq restart; /etc/init.d/odhcpd restart"
+else
+    echo "DNS/IPv6 не настроены. Если сайты не открываются — запустите install.sh --strict-tunnel"
 fi
 echo "1. Отредактируйте конфиг и вставьте ваш UUID из @sirin_crp_bot:"
 echo "   vi /etc/sirin/client.toml"
