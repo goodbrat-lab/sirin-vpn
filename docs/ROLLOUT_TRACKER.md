@@ -14,6 +14,7 @@
 
 | Пользователь | Платформа | Версия | Дата раздачи | Статус | Замечания |
 |---|---|---|---|---|---|
+| @owner (владелец) | Router | 1.1.2 | 2026-10-19 | working | OpenWrt 25.12, arm64, PPPoE + sing-box, YouTube/Instagram 200 OK |
 | @tester_a1 | Android | 1.2.0 | 2026-10-19 | sent | Ожидает установки APK |
 | @tester_a2 | Android | 1.2.0 | 2026-10-19 | sent | Ожидает установки APK |
 | @tester_w1 | Windows | 1.0.0 | 2026-10-19 | sent | Windows 11, ссылка передана |
