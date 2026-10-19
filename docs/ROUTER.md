@@ -52,8 +52,21 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 2. Загрузит соответствующий релизный архив с GitHub.
 3. Разместит бинарник `/usr/bin/sirin-client` и init-скрипт `/etc/init.d/sirin`.
 4. Создаст шаблон конфигурации `/etc/sirin/client.toml` (если файл ещё не существует).
-5. Установит необходимые зависимости (`kmod-tun`, `nftables`, `ip-full`).
-6. Включит службу в автозагрузку системы.
+5. Установит веб-интерфейс LuCI (если LuCI обнаружен в системе).
+6. Настроит OpenWrt Firewall (добавит `sirin0` в зону `wan`, включит `masq=1` и `mtu_fix=1`).
+7. Установит необходимые зависимости (`kmod-tun`, `nftables`, `ip-full`).
+8. Включит службу в автозагрузку системы.
+
+#### Флаги установщика `install.sh`:
+- `--with-ui` — принудительно установить веб-интерфейс LuCI (по умолчанию: авто).
+- `--no-ui` — пропустить установку веб-интерфейса LuCI.
+- `--configure-firewall` / `--no-configure-firewall` — включить или отключить автодобавление `sirin0` в зону `wan` фаервола (по умолчанию: включено при наличии UI, выключено в headless-режиме).
+- `--strict-tunnel` — включить защиту от DNS-спуфинга провайдера и утечек через IPv6 (настройка `dnsmasq` и `odhcpd`, см. раздел [DNS и IPv6](#dns-и-ipv6)).
+
+Пример установки с жесткой изоляцией DNS и IPv6:
+```bash
+wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/install.sh | sh -s -- --strict-tunnel
+```
 
 ### 3.3. Ручная установка (без прямого выхода в интернет)
 
@@ -140,6 +153,58 @@ sid = "8283f99ec6a0f52e"
 > ```toml
 > ru_direct = true
 > ```
+
+### 4.4. Настройка DNS и IPv6 (`--strict-tunnel`)
+
+По умолчанию в OpenWrt локальный `dnsmasq` может использовать DNS-серверы вашего провайдера, а служба `odhcpd` — раздавать публичные IPv6-префиксы. Это приводит к двум типовым проблемам:
+1. **DNS-спуфинг провайдера:** провайдерские DNS-серверы подменяют IP заблокированных ресурсов (например, возвращают `127.0.0.1` для `instagram.com`).
+2. **IPv6-утечка (Happy Eyeballs):** клиент Sirin организует защищённый IPv4-туннель. Однако клиентские устройства (iOS, Android, Windows, macOS) по алгоритму RFC 6724 ("Happy Eyeballs") отдают предпочтение протоколу IPv6. Запросы к YouTube, Meta и другим ресурсам с поддержкой dual-stack уходят мимо туннеля через интерфейс провайдера (`pppoe-wan` / `wan`) прямо на ТСПУ провайдера, где блокируются или замедляются.
+
+Режим `--strict-tunnel` устраняет обе проблемы:
+```bash
+wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/install.sh | sh -s -- --strict-tunnel
+```
+
+Параметры, выставляемые скриптом в UCI:
+- `dnsmasq`: включены чистые независимые резолверы (`1.1.1.1`, `8.8.8.8`), отключён опрос провайдерских DNS (`noresolv=1`) и активирована фильтрация `filter_aaaa=1`.
+- `odhcpd`: отключена раздача Router Advertisements и DHCPv6 на интерфейсе `lan` (`dhcp.lan.ra=disabled`, `dhcp.lan.dhcpv6=disabled`).
+
+> [!WARNING]
+> **Риск:** сервисы, работающие исключительно по протоколу IPv6 (без поддержки IPv4), перестанут быть доступны внутри локальной сети.
+>
+> **Как откатить настройки DNS/IPv6 к заводским:**
+> ```bash
+> uci revert dhcp
+> uci commit dhcp
+> /etc/init.d/dnsmasq restart
+> /etc/init.d/odhcpd restart
+> ```
+
+### 4.5. Совместимость с другими прокси (Transparent Proxy / sing-box / NekoBox)
+
+Если на роутере или на рабочих станциях в локальной сети параллельно используется сторонний прокси-клиент (например, `sing-box`, `passwall`, `openclash`, либо `NekoBox` / `v2rayN` на ПК):
+1. **Остановка sing-box на роутере:**
+   Если `sing-box` работает в режиме TPROXY/REDIRECT на самом роутере, он перехватывает исходящие рукопожатия Sirin и зацикливает их. Перед запуском Sirin обязательно остановите службу:
+   ```bash
+   /etc/init.d/sing-box stop
+   /etc/init.d/sing-box disable
+   ```
+   *(Пакет `sing-box` удалять не нужно, достаточно остановить).*
+2. **Защита внешнего прокси-сервера (Host-маршрут /32):**
+   Если на вашем рабочем компьютере запущен прокси-клиент (NekoBox, Outline и др.), подключающийся к удалённому серверу по конкретному IP, Sirin при перехвате `0.0.0.0/1` и `128.0.0.0/1` завернёт трафик до вашего прокси-сервера внутрь туннеля Sirin. Чтобы этого избежать, добавьте прямой `/32`-маршрут через физический WAN-интерфейс:
+   ```bash
+   ip route replace <ip_вашего_прокси>/32 dev <wan_iface>
+   ```
+   Например, для подключения через PPPoE:
+   ```bash
+   ip route replace 203.0.113.10/32 dev pppoe-wan
+   ```
+   Чтобы маршрут сохранялся при перезагрузках роутера, добавьте команду в `/etc/rc.local` перед строкой `exit 0`:
+   ```bash
+   # В /etc/rc.local
+   ip route replace 203.0.113.10/32 dev pppoe-wan 2>/dev/null || true
+   exit 0
+   ```
 
 ---
 
@@ -300,19 +365,54 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 
 ## 9. Полное удаление
 
-При штатной остановке через `/etc/init.d/sirin stop` клиент автоматически удаляет маршруты `0.0.0.0/1`, `128.0.0.0/1`, диапазоны RuDirect и таблицу трансляции адресов в файрволе.
+### 9.1. Автоматическое удаление скриптом
 
-Для полного удаления всех файлов программы выполните:
+Для полного и корректного удаления всех компонентов клиента, веб-интерфейса и правил файрвола выполните:
+
+```bash
+wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/uninstall.sh | sh
+```
+
+Скрипт `uninstall.sh`:
+1. Корректно останавливает службу `/etc/init.d/sirin stop` и отключает автозапуск.
+2. Удаляет интерфейс `sirin0` и сбрасывает связанные с ним маршруты ядра.
+3. Удаляет исполняемый файл `/usr/bin/sirin-client`, init-скрипт `/etc/init.d/sirin` и конфигурационный каталог `/etc/sirin`.
+4. Удаляет компоненты веб-интерфейса LuCI и перезагружает `rpcd`.
+5. Идемпотентно удаляет устройство `sirin0` из зоны `wan` фаервола OpenWrt (`uci del_list firewall.@zone[1].device=sirin0`).
+6. **Не трогает** сторонние пакеты (`sing-box`, пользовательские скрипты) и настройки сети.
+
+> [!NOTE]
+> Если вы настраивали жесткую изоляцию DNS и IPv6 через флаг `--strict-tunnel`, откатите настройки DHCP/DNS вручную:
+> ```bash
+> uci revert dhcp
+> uci commit dhcp
+> /etc/init.d/dnsmasq restart
+> /etc/init.d/odhcpd restart
+> ```
+
+### 9.2. Ручное удаление
+
+Если у роутера нет выхода в интернет, выполните команды вручную:
 
 ```bash
 /etc/init.d/sirin stop
 /etc/init.d/sirin disable
 rm -f /etc/init.d/sirin /usr/bin/sirin-client
 rm -rf /etc/sirin
+rm -f /usr/libexec/rpcd/sirin \
+      /usr/share/rpcd/acl.d/luci-app-sirin.json \
+      /usr/share/luci/menu.d/luci-app-sirin.json \
+      /www/luci-static/resources/view/sirin/overview.js 2>/dev/null || true
+rm -rf /www/luci-static/resources/view/sirin 2>/dev/null || true
+/etc/init.d/rpcd reload 2>/dev/null || true
+uci del_list firewall.@zone[1].device=sirin0 2>/dev/null || true
+uci commit firewall 2>/dev/null || true
+/etc/init.d/firewall reload 2>/dev/null || true
 ip link del sirin0 2>/dev/null || true
+ip route flush dev sirin0 2>/dev/null || true
 ```
 
-### Экстренная ручная очистка маршрутов
+### 9.3. Экстренная ручная очистка маршрутов
 
 Если процесс был принудительно завершён без вызова `stop` (например, `kill -9`), и на роутере временно отсутствует доступ в сеть:
 
