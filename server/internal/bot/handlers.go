@@ -1,7 +1,9 @@
 package bot
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
@@ -22,7 +24,7 @@ func (b *Bot) handleStart(c tele.Context) error {
 func (b *Bot) handleHelp(c tele.Context) error {
 	text := "*Справка*\n\n" +
 		"`/newkey Иван` — создать ключ с именем 'Иван' (30 дней)\n" +
-		"`/newkey Иван 90` — создать на 90 дней\n" +
+		"`/newkey Марина Иванова 365` — создать на 365 дней\n" +
 		"`/mykey` — показать текущий ключ\n" +
 		"`/status` — статистика сервера"
 	return c.Send(text, tele.ModeMarkdown)
@@ -35,16 +37,15 @@ func (b *Bot) handleNewKey(c tele.Context) error {
 		return c.Send("🔒 Создание ключей доступно только администратору.")
 	}
 
-	// Парсинг аргументов: /newkey <name> [days]
-	args := c.Args()
-	if len(args) == 0 {
-		return c.Send("Использование: `/newkey Иван` или `/newkey Иван 90`", tele.ModeMarkdown)
+	// Парсинг аргументов: /newkey <имя> [дни]
+	rawInput := c.Data()
+	if rawInput == "" {
+		rawInput = c.Text()
 	}
 
-	name := args[0]
-	days := 30
-	if len(args) >= 2 {
-		fmt.Sscanf(args[1], "%d", &days)
+	name, days, clamped, err := parseNewKeyArgsDetailed(rawInput)
+	if err != nil {
+		return c.Send("Укажи имя: `/newkey <имя> [дни]`\nПример: `/newkey Марина Иванова 365`", tele.ModeMarkdown)
 	}
 
 	// Вызов API
@@ -61,18 +62,37 @@ func (b *Bot) handleNewKey(c tele.Context) error {
 		CreatedAt:  time.Now().Unix(),
 	})
 
+	// Структурированное логирование (UUID маскирован: первые 8 символов)
+	uuidPrefix := resp.Key
+	if len(uuidPrefix) > 8 {
+		uuidPrefix = uuidPrefix[:8]
+	}
+	logPayload, _ := json.Marshal(map[string]interface{}{
+		"event":       "newkey",
+		"name":        name,
+		"days":        days,
+		"uuid_prefix": uuidPrefix,
+		"admin":       fmt.Sprintf("%d", userID),
+	})
+	log.Println(string(logPayload))
+
 	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", resp.Key)
 	btn := &tele.ReplyMarkup{}
 	btnOpen := btn.URL("🕊 Открыть в Сирин", openURL)
 	btn.Inline(btn.Row(btnOpen))
 
+	durationText := fmt.Sprintf("%d дней", days)
+	if clamped {
+		durationText = fmt.Sprintf("%d дней (срок ограничен 3650)", days)
+	}
+
 	text := fmt.Sprintf("✅ *Ключ создан*\n\n"+
 		"Имя: `%s`\n"+
-		"Срок: %d дней\n\n"+
+		"Срок: %s\n\n"+
 		"🔑 Нажми на ключ ниже, чтобы скопировать:\n"+
 		"`%s`\n\n"+
 		"Или нажми на кнопку ниже, чтобы открыть приложение «Сирин» и применить ключ:\n"+
-		"[Открыть в Сирин](%s)", name, days, resp.Key, openURL)
+		"[Открыть в Сирин](%s)", name, durationText, resp.Key, openURL)
 
 	return c.Send(text, btn, tele.ModeMarkdown)
 }
