@@ -82,5 +82,5 @@ func (m *Manager) ExecuteDelete(c tele.Context, uuid string) error {
 	btnMain := markup.Data("🏠 В меню", "menu", "main")
 	markup.Inline(markup.Row(btnClients, btnMain))
 
-	return c.Edit(text, markup, tele.ModeMarkdown)
+	return EditOrSend(c, text, markup)
 }

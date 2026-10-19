@@ -137,7 +137,7 @@ func (m *Manager) ShowClientsList(c tele.Context, page int, filter string, edit 
 	markup.Inline(rows...)
 
 	if edit {
-		return c.Edit(text.String(), markup, tele.ModeMarkdown)
+		return EditOrSend(c, text.String(), markup)
 	}
 	return c.Send(text.String(), markup, tele.ModeMarkdown)
 }
@@ -202,7 +202,7 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }

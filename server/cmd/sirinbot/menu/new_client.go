@@ -22,7 +22,7 @@ func (m *Manager) StartNewClientWizard(c tele.Context, edit bool) error {
 	markup.Inline(markup.Row(btnCancel))
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -60,7 +60,7 @@ func (m *Manager) ShowNewClientStep2(c tele.Context, name string, edit bool) err
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -85,7 +85,7 @@ func (m *Manager) ShowNewClientCustomDays(c tele.Context, name string, edit bool
 	markup.Inline(markup.Row(btnBack, btnCancel))
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -118,7 +118,7 @@ func (m *Manager) ShowNewClientStep3(c tele.Context, name string, days int, edit
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }

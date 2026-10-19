@@ -33,7 +33,7 @@ func (m *Manager) ShowRenamePrompt(c tele.Context, uuid string, edit bool) error
 	markup.Inline(markup.Row(btnCancel))
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
