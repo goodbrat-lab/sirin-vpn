@@ -60,6 +60,16 @@ func (b *Bot) Stop() {
 	b.bot.Stop()
 }
 
+func (b *Bot) TeleBot() *tele.Bot { return b.bot }
+func (b *Bot) ClientsStorage() *ClientsStorage { return b.clientsStorage }
+func (b *Bot) Storage() *Storage { return b.storage }
+func (b *Bot) Config() *Config { return b.cfg }
+func (b *Bot) IsAdmin(id int64) bool { return b.isAdmin(id) }
+func (b *Bot) AdminOnly(next tele.HandlerFunc) tele.HandlerFunc { return b.adminOnly(next) }
+func (b *Bot) LogAdminAction(adminID int64, action, clientPrefix string, ok bool) {
+	b.logAdminAction(adminID, action, clientPrefix, ok)
+}
+
 func (b *Bot) isAdmin(id int64) bool {
 	return b.cfg.IsAdmin(id)
 }

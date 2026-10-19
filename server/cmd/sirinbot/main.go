@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"sirin/server/cmd/sirinbot/menu"
 	"sirin/server/internal/bot"
 )
 
@@ -31,6 +32,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("bot: %v", err)
 	}
+
+	menu.Register(b)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

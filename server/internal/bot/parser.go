@@ -32,15 +32,23 @@ const (
 	MaxNameLen = 64
 )
 
-// parseNewKeyArgs парсит имя и срок из строки аргументов команды /newkey.
-func parseNewKeyArgs(text string) (name string, days int, err error) {
-	name, days, _, err = parseNewKeyArgsDetailed(text)
+// ParseNewKeyArgs парсит имя и срок из строки аргументов команды /newkey.
+func ParseNewKeyArgs(text string) (name string, days int, err error) {
+	name, days, _, err = ParseNewKeyArgsDetailed(text)
 	return name, days, err
 }
 
-// parseNewKeyArgsDetailed выполняет парсинг и дополнительно возвращает флаг clamped,
-// если запрошенный пользователем срок превысил MaxDays.
+func parseNewKeyArgs(text string) (name string, days int, err error) {
+	return ParseNewKeyArgs(text)
+}
+
 func parseNewKeyArgsDetailed(text string) (name string, days int, clamped bool, err error) {
+	return ParseNewKeyArgsDetailed(text)
+}
+
+// ParseNewKeyArgsDetailed выполняет парсинг и дополнительно возвращает флаг clamped,
+// если запрошенный пользователем срок превысил MaxDays.
+func ParseNewKeyArgsDetailed(text string) (name string, days int, clamped bool, err error) {
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "/newkey") {
 		text = strings.TrimPrefix(text, "/newkey")
@@ -95,16 +103,20 @@ func parseNewKeyArgsDetailed(text string) (name string, days int, clamped bool, 
 	return name, days, clamped, nil
 }
 
-// maskUUID возвращает маскированный UUID: первые 8 символов + "…".
-func maskUUID(uuid string) string {
+// MaskUUID возвращает маскированный UUID: первые 8 символов + "…".
+func MaskUUID(uuid string) string {
 	if len(uuid) <= 8 {
 		return uuid
 	}
 	return uuid[:8] + "…"
 }
 
-// formatDaysLeft форматирует оставшийся срок действия.
-func formatDaysLeft(expiresAt *time.Time) string {
+func maskUUID(uuid string) string {
+	return MaskUUID(uuid)
+}
+
+// FormatDaysLeft форматирует оставшийся срок действия.
+func FormatDaysLeft(expiresAt *time.Time) string {
 	if expiresAt == nil || expiresAt.IsZero() {
 		return "бессрочно"
 	}
@@ -124,6 +136,10 @@ func formatDaysLeft(expiresAt *time.Time) string {
 	return fmt.Sprintf("%dд", days)
 }
 
+func formatDaysLeft(expiresAt *time.Time) string {
+	return FormatDaysLeft(expiresAt)
+}
+
 func isHexOrUUID(s string) bool {
 	for _, c := range s {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == '-') {
@@ -133,8 +149,8 @@ func isHexOrUUID(s string) bool {
 	return true
 }
 
-// resolveClient ищет клиента по точному имени, префиксу UUID (>=6 символов) или подстроке.
-func resolveClient(clients []*Client, arg string) (*Client, error, []*Client) {
+// ResolveClient ищет клиента по точному имени, префиксу UUID (>=6 символов) или подстроке.
+func ResolveClient(clients []*Client, arg string) (*Client, error, []*Client) {
 	arg = strings.TrimSpace(arg)
 	if arg == "" {
 		return nil, ErrClientNotFound, nil
@@ -189,8 +205,12 @@ func resolveClient(clients []*Client, arg string) (*Client, error, []*Client) {
 	return nil, ErrClientNotFound, nil
 }
 
-// parseRenameArgs разбирает синтаксис команды /rename <старое> -> <новое>.
-func parseRenameArgs(text string) (oldName, newName string, err error) {
+func resolveClient(clients []*Client, arg string) (*Client, error, []*Client) {
+	return ResolveClient(clients, arg)
+}
+
+// ParseRenameArgs разбирает синтаксис команды /rename <старое> -> <новое>.
+func ParseRenameArgs(text string) (oldName, newName string, err error) {
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "/rename") {
 		text = strings.TrimPrefix(text, "/rename")
@@ -222,4 +242,8 @@ func parseRenameArgs(text string) (oldName, newName string, err error) {
 	}
 
 	return oldName, newName, nil
+}
+
+func parseRenameArgs(text string) (oldName, newName string, err error) {
+	return ParseRenameArgs(text)
 }
