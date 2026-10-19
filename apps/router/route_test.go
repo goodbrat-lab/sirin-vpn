@@ -91,3 +91,50 @@ func TestWanPrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestIsPointToPoint(t *testing.T) {
+	if !isPointToPoint("pppoe-wan") {
+		t.Errorf("pppoe-wan должен определяться как Point-to-Point")
+	}
+	if !isPointToPoint("ppp0") {
+		t.Errorf("ppp0 должен определяться как Point-to-Point")
+	}
+	if isPointToPoint("eth0") {
+		t.Errorf("eth0 не должен определяться как Point-to-Point")
+	}
+	if isPointToPoint("wan") {
+		t.Errorf("wan не должен определяться как Point-to-Point")
+	}
+}
+
+func TestFormatRouteArgs_PPPoE(t *testing.T) {
+	// Для PPPoE интерфейса с шлюзом 109.172.26.141 маршрут /32 ОБЯЗАН быть БЕЗ via
+	wan := wanInfo{iface: "pppoe-wan", gw: "109.172.26.141"}
+	args := formatRouteArgs("94.183.159.114/32", wan)
+
+	expected := []string{"route", "replace", "94.183.159.114/32", "dev", "pppoe-wan"}
+	if len(args) != len(expected) {
+		t.Fatalf("Ожидалось %d аргументов, получено %d: %v", len(expected), len(args), args)
+	}
+	for i := range expected {
+		if args[i] != expected[i] {
+			t.Errorf("args[%d]=%q, ожидалось %q", i, args[i], expected[i])
+		}
+	}
+}
+
+func TestFormatRouteArgs_StandardDHCP(t *testing.T) {
+	// Для стандартного Ethernet DHCP маршрут должен содержать via и dev
+	wan := wanInfo{iface: "eth0", gw: "192.168.1.1"}
+	args := formatRouteArgs("94.183.159.114/32", wan)
+
+	expected := []string{"route", "replace", "94.183.159.114/32", "via", "192.168.1.1", "dev", "eth0"}
+	if len(args) != len(expected) {
+		t.Fatalf("Ожидалось %d аргументов, получено %d: %v", len(expected), len(args), args)
+	}
+	for i := range expected {
+		if args[i] != expected[i] {
+			t.Errorf("args[%d]=%q, ожидалось %q", i, args[i], expected[i])
+		}
+	}
+}

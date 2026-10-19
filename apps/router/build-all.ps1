@@ -8,7 +8,7 @@ if (!(Test-Path $OUT)) {
     New-Item -ItemType Directory -Force -Path $OUT | Out-Null
 }
 
-$VERSION = if ($env:VERSION) { $env:VERSION } else { "1.1.1" }
+$VERSION = if ($env:VERSION) { $env:VERSION } else { "1.1.2" }
 $LDFLAGS = "-s -w -X main.Version=$VERSION"
 
 Write-Host "Building sirin-client v$VERSION for 5 architectures..." -ForegroundColor Cyan

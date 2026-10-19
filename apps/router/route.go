@@ -23,6 +23,77 @@ type wanInfo struct {
 	gw    string
 }
 
+// isPointToPoint проверяет, является ли интерфейс точкой-точкой (PPPoE, ppp*).
+// Для таких интерфейсов маршрут в Linux должен создаваться без шлюза via (dev pppoe-wan).
+func isPointToPoint(ifaceName string) bool {
+	if strings.HasPrefix(ifaceName, "ppp") {
+		return true
+	}
+	if iface, err := net.InterfaceByName(ifaceName); err == nil {
+		if iface.Flags&net.FlagPointToPoint != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// formatRouteArgs формирует аргументы команды `ip route replace <dst> ...`
+// с учётом типа интерфейса (PPPoE / Point-to-Point требует dev без via).
+func formatRouteArgs(dst string, wan wanInfo) []string {
+	dst = strings.TrimSpace(dst)
+	if dst == "" {
+		return nil
+	}
+	if isPointToPoint(wan.iface) && wan.iface != "" {
+		return []string{"route", "replace", dst, "dev", wan.iface}
+	}
+	if wan.gw != "" && wan.iface != "" {
+		return []string{"route", "replace", dst, "via", wan.gw, "dev", wan.iface}
+	}
+	if wan.iface != "" {
+		return []string{"route", "replace", dst, "dev", wan.iface}
+	}
+	if wan.gw != "" {
+		return []string{"route", "replace", dst, "via", wan.gw}
+	}
+	return nil
+}
+
+// checkTproxyConflict проверяет наличие правил TPROXY (sing-box, xray, passwall)
+// в файрволе роутера и выдаёт предупреждение в лог, если они могут перехватывать трафик.
+func checkTproxyConflict(serverHosts []string) {
+	hasTproxy := false
+	source := ""
+
+	// 1. Проверяем nftables (OpenWrt 22+)
+	if out, err := exec.Command("nft", "list", "ruleset").Output(); err == nil && len(out) > 0 {
+		if strings.Contains(strings.ToLower(string(out)), "tproxy") {
+			hasTproxy = true
+			source = "nftables"
+		}
+	}
+
+	// 2. Проверяем iptables (OpenWrt 21 и старые/legacy таблицы)
+	if !hasTproxy {
+		if out, err := exec.Command("iptables-save").Output(); err == nil && len(out) > 0 {
+			if strings.Contains(strings.ToUpper(string(out)), "TPROXY") {
+				hasTproxy = true
+				source = "iptables"
+			}
+		}
+	}
+
+	if hasTproxy {
+		log.Printf("[tproxy] ВНИМАНИЕ: Обнаружен TPROXY (%s, активен sing-box/xray/passwall)!", source)
+		log.Printf("[tproxy] Исходящие UDP-пакеты могут перехватываться sing-box и приводить к зависанию туннеля.")
+		log.Printf("[tproxy] Решение: перед запуском Sirin остановите sing-box:")
+		log.Printf("[tproxy]   /etc/init.d/sing-box stop")
+		if len(serverHosts) > 0 {
+			log.Printf("[tproxy] Либо добавьте исключение в sing-box для адреса сервера: %s", strings.Join(serverHosts, ", "))
+		}
+	}
+}
+
 // parseDefaultRoute разбирает вывод команды `ip route show default`.
 // Корректно определяет интерфейсы с PPPoE (например, dev pppoe-wan без via),
 // а также выбирает маршрут с наименьшей метрикой, если маршрутов по умолчанию несколько.
@@ -181,12 +252,9 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 			ips = []string{host}
 		}
 		for _, ipStr := range ips {
-			if wan.gw != "" && wan.iface != "" {
-				runCmd("ip", "route", "replace", ipStr+"/32", "via", wan.gw, "dev", wan.iface)
-			} else if wan.iface != "" {
-				runCmd("ip", "route", "replace", ipStr+"/32", "dev", wan.iface)
-			} else if wan.gw != "" {
-				runCmd("ip", "route", "replace", ipStr+"/32", "via", wan.gw)
+			args := formatRouteArgs(ipStr+"/32", wan)
+			if len(args) > 0 {
+				runCmd("ip", args...)
 			}
 		}
 	}
@@ -233,12 +301,9 @@ func setupRuDirect(wan wanInfo) error {
 		if cidr == "" || strings.HasPrefix(cidr, "#") {
 			continue
 		}
-		if wan.gw != "" && wan.iface != "" {
-			runCmd("ip", "route", "replace", cidr, "via", wan.gw, "dev", wan.iface)
-		} else if wan.iface != "" {
-			runCmd("ip", "route", "replace", cidr, "dev", wan.iface)
-		} else if wan.gw != "" {
-			runCmd("ip", "route", "replace", cidr, "via", wan.gw)
+		args := formatRouteArgs(cidr, wan)
+		if len(args) > 0 {
+			runCmd("ip", args...)
 		}
 		count++
 	}

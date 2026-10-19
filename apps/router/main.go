@@ -12,7 +12,7 @@ import (
 	"sirin/engine/desktop"
 )
 
-var Version = "1.1.1"
+var Version = "1.1.2"
 
 func main() {
 	configPath := flag.String("config", "/etc/sirin/client.toml", "путь к конфигурационному файлу TOML")
@@ -65,6 +65,9 @@ func main() {
 		log.Fatalf("Ошибка сборки лестницы подключений: %v", err)
 	}
 	log.Printf("[ladder] Подключение к шлюзу: %s (хостов для исключения: %d)", gateway, len(serverHosts))
+
+	// Проверка на потенциальный конфликт с sing-box / xray TPROXY
+	checkTproxyConflict(serverHosts)
 
 	// 4. Подготовка контекста и сетевого протектора
 	ctx, cancel := context.WithCancel(context.Background())
