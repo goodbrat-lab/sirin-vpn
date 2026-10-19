@@ -83,6 +83,6 @@ services:
     volumes:
       - /etc/sirin:/etc/sirin
       - /var/log/sirin:/var/log/sirin
-    user: "1000:1000"  # sirin (не нужен root)
+    user: "0:0"  # root (нужен для записи в /etc/sirin/clients.json)
     depends_on:
       - sirinapi

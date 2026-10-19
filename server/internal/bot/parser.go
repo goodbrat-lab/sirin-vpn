@@ -2,16 +2,26 @@ package bot
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 var digitsRegex = regexp.MustCompile(`^[0-9]+$`)
 
-// ErrEmptyName возвращается, если не указано имя клиента.
-var ErrEmptyName = errors.New("empty name")
+var (
+	// ErrEmptyName возвращается, если не указано имя клиента.
+	ErrEmptyName = errors.New("empty name")
+	// ErrClientNotFound возвращается, если клиент не найден.
+	ErrClientNotFound = errors.New("клиент не найден")
+	// ErrAmbiguousClient возвращается при нескольких совпадениях.
+	ErrAmbiguousClient = errors.New("найдено несколько клиентов")
+	// ErrInvalidRenameSyntax возвращается при некорректном синтаксисе переименования.
+	ErrInvalidRenameSyntax = errors.New("неверный формат команды (используйте: /rename <старое> -> <новое>)")
+)
 
 const (
 	// DefaultDays — срок действия ключа по умолчанию (30 дней).
@@ -83,4 +93,133 @@ func parseNewKeyArgsDetailed(text string) (name string, days int, clamped bool, 
 	}
 
 	return name, days, clamped, nil
+}
+
+// maskUUID возвращает маскированный UUID: первые 8 символов + "…".
+func maskUUID(uuid string) string {
+	if len(uuid) <= 8 {
+		return uuid
+	}
+	return uuid[:8] + "…"
+}
+
+// formatDaysLeft форматирует оставшийся срок действия.
+func formatDaysLeft(expiresAt *time.Time) string {
+	if expiresAt == nil || expiresAt.IsZero() {
+		return "бессрочно"
+	}
+	now := time.Now()
+	diff := expiresAt.Sub(now)
+	if diff < 0 {
+		days := int((-diff).Hours() / 24)
+		if days == 0 {
+			return "просрочен сегодня"
+		}
+		return fmt.Sprintf("просрочен %dд", days)
+	}
+	days := int(diff.Hours() / 24)
+	if diff.Hours() < 24 {
+		return "истекает сегодня"
+	}
+	return fmt.Sprintf("%dд", days)
+}
+
+func isHexOrUUID(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// resolveClient ищет клиента по точному имени, префиксу UUID (>=6 символов) или подстроке.
+func resolveClient(clients []*Client, arg string) (*Client, error, []*Client) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return nil, ErrClientNotFound, nil
+	}
+
+	argLower := strings.ToLower(arg)
+
+	// 1. Поиск по префиксу UUID (если 6+ символов hex)
+	if len(arg) >= 6 && isHexOrUUID(arg) {
+		var uuidMatches []*Client
+		for _, c := range clients {
+			if strings.HasPrefix(strings.ToLower(c.UUID), argLower) {
+				uuidMatches = append(uuidMatches, c)
+			}
+		}
+		if len(uuidMatches) == 1 {
+			return uuidMatches[0], nil, nil
+		}
+		if len(uuidMatches) > 1 {
+			return nil, ErrAmbiguousClient, uuidMatches
+		}
+	}
+
+	// 2. Точное совпадение по имени (регистронезависимо)
+	var exactMatches []*Client
+	for _, c := range clients {
+		if strings.EqualFold(c.Name, arg) {
+			exactMatches = append(exactMatches, c)
+		}
+	}
+	if len(exactMatches) == 1 {
+		return exactMatches[0], nil, nil
+	}
+	if len(exactMatches) > 1 {
+		return nil, ErrAmbiguousClient, exactMatches
+	}
+
+	// 3. Частичное совпадение по имени (подстрока)
+	var subMatches []*Client
+	for _, c := range clients {
+		if strings.Contains(strings.ToLower(c.Name), argLower) {
+			subMatches = append(subMatches, c)
+		}
+	}
+	if len(subMatches) == 1 {
+		return subMatches[0], nil, nil
+	}
+	if len(subMatches) > 1 {
+		return nil, ErrAmbiguousClient, subMatches
+	}
+
+	return nil, ErrClientNotFound, nil
+}
+
+// parseRenameArgs разбирает синтаксис команды /rename <старое> -> <новое>.
+func parseRenameArgs(text string) (oldName, newName string, err error) {
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "/rename") {
+		text = strings.TrimPrefix(text, "/rename")
+		if strings.HasPrefix(text, "@") {
+			if idx := strings.Index(text, " "); idx != -1 {
+				text = text[idx:]
+			} else {
+				text = ""
+			}
+		}
+	}
+	text = strings.TrimSpace(text)
+
+	parts := strings.SplitN(text, "->", 2)
+	if len(parts) != 2 {
+		return "", "", ErrInvalidRenameSyntax
+	}
+
+	oldName = strings.TrimSpace(parts[0])
+	newName = strings.TrimSpace(parts[1])
+
+	if oldName == "" || newName == "" {
+		return "", "", ErrInvalidRenameSyntax
+	}
+
+	if utf8.RuneCountInString(newName) > MaxNameLen {
+		runes := []rune(newName)
+		newName = strings.TrimSpace(string(runes[:MaxNameLen]))
+	}
+
+	return oldName, newName, nil
 }

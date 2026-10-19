@@ -3,6 +3,7 @@ package bot
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -168,3 +169,143 @@ func TestParseNewKeyArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestMaskUUID(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"12345678", "12345678"},
+		{"1234567", "1234567"},
+		{"abcdef01-2345-6789-abcd-ef0123456789", "abcdef01…"},
+	}
+	for _, tt := range tests {
+		got := maskUUID(tt.input)
+		if got != tt.want {
+			t.Errorf("maskUUID(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFormatDaysLeft(t *testing.T) {
+	if formatDaysLeft(nil) != "бессрочно" {
+		t.Errorf("expected бессрочно for nil")
+	}
+
+	zero := time.Time{}
+	if formatDaysLeft(&zero) != "бессрочно" {
+		t.Errorf("expected бессрочно for zero time")
+	}
+
+	future := time.Now().Add(5 * 24 * time.Hour)
+	if formatDaysLeft(&future) != "5д" {
+		t.Errorf("expected 5д, got %q", formatDaysLeft(&future))
+	}
+
+	today := time.Now().Add(6 * time.Hour)
+	if formatDaysLeft(&today) != "истекает сегодня" {
+		t.Errorf("expected истекает сегодня, got %q", formatDaysLeft(&today))
+	}
+
+	pastToday := time.Now().Add(-2 * time.Hour)
+	if formatDaysLeft(&pastToday) != "просрочен сегодня" {
+		t.Errorf("expected просрочен сегодня, got %q", formatDaysLeft(&pastToday))
+	}
+
+	pastDays := time.Now().Add(-72 * time.Hour)
+	if formatDaysLeft(&pastDays) != "просрочен 3д" {
+		t.Errorf("expected просрочен 3д, got %q", formatDaysLeft(&pastDays))
+	}
+}
+
+func TestParseRenameArgs(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantOld string
+		wantNew string
+		wantErr bool
+	}{
+		{
+			input:   "Марина Иванова -> Марина И.",
+			wantOld: "Марина Иванова",
+			wantNew: "Марина И.",
+			wantErr: false,
+		},
+		{
+			input:   "/rename Марина Иванова -> Марина И.",
+			wantOld: "Марина Иванова",
+			wantNew: "Марина И.",
+			wantErr: false,
+		},
+		{
+			input:   "/rename@sirin_crp_bot a1b2c3d4 -> Новое Имя",
+			wantOld: "a1b2c3d4",
+			wantNew: "Новое Имя",
+			wantErr: false,
+		},
+		{
+			input:   "Марина",
+			wantErr: true,
+		},
+		{
+			input:   "Марина ->",
+			wantErr: true,
+		},
+		{
+			input:   "-> Марина",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		old, newN, err := parseRenameArgs(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("parseRenameArgs(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+		}
+		if !tt.wantErr {
+			if old != tt.wantOld || newN != tt.wantNew {
+				t.Errorf("parseRenameArgs(%q) = (%q, %q), want (%q, %q)", tt.input, old, newN, tt.wantOld, tt.wantNew)
+			}
+		}
+	}
+}
+
+func TestResolveClient(t *testing.T) {
+	clients := []*Client{
+		{UUID: "11111111-0000-0000-0000-000000000001", Name: "Марина Кузнецова"},
+		{UUID: "22222222-0000-0000-0000-000000000002", Name: "Иван Иванов"},
+		{UUID: "33333333-0000-0000-0000-000000000003", Name: "Иван Сидоров"},
+	}
+
+	// 1. Exact UUID prefix (>=6)
+	c, err, _ := resolveClient(clients, "111111")
+	if err != nil || c == nil || c.Name != "Марина Кузнецова" {
+		t.Errorf("resolve by prefix 111111 failed: %v", err)
+	}
+
+	// 2. Exact name
+	c, err, _ = resolveClient(clients, "марина кузнецова")
+	if err != nil || c == nil || c.UUID != "11111111-0000-0000-0000-000000000001" {
+		t.Errorf("resolve by exact name failed: %v", err)
+	}
+
+	// 3. Substring single match
+	c, err, _ = resolveClient(clients, "Сидоров")
+	if err != nil || c == nil || c.UUID != "33333333-0000-0000-0000-000000000003" {
+		t.Errorf("resolve by substring single match failed: %v", err)
+	}
+
+	// 4. Substring ambiguous match (Иван matches "Иван Иванов" and "Иван Сидоров")
+	_, err, ambiguous := resolveClient(clients, "Иван")
+	if err != ErrAmbiguousClient || len(ambiguous) != 2 {
+		t.Errorf("resolve by ambiguous should return ErrAmbiguousClient with 2 matches, got err=%v, count=%d", err, len(ambiguous))
+	}
+
+	// 5. Not found
+	_, err, _ = resolveClient(clients, "Петр")
+	if err != ErrClientNotFound {
+		t.Errorf("resolve not found failed: got %v, want ErrClientNotFound", err)
+	}
+}
+
