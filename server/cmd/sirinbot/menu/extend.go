@@ -49,7 +49,7 @@ func (m *Manager) ShowExtendPrompt(c tele.Context, uuid string, edit bool) error
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -93,7 +93,7 @@ func (m *Manager) ShowShortenPrompt(c tele.Context, uuid string, edit bool) erro
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }

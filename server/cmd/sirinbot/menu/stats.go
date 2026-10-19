@@ -69,7 +69,7 @@ func (m *Manager) ShowStats(c tele.Context, edit bool) error {
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }

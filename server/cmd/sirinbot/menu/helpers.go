@@ -56,10 +56,12 @@ func ClientStatus(c *bot.Client) (emoji string, label string) {
 	return "🟢", "активен"
 }
 
-// ParseCallback разбирает строку вида "category:action:arg1:arg2" на компоненты.
+// ParseCallback разбирает строку вида "\fcategory|action|arg1" или "category:action:arg1" на компоненты.
 func ParseCallback(data string) (category string, action string, args []string) {
+	data = strings.TrimPrefix(data, "\f")
+	data = strings.ReplaceAll(data, "|", ":")
 	parts := strings.Split(data, ":")
-	if len(parts) == 0 {
+	if len(parts) == 0 || (len(parts) == 1 && parts[0] == "") {
 		return "", "", nil
 	}
 	category = parts[0]
@@ -70,6 +72,46 @@ func ParseCallback(data string) (category string, action string, args []string) 
 		args = parts[2:]
 	}
 	return category, action, args
+}
+
+// ExtractCallback надёжно извлекает category, action и args из context telebot.
+func ExtractCallback(c tele.Context) (category string, action string, args []string) {
+	cb := c.Callback()
+	if cb == nil {
+		return "", "", nil
+	}
+
+	// 1. Если telebot уже выделил Unique в callback
+	if cb.Unique != "" {
+		category = cb.Unique
+		payload := strings.TrimPrefix(cb.Data, "\f")
+		payload = strings.ReplaceAll(payload, "|", ":")
+		parts := strings.Split(payload, ":")
+		if len(parts) > 0 && parts[0] != "" {
+			action = parts[0]
+			if len(parts) > 1 {
+				args = parts[1:]
+			}
+		}
+		return category, action, args
+	}
+
+	// 2. Если telebot передал сырой callback_data в OnCallback
+	return ParseCallback(cb.Data)
+}
+
+// EditOrSend пытается отредактировать сообщение через c.Edit, а при ошибке делает fallback на c.Send.
+func EditOrSend(c tele.Context, text string, markup *tele.ReplyMarkup) error {
+	err := c.Edit(text, markup, tele.ModeMarkdown)
+	if err == nil {
+		return nil
+	}
+	// "message is not modified" — ожидаемое поведение при повторном клике на то же меню
+	if strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+		return nil
+	}
+	// При невозможности редактирования (сообщение удалено, или контекст потерян) отправляем новое
+	return c.Send(text, markup, tele.ModeMarkdown)
 }
 
 // CallbackDedup защищает от повторной обработки быстрых двойных кликов.

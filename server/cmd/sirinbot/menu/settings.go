@@ -52,7 +52,7 @@ func (m *Manager) ShowSettings(c tele.Context, edit bool) error {
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -88,7 +88,7 @@ func (m *Manager) ShowCleanupPrompt(c tele.Context, edit bool) error {
 	markup.Inline(markup.Row(btnConfirm, btnCancel))
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -117,5 +117,5 @@ func (m *Manager) ExecuteCleanup(c tele.Context) error {
 	btnMain := markup.Data("🏠 В меню", "menu", "main")
 	markup.Inline(markup.Row(btnSettings, btnMain))
 
-	return c.Edit(text, markup, tele.ModeMarkdown)
+	return EditOrSend(c, text, markup)
 }

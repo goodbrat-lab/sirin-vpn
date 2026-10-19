@@ -2,6 +2,7 @@ package menu
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -101,7 +102,7 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 	)
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 
 	// Опциональная постоянная Reply-клавиатура
@@ -144,7 +145,7 @@ func (m *Manager) ShowHelp(c tele.Context, edit bool) error {
 	markup.Inline(markup.Row(btnMain))
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
@@ -161,18 +162,24 @@ func (m *Manager) ShowSearchPrompt(c tele.Context, edit bool) error {
 	markup.Inline(markup.Row(btnCancel))
 
 	if edit {
-		return c.Edit(text, markup, tele.ModeMarkdown)
+		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
 }
 
 // handleCallback — центральный роутер inline-кнопок.
 func (m *Manager) handleCallback(c tele.Context) error {
-	data := c.Callback().Data
-	category, action, args := ParseCallback(data)
+	category, action, args := ExtractCallback(c)
+	raw := ""
+	if c.Callback() != nil {
+		raw = c.Callback().Data
+	}
+
+	log.Printf("[CALLBACK] from=%d user=%q unique=%q raw=%q => category=%q action=%q args=%v",
+		c.Sender().ID, c.Sender().Username, c.Callback().Unique, raw, category, action, args)
 
 	// Дедупликация быстрых двойных кликов
-	dedupKey := fmt.Sprintf("%d:%s", c.Sender().ID, data)
+	dedupKey := fmt.Sprintf("%d:%s", c.Sender().ID, raw)
 	if !m.dedup.ShouldProcess(dedupKey, 300*time.Millisecond) {
 		RespondSafe(c)
 		return nil
@@ -180,6 +187,7 @@ func (m *Manager) handleCallback(c tele.Context) error {
 
 	// Публичные callback-запросы (если есть) или проверка прав админа
 	if !m.bot.IsAdmin(c.Sender().ID) {
+		log.Printf("[CALLBACK DENY] user %d is not admin", c.Sender().ID)
 		RespondAlert(c, "⛔ Нет доступа.")
 		return nil
 	}
@@ -405,6 +413,11 @@ func (m *Manager) handleCallback(c tele.Context) error {
 		case "cleanup_confirm":
 			return m.ExecuteCleanup(c)
 		}
+
+	default:
+		log.Printf("[CALLBACK UNHANDLED] category=%q action=%q args=%v raw=%q unique=%q",
+			category, action, args, c.Callback().Data, c.Callback().Unique)
+		RespondAlert(c, "Неизвестная команда")
 	}
 
 	return nil
@@ -413,6 +426,7 @@ func (m *Manager) handleCallback(c tele.Context) error {
 // handleText обрабатывает ввод текста для FSM-диалогов и Reply-кнопок.
 func (m *Manager) handleText(c tele.Context) error {
 	text := strings.TrimSpace(c.Text())
+	log.Printf("[TEXT] from=%d user=%q text=%q", c.Sender().ID, c.Sender().Username, text)
 	if strings.HasPrefix(text, "/") {
 		// Команда отменяет текущий FSM state
 		m.fsm.Clear(c.Sender().ID)

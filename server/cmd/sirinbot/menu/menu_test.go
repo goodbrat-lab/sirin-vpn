@@ -8,7 +8,21 @@ import (
 	"time"
 
 	"sirin/server/internal/bot"
+	tele "gopkg.in/telebot.v3"
 )
+
+func TestTelebotButtonData(t *testing.T) {
+	markup := &tele.ReplyMarkup{}
+	btn := markup.Data("👥 Клиенты", "menu", "clients")
+	t.Logf("btn: Unique=%q, Data=%q", btn.Unique, btn.Data)
+	inline := btn.Inline()
+	t.Logf("inline: Data=%q", inline.Data)
+	jsonData, _ := json.Marshal(inline)
+	t.Logf("inline json: %s", jsonData)
+
+	cat, act, args := ParseCallback("\fmenu|clients")
+	t.Logf("ParseCallback(\\fmenu|clients): cat=%q, act=%q, args=%v", cat, act, args)
+}
 
 func TestParseCallback(t *testing.T) {
 	tests := []struct {
@@ -54,6 +68,46 @@ func TestParseCallback(t *testing.T) {
 		},
 		{
 			input:       "noop:first",
+			wantCat:     "noop",
+			wantAction:  "first",
+			wantArgsLen: 0,
+		},
+		{
+			input:       "\fmenu|clients",
+			wantCat:     "menu",
+			wantAction:  "clients",
+			wantArgsLen: 0,
+		},
+		{
+			input:       "\fclient|view|00c38a25-1234-5678-9abc-def012345678",
+			wantCat:     "client",
+			wantAction:  "view",
+			wantArgsLen: 1,
+			wantArgs:    []string{"00c38a25-1234-5678-9abc-def012345678"},
+		},
+		{
+			input:       "\fclients|page|2",
+			wantCat:     "clients",
+			wantAction:  "page",
+			wantArgsLen: 1,
+			wantArgs:    []string{"2"},
+		},
+		{
+			input:       "\fnew|days|30",
+			wantCat:     "new",
+			wantAction:  "days",
+			wantArgsLen: 1,
+			wantArgs:    []string{"30"},
+		},
+		{
+			input:       "\fextend|apply|00c38a25|30",
+			wantCat:     "extend",
+			wantAction:  "apply",
+			wantArgsLen: 2,
+			wantArgs:    []string{"00c38a25", "30"},
+		},
+		{
+			input:       "\fnoop|first",
 			wantCat:     "noop",
 			wantAction:  "first",
 			wantArgsLen: 0,
@@ -330,5 +384,50 @@ func TestBackwardCompat_Operations(t *testing.T) {
 	_, found := storage.Get(c.UUID)
 	if found {
 		t.Errorf("deleted client still exists")
+	}
+}
+
+func TestKeyboardCallbackLengths(t *testing.T) {
+	markup := &tele.ReplyMarkup{}
+	testUUID := "00c38a25-1234-5678-9abc-def012345678"
+
+	buttons := []tele.Btn{
+		markup.Data("👥 Клиенты", "menu", "clients"),
+		markup.Data("➕ Новый клиент", "menu", "new"),
+		markup.Data("📊 Статистика", "menu", "stats"),
+		markup.Data("🔍 Поиск", "menu", "search"),
+		markup.Data("⚙️ Настройки", "menu", "settings"),
+		markup.Data("ℹ️ Помощь", "menu", "help"),
+		markup.Data("◀", "clients", "page", "1"),
+		markup.Data("▶", "clients", "page", "2"),
+		markup.Data("🔍 Фильтр", "clients", "filter"),
+		markup.Data("✖️ Сбросить фильтр", "clients", "reset_filter"),
+		markup.Data("🟢 Тест · 30д", "client", "view", testUUID),
+		markup.Data("👁 Показать UUID", "client", "show_uuid", testUUID),
+		markup.Data("✏️ Переименовать", "client", "rename", testUUID),
+		markup.Data("➕ Продлить", "client", "extend", testUUID),
+		markup.Data("➖ Сократить", "client", "shorten", testUUID),
+		markup.Data("🔴 Отключить", "client", "disable", testUUID),
+		markup.Data("🟢 Включить", "client", "enable", testUUID),
+		markup.Data("🗑 Удалить", "client", "delete", testUUID),
+		markup.Data("📋 Ссылки", "client", "link", testUUID),
+		markup.Data("+365д", "extend", "apply", testUUID, "365"),
+		markup.Data("-365д", "shorten", "apply", testUUID, "365"),
+		markup.Data("✅ Да, сократить", "shorten", "force", testUUID, "365"),
+		markup.Data("✅ Да, удалить", "delete", "confirm", testUUID),
+	}
+
+	for _, btn := range buttons {
+		rawCallback := "\f" + btn.Unique
+		if btn.Data != "" {
+			rawCallback += "|" + btn.Data
+		}
+		if len(rawCallback) > 64 {
+			t.Errorf("button %s callback_data exceeds 64 bytes: %d (%s)", btn.Text, len(rawCallback), rawCallback)
+		}
+		cat, act, _ := ParseCallback(rawCallback)
+		if cat == "" || act == "" {
+			t.Errorf("ParseCallback failed for button %s: raw=%q => cat=%q, act=%q", btn.Text, rawCallback, cat, act)
+		}
 	}
 }
