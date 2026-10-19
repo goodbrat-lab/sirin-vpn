@@ -40,11 +40,9 @@ func (p *linuxProtector) ExcludeHost(host string) {
 	if host == "" {
 		return
 	}
-	if p.wanGW != "" && p.wanIface != "" {
-		_ = exec.Command("ip", "route", "replace", host+"/32", "via", p.wanGW, "dev", p.wanIface).Run()
-	} else if p.wanIface != "" {
-		_ = exec.Command("ip", "route", "replace", host+"/32", "dev", p.wanIface).Run()
-	} else if p.wanGW != "" {
-		_ = exec.Command("ip", "route", "replace", host+"/32", "via", p.wanGW).Run()
+	args := formatRouteArgs(host+"/32", wanInfo{iface: p.wanIface, gw: p.wanGW})
+	if len(args) > 0 {
+		log.Printf("[protect] ExcludeHost: ip %s", strings.Join(args, " "))
+		_ = exec.Command("ip", args...).Run()
 	}
 }
