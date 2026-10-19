@@ -19,7 +19,8 @@ docker compose logs -f [nginx|xray|sirind|sirinapi|sirinbot]
 
 Бот для выдачи и управления ключами доступа (UUID).
 
-Полное руководство по администрированию и всем командам: [docs/BOT_COMMANDS.md](../docs/BOT_COMMANDS.md).
+Полное руководство по администрированию: [docs/BOT_COMMANDS.md](../docs/BOT_COMMANDS.md).
+Интерактивная карта экранов и FSM: [docs/BOT_UX_MAP.md](../docs/BOT_UX_MAP.md).
 
 ### Команды:
 - `/start` — приветствие и список команд
