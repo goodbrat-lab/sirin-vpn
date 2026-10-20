@@ -31,13 +31,6 @@ func (s *Server) HandleKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Обновляем last_seen и привязку device
-	if deviceID != "" {
-		_ = s.storage.Touch(key, deviceID)
-	}
-
-	now := time.Now().Unix()
-
 	// Проверка revoked
 	if c.Revoked {
 		writeJSON(w, 200, KeyVerdict{
@@ -48,6 +41,13 @@ func (s *Server) HandleKey(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Обновляем last_seen и привязку device
+	if deviceID != "" {
+		_ = s.storage.Touch(key, deviceID)
+	}
+
+	now := time.Now().Unix()
 
 	// Проверка expired
 	if c.ExpiresAt != nil && c.ExpiresAt.Unix() < now {

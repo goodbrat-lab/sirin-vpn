@@ -222,7 +222,7 @@ func TestCallbackDedup(t *testing.T) {
 
 func TestHelpers_Formatting(t *testing.T) {
 	// Тест маскирования Telegram ID
-	if MaskTelegramID(1191978271) != "1191***271" {
+	if MaskTelegramID(1191978271) != "1191•••271" {
 		t.Errorf("MaskTelegramID error: %s", MaskTelegramID(1191978271))
 	}
 	if MaskTelegramID(123) != "123" {

@@ -54,15 +54,24 @@ func (s *Storage) loadOrCreate() error {
 		return s.saveLocked()
 	}
 
-	if err := json.Unmarshal(data, &s.data); err != nil {
+	var file ClientsFile
+	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parse %s: %w", s.path, err)
 	}
 
-	if s.data.Clients == nil {
-		s.data.Clients = make(map[string]*Client)
+	if file.Clients == nil {
+		file.Clients = make(map[string]*Client)
 	}
+	s.data = file
 
 	return nil
+}
+
+// Reload перечитывает данные с диска, если файл был изменён внешним процессом.
+func (s *Storage) Reload() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loadOrCreate()
 }
 
 func (s *Storage) saveLocked() error {
@@ -71,8 +80,8 @@ func (s *Storage) saveLocked() error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	tmp := fmt.Sprintf("%s.tmp.%d", s.path, time.Now().UnixNano())
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return fmt.Errorf("write tmp: %w", err)
 	}
 
@@ -84,10 +93,11 @@ func (s *Storage) saveLocked() error {
 	return nil
 }
 
-// Get возвращает копию клиента по UUID.
+// Get возвращает копию клиента по UUID, перечитывая диск при необходимости.
 func (s *Storage) Get(key string) (*Client, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -101,6 +111,7 @@ func (s *Storage) Get(key string) (*Client, bool) {
 func (s *Storage) Touch(key string, deviceIDs ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -123,6 +134,7 @@ func (s *Storage) Touch(key string, deviceIDs ...string) error {
 func (s *Storage) Add(name string, daysValid int) (*Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 
 	newUUID := uuid.New().String()
 	now := time.Now().UTC()
@@ -154,6 +166,7 @@ func (s *Storage) Add(name string, daysValid int) (*Client, error) {
 func (s *Storage) Revoke(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -168,6 +181,7 @@ func (s *Storage) Revoke(key string) error {
 func (s *Storage) Delete(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 
 	if _, ok := s.data.Clients[key]; !ok {
 		return fmt.Errorf("client %s not found", key)
@@ -179,8 +193,9 @@ func (s *Storage) Delete(key string) error {
 
 // List возвращает список всех клиентов.
 func (s *Storage) List() []*Client {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 
 	res := make([]*Client, 0, len(s.data.Clients))
 	for _, c := range s.data.Clients {
@@ -192,7 +207,8 @@ func (s *Storage) List() []*Client {
 
 // Count возвращает количество клиентов.
 func (s *Storage) Count() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
 	return len(s.data.Clients)
 }
