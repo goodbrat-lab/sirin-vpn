@@ -209,3 +209,70 @@ func TestSyncClientsOnce(t *testing.T) {
 		t.Errorf("expected newly added %s in wrapKeys", u2)
 	}
 }
+
+func TestSyncClientsOnce_RevokesActiveSessions(t *testing.T) {
+	dir := t.TempDir()
+	uActive := "active-uuid-999"
+	uRevoked := "revoked-uuid-888"
+
+	filePath := writeTestClientsFile(t, dir, map[string]testClient{
+		uActive:  {UUID: uActive, Revoked: false},
+		uRevoked: {UUID: uRevoked, Revoked: false},
+	})
+
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("os.Stat: %v", err)
+	}
+
+	kActive, _ := obfs.DeriveWrapKey(uActive)
+	kRevoked, _ := obfs.DeriveWrapKey(uRevoked)
+
+	sessActive := &Session{
+		clientUUID: uActive,
+		state:      StateAuthenticated,
+	}
+	sessRevoked := &Session{
+		clientUUID: uRevoked,
+		state:      StateAuthenticated,
+	}
+
+	srv := &Server{
+		cfg:            &config.Config{AllowedUUIDs: nil},
+		clientsPath:    filePath,
+		clientsModTime: fi.ModTime(),
+		wrapKeys: map[string][]byte{
+			uActive:  kActive,
+			uRevoked: kRevoked,
+		},
+		sessions: map[string]*Session{
+			"addr-active":  sessActive,
+			"addr-revoked": sessRevoked,
+		},
+		byTunIP: make(map[string]*Session),
+	}
+
+	// Now mark uRevoked as Revoked in clients.json
+	time.Sleep(50 * time.Millisecond)
+	writeTestClientsFile(t, dir, map[string]testClient{
+		uActive:  {UUID: uActive, Revoked: false},
+		uRevoked: {UUID: uRevoked, Revoked: true},
+	})
+	future := srv.clientsModTime.Add(2 * time.Second)
+	_ = os.Chtimes(filePath, future, future)
+
+	srv.syncClientsOnce()
+
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	if _, ok := srv.sessions["addr-active"]; !ok {
+		t.Errorf("active session should remain in s.sessions")
+	}
+	if _, ok := srv.sessions["addr-revoked"]; ok {
+		t.Errorf("revoked session should be removed from s.sessions")
+	}
+	if sessRevoked.State() != StateClosed {
+		t.Errorf("revoked session state should be StateClosed, got %v", sessRevoked.State())
+	}
+}

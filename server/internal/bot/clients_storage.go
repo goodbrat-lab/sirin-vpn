@@ -94,13 +94,15 @@ func (s *ClientsStorage) loadOrCreate() error {
 		return s.saveLocked()
 	}
 
-	if err := json.Unmarshal(data, &s.data); err != nil {
+	var file ClientsFile
+	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("parse %s: %w", s.path, err)
 	}
 
-	if s.data.Clients == nil {
-		s.data.Clients = make(map[string]*Client)
+	if file.Clients == nil {
+		file.Clients = make(map[string]*Client)
 	}
+	s.data = file
 
 	return nil
 }

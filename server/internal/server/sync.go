@@ -58,10 +58,10 @@ func loadAllowedUUIDs(storagePath string, fallback []string) ([]string, time.Tim
 	return result, fi.ModTime(), nil
 }
 
-// syncClientsLoop проверяет clients.json раз в 30 секунд.
+// syncClientsLoop проверяет clients.json каждые 2 секунды.
 // Если mtime изменился — перечитывает UUID и обновляет wrapKeys.
 func (s *Server) syncClientsLoop(stopCh <-chan struct{}) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -97,7 +97,9 @@ func (s *Server) syncClientsOnce() {
 	s.wrapMu.RUnlock()
 
 	newKeys := make(map[string][]byte, len(uuids))
+	allowedMap := make(map[string]bool, len(uuids))
 	for _, uuid := range uuids {
+		allowedMap[uuid] = true
 		if key, ok := oldKeys[uuid]; ok {
 			newKeys[uuid] = key // кэш
 		} else {
@@ -116,5 +118,24 @@ func (s *Server) syncClientsOnce() {
 	s.clientsModTime = modTime
 	s.wrapMu.Unlock()
 
-	log.Printf("[Sirin Server] Ключи синхронизированы: %d активных", len(newKeys))
+	// Сбрасываем активные сессии для отозванных/удалённых/просроченных клиентов
+	s.mu.Lock()
+	var closedCount int
+	for k, sess := range s.sessions {
+		if !allowedMap[sess.clientUUID] {
+			delete(s.sessions, k)
+			if sess.tunIP != nil {
+				delete(s.byTunIP, sess.tunIP.String())
+			}
+			sess.SetState(StateClosed)
+			if sess.tcpConn != nil {
+				_ = sess.tcpConn.Close()
+			}
+			closedCount++
+			log.Printf("[Sirin Server] Сессия %s закрыта (клиент %s отозван или удалён)", k, sess.clientUUID)
+		}
+	}
+	s.mu.Unlock()
+
+	log.Printf("[Sirin Server] Ключи синхронизированы: %d активных, закрыто сессий: %d", len(newKeys), closedCount)
 }

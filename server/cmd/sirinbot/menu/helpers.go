@@ -30,13 +30,13 @@ func FormatDateTimeMSK(t time.Time) string {
 	return t.In(mskLoc).Format("2006-01-02 15:04")
 }
 
-// MaskTelegramID маскирует Telegram ID (например, 1191978271 -> 1191***271).
+// MaskTelegramID маскирует Telegram ID (например, 1191978271 -> 1191•••271).
 func MaskTelegramID(id int64) string {
 	s := strconv.FormatInt(id, 10)
 	if len(s) <= 6 {
 		return s
 	}
-	return s[:4] + "***" + s[len(s)-3:]
+	return s[:4] + "•••" + s[len(s)-3:]
 }
 
 // ClientStatus возвращает эмодзи статуса и текстовое описание.
