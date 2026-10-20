@@ -39,6 +39,14 @@ func MaskTelegramID(id int64) string {
 	return s[:4] + "•••" + s[len(s)-3:]
 }
 
+// MaskUUID маскирует первую секцию UUID (например, ••••••••-67f6-4301-a925-6b3e4967a209).
+func MaskUUID(u string) string {
+	if len(u) <= 8 {
+		return u
+	}
+	return "••••••••" + u[8:]
+}
+
 // ClientStatus возвращает эмодзи статуса и текстовое описание.
 func ClientStatus(c *bot.Client) (emoji string, label string) {
 	if c.Revoked {

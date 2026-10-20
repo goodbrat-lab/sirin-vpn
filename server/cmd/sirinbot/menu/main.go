@@ -57,6 +57,10 @@ func (m *Manager) registerRoutes() {
 	// Перехват текстовых сообщений для FSM и ReplyKeyboard
 	tb.Handle(tele.OnText, m.handleText)
 
+	// Перехват фото и документов для загрузки чеков об оплате
+	tb.Handle(tele.OnPhoto, m.HandleReceiptUploaded)
+	tb.Handle(tele.OnDocument, m.HandleReceiptUploaded)
+
 	// Центральный диспетчер callback-запросов (inline-кнопки)
 	tb.Handle(tele.OnCallback, m.handleCallback)
 }
@@ -185,10 +189,15 @@ func (m *Manager) handleCallback(c tele.Context) error {
 		return nil
 	}
 
-	// Публичные callback-запросы (если есть) или проверка прав админа
-	if !m.bot.IsAdmin(c.Sender().ID) {
-		log.Printf("[CALLBACK DENY] user %d is not admin", c.Sender().ID)
-		RespondAlert(c, "⛔ Нет доступа.")
+	// Разграничение доступа: категории личного кабинета доступны всем, остальное — только админам
+	clientCategories := map[string]bool{
+		"my":    true,
+		"trial": true,
+		"order": true,
+	}
+	if !clientCategories[category] && !m.bot.IsAdmin(c.Sender().ID) {
+		log.Printf("[CALLBACK DENY] user %d is not admin (cat=%q)", c.Sender().ID, category)
+		RespondAlert(c, "⛔ Доступно только администратору.")
 		return nil
 	}
 
@@ -414,6 +423,76 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			return m.ExecuteCleanup(c)
 		}
 
+	case "my":
+		switch action {
+		case "home":
+			return m.ShowClientHome(c, true)
+		case "key":
+			return m.ShowClientKey(c, true)
+		case "apps":
+			return m.ShowClientApps(c, true)
+		case "guide":
+			return m.ShowClientGuide(c, true)
+		case "about":
+			return m.ShowClientAbout(c, true)
+		case "support":
+			return m.ShowClientSupport(c, true)
+		case "trial_prompt":
+			return m.ShowClientTrialPrompt(c, true)
+		case "tariffs":
+			return m.ShowClientTariffs(c, true)
+		}
+
+	case "trial":
+		if action == "submit" {
+			return m.SubmitTrialRequest(c)
+		}
+
+	case "order":
+		switch action {
+		case "select":
+			if len(args) > 0 {
+				return m.SelectTariff(c, args[0])
+			}
+		case "paid":
+			if len(args) > 0 {
+				return m.PromptReceiptUpload(c, args[0])
+			}
+		case "cancel":
+			if len(args) > 0 {
+				return m.CancelOrder(c, args[0])
+			}
+		}
+
+	case "trial_adm":
+		switch action {
+		case "approve":
+			if len(args) >= 2 {
+				days, _ := strconv.Atoi(args[1])
+				return m.HandleAdminTrialApprove(c, args[0], days)
+			}
+		case "custom":
+			if len(args) > 0 {
+				return m.HandleAdminTrialCustom(c, args[0])
+			}
+		case "reject":
+			if len(args) > 0 {
+				return m.HandleAdminTrialReject(c, args[0])
+			}
+		}
+
+	case "order_adm":
+		switch action {
+		case "approve":
+			if len(args) > 0 {
+				return m.HandleAdminOrderApprove(c, args[0])
+			}
+		case "reject":
+			if len(args) > 0 {
+				return m.HandleAdminOrderReject(c, args[0])
+			}
+		}
+
 	default:
 		log.Printf("[CALLBACK UNHANDLED] category=%q action=%q args=%v raw=%q unique=%q",
 			category, action, args, c.Callback().Data, c.Callback().Unique)
@@ -433,6 +512,12 @@ func (m *Manager) handleText(c tele.Context) error {
 		return nil
 	}
 
+	// Проверка наличия активного FSM-состояния у пользователя (включая загрузку чека)
+	state, hasState := m.fsm.Get(c.Sender().ID)
+	if hasState && state.Action == "waiting_receipt" {
+		return c.Send("Пожалуйста, отправьте чек об оплате в виде фото или скриншота.")
+	}
+
 	if !m.bot.IsAdmin(c.Sender().ID) {
 		return nil
 	}
@@ -450,7 +535,6 @@ func (m *Manager) handleText(c tele.Context) error {
 	}
 
 	// Проверка наличия активного FSM-состояния
-	state, hasState := m.fsm.Get(c.Sender().ID)
 	if !hasState {
 		// Состояния нет — подскажем админу
 		markup := &tele.ReplyMarkup{}
@@ -493,6 +577,18 @@ func (m *Manager) handleText(c tele.Context) error {
 
 	case "shorten_days":
 		return m.HandleFSMShortenCustomText(c, state, text)
+
+	case "trial_custom_days":
+		days, err := strconv.Atoi(text)
+		if err != nil || days <= 0 {
+			return c.Send("Пожалуйста, введите количество дней числом (например, `45`):", tele.ModeMarkdown)
+		}
+		if days > 3650 {
+			days = 3650
+		}
+		reqID := state.Data["req_id"]
+		m.fsm.Clear(c.Sender().ID)
+		return m.HandleAdminTrialApprove(c, reqID, days)
 	}
 
 	return nil
@@ -507,12 +603,7 @@ func (m *Manager) handleStart(c tele.Context) error {
 	if m.bot.IsAdmin(c.Sender().ID) {
 		return m.ShowMainMenu(c, false)
 	}
-	text := "🕊 *Сирин* — Stay unseen\n\n" +
-		"Я помогу подключиться к VPN.\n\n" +
-		"Команды:\n" +
-		"/mykey — показать мой выданный ключ\n" +
-		"/help — справка"
-	return c.Send(text, tele.ModeMarkdown)
+	return m.ShowClientHome(c, false)
 }
 
 func (m *Manager) handleHelp(c tele.Context) error {
@@ -520,7 +611,7 @@ func (m *Manager) handleHelp(c tele.Context) error {
 	if m.bot.IsAdmin(c.Sender().ID) {
 		return m.ShowHelp(c, false)
 	}
-	return c.Send("📖 Для подключения к VPN используйте команду `/mykey`.", tele.ModeMarkdown)
+	return m.ShowClientGuide(c, false)
 }
 
 func (m *Manager) handleMenuCommand(c tele.Context) error {

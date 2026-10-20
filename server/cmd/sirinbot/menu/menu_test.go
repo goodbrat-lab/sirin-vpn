@@ -415,6 +415,22 @@ func TestKeyboardCallbackLengths(t *testing.T) {
 		markup.Data("-365д", "shorten", "apply", testUUID, "365"),
 		markup.Data("✅ Да, сократить", "shorten", "force", testUUID, "365"),
 		markup.Data("✅ Да, удалить", "delete", "confirm", testUUID),
+		// Клиентские кнопки
+		markup.Data("🔑 Мой ключ", "my", "key"),
+		markup.Data("💳 Продлить доступ", "my", "tariffs"),
+		markup.Data("📥 Приложения", "my", "apps"),
+		markup.Data("📖 Инструкция", "my", "guide"),
+		markup.Data("💬 Поддержка", "my", "support"),
+		markup.Data("🎁 Бесплатный тест", "my", "trial_prompt"),
+		markup.Data("✅ Да, отправить заявку", "trial", "submit"),
+		markup.Data("1 мес — 150 ₽", "order", "select", "1m"),
+		markup.Data("1 год — 1 350 ₽", "order", "select", "1y"),
+		markup.Data("🧾 Я оплатил", "order", "paid", "ORD-123456"),
+		markup.Data("✖️ Отменить заказ", "order", "cancel", "ORD-123456"),
+		markup.Data("7 дней", "trial_adm", "approve", "TR-123456", "7"),
+		markup.Data("❌ Отклонить", "trial_adm", "reject", "TR-123456"),
+		markup.Data("✅ Подтвердить оплату", "order_adm", "approve", "ORD-123456"),
+		markup.Data("❌ Отклонить", "order_adm", "reject", "ORD-123456"),
 	}
 
 	for _, btn := range buttons {
@@ -429,5 +445,97 @@ func TestKeyboardCallbackLengths(t *testing.T) {
 		if cat == "" || act == "" {
 			t.Errorf("ParseCallback failed for button %s: raw=%q => cat=%q, act=%q", btn.Text, rawCallback, cat, act)
 		}
+	}
+}
+
+func TestTrialAndOrderLifecycle(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "bot_users.json")
+	storage, err := bot.NewStorage(storagePath)
+	if err != nil {
+		t.Fatalf("NewStorage: %v", err)
+	}
+
+	userID := int64(987654321)
+
+	// 1. Trial Request
+	req := &bot.TrialRequest{
+		ID:         "TR-0001",
+		TelegramID: userID,
+		Username:   "testclient",
+		FullName:   "Тест Клиент",
+		CreatedAt:  time.Now(),
+		Status:     "pending",
+	}
+
+	if err := storage.CreateTrialRequest(req); err != nil {
+		t.Fatalf("CreateTrialRequest: %v", err)
+	}
+
+	pending, ok := storage.GetPendingTrialRequest(userID)
+	if !ok || pending.ID != "TR-0001" {
+		t.Fatalf("GetPendingTrialRequest failed: %+v", pending)
+	}
+
+	pending.Status = "approved"
+	pending.Days = 7
+	pending.UUID = "test-trial-uuid"
+	if err := storage.UpdateTrialRequest(pending); err != nil {
+		t.Fatalf("UpdateTrialRequest: %v", err)
+	}
+
+	if _, ok := storage.GetPendingTrialRequest(userID); ok {
+		t.Errorf("expected no pending trial after approval")
+	}
+
+	// 2. Payment Order
+	tariff, ok := FindTariff("1m")
+	if !ok || tariff.PriceRub != 150 || tariff.Days != 30 {
+		t.Fatalf("FindTariff(1m) unexpected: %+v", tariff)
+	}
+
+	order := &bot.PaymentOrder{
+		ID:         "ORD-0001",
+		TelegramID: userID,
+		Username:   "testclient",
+		FullName:   "Тест Клиент",
+		TariffID:   tariff.ID,
+		TariffName: tariff.Name,
+		Days:       tariff.Days,
+		AmountRub:  tariff.PriceRub,
+		CreatedAt:  time.Now(),
+		Status:     "pending_receipt",
+	}
+
+	if err := storage.CreatePaymentOrder(order); err != nil {
+		t.Fatalf("CreatePaymentOrder: %v", err)
+	}
+
+	pendingOrder, ok := storage.GetPendingPaymentOrder(userID)
+	if !ok || pendingOrder.ID != "ORD-0001" {
+		t.Fatalf("GetPendingPaymentOrder failed: %+v", pendingOrder)
+	}
+
+	// Client submits receipt
+	pendingOrder.Status = "submitted"
+	pendingOrder.ReceiptFileID = "photo_file_id_123"
+	if err := storage.UpdatePaymentOrder(pendingOrder); err != nil {
+		t.Fatalf("UpdatePaymentOrder: %v", err)
+	}
+
+	// Admin approves
+	submitted, ok := storage.GetPaymentOrder("ORD-0001")
+	if !ok || submitted.Status != "submitted" {
+		t.Fatalf("submitted order not found")
+	}
+
+	submitted.Status = "approved"
+	submitted.AdminID = 1191978271
+	if err := storage.UpdatePaymentOrder(submitted); err != nil {
+		t.Fatalf("approve order: %v", err)
+	}
+
+	if _, ok := storage.GetPendingPaymentOrder(userID); ok {
+		t.Errorf("expected no pending orders after approval")
 	}
 }
