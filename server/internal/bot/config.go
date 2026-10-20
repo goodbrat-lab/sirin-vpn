@@ -10,14 +10,23 @@ type AdminConfig struct {
 	TelegramIDs []int64 `toml:"telegram_ids"`
 }
 
+type PaymentConfig struct {
+	SBPPhone        string `toml:"sbp_phone"`
+	SBPBank         string `toml:"sbp_bank"`
+	CardNumber      string `toml:"card_number"`
+	RecipientName   string `toml:"recipient_name"`
+	SupportUsername string `toml:"support_username"`
+}
+
 type Config struct {
-	BotToken      string      `toml:"bot_token"`
-	AdminID       int64       `toml:"admin_id"`       // legacy single ID
-	Admin         AdminConfig `toml:"admin"`          // [admin] telegram_ids = [...]
-	APIURL        string      `toml:"api_url"`         // http://127.0.0.1:8080
-	APIAdminToken string      `toml:"api_admin_token"` // Bearer для /v1/admin/*
-	StoragePath   string      `toml:"storage_path"`   // /etc/sirin/bot_users.json
-	ClientsPath   string      `toml:"clients_path"`   // /etc/sirin/clients.json
+	BotToken      string        `toml:"bot_token"`
+	AdminID       int64         `toml:"admin_id"`       // legacy single ID
+	Admin         AdminConfig   `toml:"admin"`          // [admin] telegram_ids = [...]
+	Payment       PaymentConfig `toml:"payment"`        // [payment]
+	APIURL        string        `toml:"api_url"`         // http://127.0.0.1:8080
+	APIAdminToken string        `toml:"api_admin_token"` // Bearer для /v1/admin/*
+	StoragePath   string        `toml:"storage_path"`   // /etc/sirin/bot_users.json
+	ClientsPath   string        `toml:"clients_path"`   // /etc/sirin/clients.json
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -44,7 +53,29 @@ func (c *Config) Validate() error {
 	if c.ClientsPath == "" {
 		c.ClientsPath = "/etc/sirin/clients.json"
 	}
+	if c.Payment.SBPBank == "" {
+		c.Payment.SBPBank = "СБП (любой банк)"
+	}
+	if c.Payment.SupportUsername == "" {
+		c.Payment.SupportUsername = "admin"
+	}
 	return nil
+}
+
+func (c *Config) AdminIDs() []int64 {
+	seen := make(map[int64]bool)
+	var res []int64
+	if c.AdminID != 0 {
+		seen[c.AdminID] = true
+		res = append(res, c.AdminID)
+	}
+	for _, adminID := range c.Admin.TelegramIDs {
+		if !seen[adminID] && adminID != 0 {
+			seen[adminID] = true
+			res = append(res, adminID)
+		}
+	}
+	return res
 }
 
 func (c *Config) IsAdmin(id int64) bool {
