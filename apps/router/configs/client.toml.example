@@ -26,5 +26,16 @@ transport = "vless"
 host = "94.183.159.114"
 port = 443
 sni = "sun8-21.userapi.com"
+# Расширенный пул SNI для ротации при блокировках ТСПУ (VK CDN, Kinopoisk, WB, IKEA, Microsoft, Apple, Samsung):
+snis = [
+    "sun8-21.userapi.com",
+    "www.kinopoisk.ru",
+    "wildberries.ru",
+    "www.ikea.com",
+    "www.microsoft.com",
+    "dl.delivery.mp.microsoft.com",
+    "swcdn.apple.com",
+    "www.samsung.com"
+]
 pbk = "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
 sid = "8283f99ec6a0f52e"
