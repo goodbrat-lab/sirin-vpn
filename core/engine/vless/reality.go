@@ -29,6 +29,19 @@ type RealityConfig struct {
 	Logf        func(format string, args ...any)
 }
 
+// DefaultRealitySNIs contains trusted TLS 1.3 domains (VK, Kinopoisk, WB, IKEA, Microsoft, Apple, Samsung)
+// used for Reality masking when neither SNIList nor SNI is specified.
+var DefaultRealitySNIs = []string{
+	"sun8-21.userapi.com",
+	"www.kinopoisk.ru",
+	"wildberries.ru",
+	"www.ikea.com",
+	"www.microsoft.com",
+	"dl.delivery.mp.microsoft.com",
+	"swcdn.apple.com",
+	"www.samsung.com",
+}
+
 // Dial выполняет TCP-соединение и TLS 1.3 рукопожатие по протоколу Reality с маскировкой под Chrome.
 // Если SNIList не пустой — пробует каждый SNI по очереди.
 func Dial(ctx context.Context, cfg *RealityConfig) (net.Conn, error) {
@@ -37,7 +50,7 @@ func Dial(ctx context.Context, cfg *RealityConfig) (net.Conn, error) {
 		if cfg.SNI != "" {
 			snis = []string{cfg.SNI}
 		} else {
-			snis = []string{""}
+			snis = DefaultRealitySNIs
 		}
 	}
 

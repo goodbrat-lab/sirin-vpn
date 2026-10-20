@@ -25,6 +25,19 @@ const (
 	transVLESS                    // NEW: VLESS+Reality с XTLS Vision
 )
 
+// DefaultSNIPool is the extended default pool of resilient TLS 1.3 SNI domains
+// covering domestic Russian platforms (VK, Kinopoisk, WB) and global tech ecosystems (Microsoft, Apple, Samsung, IKEA).
+var DefaultSNIPool = []string{
+	"sun8-21.userapi.com",
+	"www.kinopoisk.ru",
+	"wildberries.ru",
+	"www.ikea.com",
+	"www.microsoft.com",
+	"dl.delivery.mp.microsoft.com",
+	"swcdn.apple.com",
+	"www.samsung.com",
+}
+
 // streamKindText — короткое имя транспорта для лога.
 func streamKindText(t transportKind) string {
 	switch t {
@@ -296,8 +309,12 @@ func (l *Ladder) AddVLESS(
 			}
 		}
 	}
-	if len(sniList) == 0 && sni != "" {
-		sniList = []string{sni}
+	if len(sniList) == 0 {
+		if sni != "" {
+			sniList = []string{sni}
+		} else {
+			sniList = DefaultSNIPool
+		}
 	}
 	l.items = append(l.items, candidate{
 		name:           name,
