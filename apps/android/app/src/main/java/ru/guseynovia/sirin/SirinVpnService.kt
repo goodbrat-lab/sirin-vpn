@@ -229,7 +229,7 @@ class SirinVpnService : VpnService() {
         private const val BLACKHOLE_PREFIX = 32
 
         /**
-         * Причина остановки, означающая «человек нажал Отключить».
+         * Причина остановки, означающая «человек нажал ОТКЛЮЧИТЬ».
          *
          * СТРОКА СВЯЗАНА С ДВИЖКОМ ДОСЛОВНО: её передаёт Engine.stop()
          * (engine/engine.go, s.stop("по команде приложения")). По ней и
@@ -238,7 +238,7 @@ class SirinVpnService : VpnService() {
          * на него отвечаем молчаливым переподключением.
          *
          * Разойдётся с движком — симптом будет обратный немоте: на
-         * «Отключить» служба начнёт переподключаться вместо остановки.
+         * «ОТКЛЮЧИТЬ» служба начнёт переподключаться вместо остановки.
          * Менять только в двух местах разом.
          */
         private const val REASON_STOP_COMMAND = "по команде приложения"
@@ -299,7 +299,7 @@ class SirinVpnService : VpnService() {
      * защиты не бывает никогда, ни в одной реализации.
      *
      * ГДЕ ЗАЩИТЫ НЕТ СОЗНАТЕЛЬНО. Сдача (RECONNECT_MAX_FAILS,
-     * QUICK_DROP_LIMIT) и явное «Отключить» по-прежнему гасят службу
+     * QUICK_DROP_LIMIT) и явное «ОТКЛЮЧИТЬ» по-прежнему гасят службу
      * целиком через shutdownService() — Kill Switch снимается вместе с
      * ней, и человек возвращается на открытую сеть, как было до этой
      * правки. Владелец просил защиту на КАЖДОЕ переподключение, а не
@@ -857,7 +857,7 @@ class SirinVpnService : VpnService() {
                      * ПРОВЕРКА ПОКОЛЕНИЯ ЗДЕСЬ НУЖНА, И ВОТ ПОЧЕМУ.
                      * Engine.stop() ВСЕГДА шлёт одну и ту же строку
                      * ("по команде приложения"), кто бы его ни позвал —
-                     * и настоящее «Отключить» (stopTunnel), и наш
+                     * и настоящее «ОТКЛЮЧИТЬ» (stopTunnel), и наш
                      * собственный вынужденный перезапуск при смене сети
                      * (scheduleReconnect, который сам зовёт Engine.stop()
                      * ниже по своему коду). Различить их по reason
@@ -886,7 +886,7 @@ class SirinVpnService : VpnService() {
                             return
                         }
                         if (reason == REASON_STOP_COMMAND) {
-                            // Настоящее «Отключить»: человек попросил
+                            // Настоящее «ОТКЛЮЧИТЬ»: человек попросил
                             // уйти, заглушка тут же снялась бы в
                             // shutdownService() — поднимать её на долю
                             // секунды незачем, только шум в логе.
@@ -915,7 +915,7 @@ class SirinVpnService : VpnService() {
                         //
                         // Различаем по причине. "по команде приложения"
                         // приходит от Engine.stop(), который зовём мы
-                        // сами на «Отключить»: тут переподключаться
+                        // сами на «ОТКЛЮЧИТЬ»: тут переподключаться
                         // нельзя, человек попросил уйти.
                         //
                         // Всё остальное на этом месте — самопроизвольный
@@ -2175,7 +2175,7 @@ class SirinVpnService : VpnService() {
         if (Notice.text.value == SLOW_HINT) Notice.clear()
         // KILL SWITCH СНИМАЕТСЯ ЗДЕСЬ, И ЭТО ГРАНИЦА ЕГО ЗАЩИТЫ.
         //
-        // Сюда ведут три дороги: явное «Отключить», сдача после
+        // Сюда ведут три дороги: явное «ОТКЛЮЧИТЬ», сдача после
         // исчерпанных попыток переподключения, отзыв разрешения
         // системой. Во всех трёх человек либо попросил уйти сам, либо
         // мы признали, что подняться не можем, — держать заглушку
@@ -2474,7 +2474,7 @@ class SirinVpnService : VpnService() {
                     streams.add(code)
                     val snisCsv = if (n.snis.isNotEmpty()) n.snis.joinToString(",") else n.sni
                     try {
-                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "", snisCsv)
+                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, snisCsv)
                     } catch (e: Throwable) {
                         TunnelLog.add("узел $code: vless ошибка — ${e.message}")
                     }
@@ -2743,6 +2743,7 @@ class SirinVpnService : VpnService() {
                     .setContentText(text)
                     .setStyle(Notification.BigTextStyle().bigText(text))
                     .setSmallIcon(R.drawable.ic_sirin_notify)
+            .setColor(0xFF00FFFF.toInt())
                     .setContentIntent(open)
                     .setAutoCancel(true)
                     .build()
@@ -2800,10 +2801,11 @@ class SirinVpnService : VpnService() {
             // updateNotification() после установки туннеля.
             .setContentText(if (connected) "Туннель активен" else "Подключаюсь…")
             .setSmallIcon(R.drawable.ic_sirin_notify)
+            .setColor(0xFF00FFFF.toInt())
             .setContentIntent(open)
             .setOngoing(true)
             .addAction(
-                Notification.Action.Builder(null, "Отключить", stop).build()
+                Notification.Action.Builder(null, "ОТКЛЮЧИТЬ", stop).build()
             )
             .build()
     }

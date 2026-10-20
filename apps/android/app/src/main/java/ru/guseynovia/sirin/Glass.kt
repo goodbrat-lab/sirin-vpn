@@ -1,8 +1,13 @@
-﻿package ru.guseynovia.sirin
+package ru.guseynovia.sirin
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
@@ -12,45 +17,49 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * «Стеклянный» дизайн (эталон — эталон веб-панели, 30.09): тёмно-синий
- * фон с мягкой подсветкой, полупрозрачные карточки с тонкой светлой рамкой,
- * кнопки-таблетки.
+ * Стилистика «Крипто-защита» (Dark Material & Cyber-Neon).
  */
 object Glass {
-    val bgTop = Color(0xFF0A0D1C)
-    val bgBottom = Color(0xFF05060A)
-    val glowBlue = Color(0x1A2E4BD8)
-    val glowViolet = Color(0x165A2E9C)
+    // Основной фон: Глубокий темный #0B0C10
+    val bgTop = Color(0xFF0B0C10)
+    val bgBottom = Color(0xFF08090D)
+    val glowCyan = Color(0x1800FFFF)
+    val glowPurple = Color(0x188A2BE2)
 
-    val cardFill = Color(0x0AFFFFFF)
-    val cardBorder = Color(0x1FFFFFFF)
-    val pillFillTop = Color(0xFF1C2130)
-    val pillFillBottom = Color(0xFF0E1119)
-    val pillBorder = Color(0x2EFFFFFF)
+    // Карточки и плашки: #151623, скругленные углы 14dp (~12-16dp)
+    val cardFill = Color(0xFF151623)
+    val cardBorder = Color(0xFF222538)
+    val cardBorderAccent = Brush.linearGradient(listOf(Brand.cyberBlue, Brand.neonPurple))
 
-    val cardShape = RoundedCornerShape(26.dp)
+    val pillFillTop = Color(0xFF1B1D2D)
+    val pillFillBottom = Color(0xFF10121C)
+    val pillBorder = Color(0xFF2E334D)
+
+    val cardShape = RoundedCornerShape(14.dp)
     val pillShape = RoundedCornerShape(50)
 }
 
-/** Фон экрана: вертикальный градиент и две подсветки (синяя слева сверху, фиолетовая справа). */
+/** Фон приложения: Глубокий темный #0B0C10 с мягкими кибер-подсветками по краям. */
 @Composable
 fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
     Box(
@@ -59,15 +68,15 @@ fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
             .background(Brush.verticalGradient(listOf(Glass.bgTop, Glass.bgBottom)))
             .background(
                 Brush.radialGradient(
-                    listOf(Glass.glowBlue, Color.Transparent),
+                    listOf(Glass.glowCyan, Color.Transparent),
                     center = Offset(0f, 0f),
-                    radius = 1400f,
+                    radius = 1200f,
                 )
             )
             .background(
                 Brush.radialGradient(
-                    listOf(Glass.glowViolet, Color.Transparent),
-                    center = Offset(1400f, 900f),
+                    listOf(Glass.glowPurple, Color.Transparent),
+                    center = Offset(1200f, 1000f),
                     radius = 1200f,
                 )
             ),
@@ -75,13 +84,19 @@ fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
     )
 }
 
-/** Стеклянная карточка: полупрозрачная заливка, тонкая светлая рамка, крупное скругление. */
-fun Modifier.glassCard(): Modifier = this
+/** Стилизация карточки: темный фон #151623, скругление ~14dp, опциональная градиентная обводка (1px stroke). */
+fun Modifier.glassCard(accentBorder: Boolean = false): Modifier = this
     .clip(Glass.cardShape)
-    .background(GlassVolume.cardFill)
-    .border(1.dp, GlassVolume.cardBorder, Glass.cardShape)
+    .background(Glass.cardFill)
+    .then(
+        if (accentBorder) {
+            Modifier.border(1.dp, Glass.cardBorderAccent, Glass.cardShape)
+        } else {
+            Modifier.border(1.dp, Glass.cardBorder, Glass.cardShape)
+        }
+    )
 
-/** Кнопка-таблетка: стеклянная заливка градиентом и светлая рамка. */
+/** Кнопка-таблетка в кибер-стиле. */
 @Composable
 fun GlassButton(
     text: String,
@@ -95,14 +110,14 @@ fun GlassButton(
             .glassPress(enabled = enabled) { onClick() }
             .height(height)
             .clip(Glass.pillShape)
-            .background(GlassVolume.fill)
-            .border(1.dp, GlassVolume.border, Glass.pillShape)
+            .background(Color(0xFF181B2B))
+            .border(1.dp, if (enabled) Glass.pillBorder else Color(0xFF1E2133), Glass.pillShape)
             .padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
-            color = if (enabled) Color.White else Brand.dim,
+            color = if (enabled) Brand.text else Brand.dim,
             fontSize = 15.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
         )
@@ -110,8 +125,7 @@ fun GlassButton(
 }
 
 /**
- * Сегментный переключатель-таблетка (как «Чёрный | Белый» и «VK | DION» на
- * панели): выбранный сегмент — светлая стеклянная таблетка, остальные прозрачные.
+ * Сегментный переключатель в кибер-стиле.
  */
 @Composable
 fun GlassSegmented(
@@ -125,7 +139,7 @@ fun GlassSegmented(
         modifier = modifier
             .height(44.dp)
             .clip(Glass.pillShape)
-            .background(Color(0x1A000000))
+            .background(Color(0xFF0F1019))
             .border(1.dp, Glass.cardBorder, Glass.pillShape)
             .padding(3.dp),
     ) {
@@ -139,16 +153,16 @@ fun GlassSegmented(
                     .clip(Glass.pillShape)
                     .then(
                         if (on) Modifier
-                            .background(GlassVolume.fill)
-                            .border(1.dp, GlassVolume.border, Glass.pillShape)
+                            .background(Brush.horizontalGradient(listOf(Color(0x3300FFFF), Color(0x338A2BE2))))
+                            .border(1.dp, Brush.horizontalGradient(listOf(Brand.cyberBlue, Brand.neonPurple)), Glass.pillShape)
                         else Modifier
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     title,
-                    color = if (on) Color.White else Brand.dim,
-                    fontSize = 15.sp,
+                    color = if (on) Brand.cyberBlue else Brand.dim,
+                    fontSize = 14.sp,
                     fontWeight = if (on) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
                 )
             }
@@ -158,64 +172,53 @@ fun GlassSegmented(
 
 /** Карточка на всю ширину с внутренним отступом. */
 @Composable
-fun GlassCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Box(modifier = modifier.fillMaxWidth().glassCard().padding(16.dp)) { content() }
+fun GlassCard(
+    modifier: Modifier = Modifier,
+    accentBorder: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    Box(modifier = modifier.fillMaxWidth().glassCard(accentBorder = accentBorder).padding(16.dp)) { content() }
 }
 
-/** Круглая стеклянная кнопка-значок (назад, поделиться, настройки). */
+/** Круглая кнопка-значок (назад, настройки, копировать). */
 fun Modifier.glassCircle(): Modifier = this
-    .clip(androidx.compose.foundation.shape.CircleShape)
-    .background(GlassVolume.fill)
-    .border(1.dp, GlassVolume.border, androidx.compose.foundation.shape.CircleShape)
+    .clip(CircleShape)
+    .background(Color(0xFF151828))
+    .border(1.dp, Color(0xFF282D47), CircleShape)
 
-/**
- * Объём как на эталоне: рамка светлая сверху и гаснет книзу, заливка со
- * светлым отсветом у верхнего края и темнеет к низу. Равномерная заливка
- * выглядела плоско.
- */
+/** Объём и градиенты элементов */
 object GlassVolume {
-    // Полупрозрачная: кнопка в тон фону, чуть светлее, а не тёмное пятно.
     val fill = Brush.verticalGradient(
-        0f to Color(0x30FFFFFF),
-        0.18f to Color(0x17FFFFFF),
-        1f to Color(0x0AFFFFFF),
+        0f to Color(0x2800FFFF),
+        1f to Color(0x188A2BE2),
     )
     val border = Brush.verticalGradient(
-        0f to Color(0x66FFFFFF),
-        0.5f to Color(0x24FFFFFF),
-        1f to Color(0x0FFFFFFF),
+        0f to Color(0x6600FFFF),
+        1f to Color(0x338A2BE2),
     )
     val cardFill = Brush.verticalGradient(
-        0f to Color(0x14FFFFFF),
-        0.25f to Color(0x08FFFFFF),
-        1f to Color(0x03FFFFFF),
+        0f to Color(0xFF17192A),
+        1f to Color(0xFF121422),
     )
     val cardBorder = Brush.verticalGradient(
-        0f to Color(0x40FFFFFF),
-        0.6f to Color(0x14FFFFFF),
-        1f to Color(0x0AFFFFFF),
+        0f to Color(0xFF2B314F),
+        1f to Color(0xFF1A1C2C),
     )
 }
 
 /**
- * Нажатие с анимацией: кнопка плавно «вдавливается» (96%) и возвращается.
- * Заменяет clickable у стеклянных кнопок.
+ * Анимированное нажатие.
  */
 fun Modifier.glassPress(
     enabled: Boolean = true,
     onClickLabel: String? = null,
     onClick: () -> Unit,
 ): Modifier = composed {
-    val source = androidx.compose.runtime.remember {
-        androidx.compose.foundation.interaction.MutableInteractionSource()
-    }
+    val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (pressed && enabled) 0.96f else 1f,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = 0.6f,
-            stiffness = 700f,
-        ),
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.95f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 700f),
         label = "press",
     )
     this
@@ -229,9 +232,7 @@ fun Modifier.glassPress(
 }
 
 /**
- * Акцентная кнопка-таблетка (эталон — «Добавить и проверить» на Маке): тёмно-синяя
- * заливка с отсветом сверху, синяя светящаяся рамка, голубой полужирный текст.
- * Для главного действия на экране: «Обновить», «Установить».
+ * Акцентная кнопка-таблетка с кибер-градиентом.
  */
 @Composable
 fun GlassAccentButton(
@@ -247,37 +248,28 @@ fun GlassAccentButton(
             .height(height)
             .clip(Glass.pillShape)
             .background(
-                Brush.verticalGradient(
-                    0f to Color(0xFF2A4C82),
-                    0.2f to Color(0xFF1B355E),
-                    1f to Color(0xFF0E1E3A),
-                )
+                if (enabled) {
+                    Brush.horizontalGradient(listOf(Brand.cyberBlue, Brand.neonPurple))
+                } else {
+                    Brush.horizontalGradient(listOf(Color(0xFF1F2538), Color(0xFF151825)))
+                }
             )
-            .border(
-                1.dp,
-                Brush.verticalGradient(
-                    0f to Color(0xCC5B8FE8),
-                    0.6f to Color(0x663F72CC),
-                    1f to Color(0x333F72CC),
-                ),
-                Glass.pillShape,
-            )
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
-            color = if (enabled) Color(0xFFA9CBFF) else Brand.dim,
+            color = if (enabled) Color.Black else Brand.dim,
             fontSize = 15.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
         )
     }
 }
 
 /**
- * Стеклянный переключатель (эталонная панель): дорожка-таблетка со светлой
- * рамкой; включён — дорожка зелёная с отсветом, белый шарик справа; выключен —
- * тёмное стекло, приглушённый шарик слева. Шарик переезжает плавно.
+ * Свитч по ТЗ (Settings Toggle):
+ * - ВЫКЛ: Стандартный серый ползунок, темный трек без яркой обводки.
+ * - ВКЛ: Ползунок переезжает вправо, заливается сине-пурпурным градиентом с тенью/свечением.
  */
 @Composable
 fun GlassSwitch(
@@ -286,38 +278,58 @@ fun GlassSwitch(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val offset by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (checked) 22.dp else 2.dp,
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 600f),
+    val offset by animateDpAsState(
+        targetValue = if (checked) 24.dp else 3.dp,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 600f),
         label = "switch",
     )
+
     Box(
         modifier = modifier
             .glassPress(enabled = enabled) { onCheckedChange(!checked) }
-            .size(width = 50.dp, height = 30.dp)
+            .size(width = 54.dp, height = 32.dp)
             .clip(Glass.pillShape)
             .background(
-                if (checked) Brush.verticalGradient(
-                    0f to Color(0xFF4FB477),
-                    0.25f to Color(0xFF2F8F57),
-                    1f to Color(0xFF1C6B3F),
-                ) else GlassVolume.fill
+                if (checked) {
+                    Brush.horizontalGradient(listOf(Color(0x3300FFFF), Color(0x338A2BE2)))
+                } else {
+                    Brush.verticalGradient(listOf(Color(0xFF131520), Color(0xFF0F1018)))
+                }
             )
-            .border(1.dp, GlassVolume.border, Glass.pillShape),
+            .then(
+                if (checked) {
+                    Modifier.border(1.dp, Brush.horizontalGradient(listOf(Brand.cyberBlue, Brand.neonPurple)), Glass.pillShape)
+                } else {
+                    Modifier.border(1.dp, Color(0xFF222538), Glass.pillShape)
+                }
+            ),
+        contentAlignment = Alignment.CenterStart
     ) {
+        // Ползунок (thumb)
         Box(
             modifier = Modifier
-                .padding(start = offset, top = 2.dp)
-                .size(width = 26.dp, height = 26.dp)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(if (checked) Color.White else Color(0xFF8A92A8)),
+                .padding(start = offset)
+                .size(24.dp)
+                .shadow(
+                    elevation = if (checked) 6.dp else 2.dp,
+                    shape = CircleShape,
+                    ambientColor = if (checked) Brand.cyberBlue else Color.Transparent,
+                    spotColor = if (checked) Brand.neonPurple else Color.Transparent
+                )
+                .clip(CircleShape)
+                .background(
+                    if (checked) {
+                        Brush.linearGradient(listOf(Brand.cyberBlue, Brand.neonPurple))
+                    } else {
+                        Brush.verticalGradient(listOf(Color(0xFF8A93A8), Color(0xFF6B7285)))
+                    }
+                )
         )
     }
 }
 
 /**
- * Стеклянная галочка: скруглённый квадрат со светлой рамкой; отмечена —
- * синяя акцентная заливка и белая галка.
+ * Кибер-галочка (Checkbox).
  */
 @Composable
 fun GlassCheck(
@@ -332,12 +344,17 @@ fun GlassCheck(
             .size(26.dp)
             .clip(shape)
             .background(
-                if (checked) Brush.verticalGradient(
-                    0f to Color(0xFF6F98FF),
-                    1f to Color(0xFF3F66C8),
-                ) else GlassVolume.fill
+                if (checked) {
+                    Brush.linearGradient(listOf(Brand.cyberBlue, Brand.neonPurple))
+                } else {
+                    Brush.verticalGradient(listOf(Color(0xFF181B2B), Color(0xFF11131E)))
+                }
             )
-            .border(1.dp, GlassVolume.border, shape),
+            .border(
+                1.dp,
+                if (checked) Brush.linearGradient(listOf(Brand.cyberBlue, Brand.neonPurple)) else Brush.verticalGradient(listOf(Color(0xFF2C324E), Color(0xFF1F2338))),
+                shape
+            ),
     ) {
         if (checked) {
             val w = size.minDimension
@@ -347,9 +364,9 @@ fun GlassCheck(
                 lineTo(w * 0.75f, w * 0.33f)
             }
             drawPath(
-                p, Color.White,
+                p, Color.Black,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = w * 0.11f,
+                    width = w * 0.12f,
                     cap = androidx.compose.ui.graphics.StrokeCap.Round,
                     join = androidx.compose.ui.graphics.StrokeJoin.Round,
                 ),
