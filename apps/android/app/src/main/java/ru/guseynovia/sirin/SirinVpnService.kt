@@ -2474,7 +2474,7 @@ class SirinVpnService : VpnService() {
                     streams.add(code)
                     val snisCsv = if (n.snis.isNotEmpty()) n.snis.joinToString(",") else n.sni
                     try {
-                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, snisCsv)
+                        ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "", snisCsv)
                     } catch (e: Throwable) {
                         TunnelLog.add("узел $code: vless ошибка — ${e.message}")
                     }
