@@ -1,0 +1,37 @@
+name: "❓ Задать вопрос (Question)"
+description: Задать вопрос о настройке, использовании или возможностях Sirin VPN
+title: "[Question]: "
+labels: ["type/question", "needs-info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Пожалуйста, сформулируйте ваш вопрос ниже. Перед отправкой рекомендуем ознакомиться с разделом [Известные проблемы (Known Issues)](https://goodbrat-lab.github.io/sirin-vpn/KNOWN_ISSUES.html).
+        **Внимание:** никогда не указывайте ваш приватный UUID-ключ!
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Платформа или компонент
+      options:
+        - "Android"
+        - "Windows Desktop"
+        - "Router (OpenWrt / LuCI)"
+        - "Telegram-бот (@sirin_crp_bot)"
+        - "Сервер / Протокол"
+        - "Другое"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия приложения / прошивки
+      placeholder: "Например: Android v1.3.0 / OpenWrt 24.10.0 / Windows 11"
+    validations:
+      required: false
+  - type: textarea
+    id: question
+    attributes:
+      label: Ваш вопрос или описание затруднения
+      placeholder: "Опишите, что именно вы хотите настроить или в чём возникло затруднение..."
+    validations:
+      required: true
