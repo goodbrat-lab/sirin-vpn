@@ -1,0 +1,44 @@
+name: "💡 Предложить улучшение (Feature Request)"
+description: Предложить новую функцию, платформу или улучшение интерфейса Sirin VPN
+title: "[Feature]: "
+labels: ["type/enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за вклад в развитие Sirin VPN! Опишите вашу идею, сценарий использования и какую проблему она решает.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Платформа или компонент
+      options:
+        - "Android"
+        - "Windows Desktop"
+        - "Router (OpenWrt / LuCI)"
+        - "iOS / iPadOS"
+        - "macOS / Linux"
+        - "Telegram-бот (@sirin_crp_bot)"
+        - "Сервер / Протокол"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему решает предложение?
+      placeholder: "Например: 'Мне неудобно вручную переключать режим туннелирования при выходе из дома...'"
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое решение / Что хотите добавить
+      placeholder: "Подробно опишите, как должна работать новая возможность или выглядеть интерфейс..."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Рассматриваемые альтернативы
+      placeholder: "Какие сторонние решения или альтернативные сценарии вы пробовали?"
+    validations:
+      required: false
