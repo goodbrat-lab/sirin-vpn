@@ -6,6 +6,8 @@
         "sirin": [
           "status",
           "get_config",
+          "get_split_config",
+          "get_ru_direct_info",
           "get_logs",
           "test_connection"
         ]
@@ -18,6 +20,7 @@
       "ubus": {
         "sirin": [
           "set_config",
+          "set_split_config",
           "start",
           "stop",
           "restart",

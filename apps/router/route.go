@@ -4,11 +4,13 @@ import (
 	_ "embed"
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -40,23 +42,29 @@ func isPointToPoint(ifaceName string) bool {
 // formatRouteArgs формирует аргументы команды `ip route replace <dst> ...`
 // с учётом типа интерфейса (PPPoE / Point-to-Point требует dev без via).
 func formatRouteArgs(dst string, wan wanInfo) []string {
+	return formatRouteArgsTable(dst, wan, "")
+}
+
+// formatRouteArgsTable формирует аргументы команды `ip route replace <dst> ... table <tbl>`
+func formatRouteArgsTable(dst string, wan wanInfo, table string) []string {
 	dst = strings.TrimSpace(dst)
 	if dst == "" {
 		return nil
 	}
+	var args []string
 	if isPointToPoint(wan.iface) && wan.iface != "" {
-		return []string{"route", "replace", dst, "dev", wan.iface}
+		args = []string{"route", "replace", dst, "dev", wan.iface}
+	} else if wan.gw != "" && wan.iface != "" {
+		args = []string{"route", "replace", dst, "via", wan.gw, "dev", wan.iface}
+	} else if wan.iface != "" {
+		args = []string{"route", "replace", dst, "dev", wan.iface}
+	} else if wan.gw != "" {
+		args = []string{"route", "replace", dst, "via", wan.gw}
 	}
-	if wan.gw != "" && wan.iface != "" {
-		return []string{"route", "replace", dst, "via", wan.gw, "dev", wan.iface}
+	if len(args) > 0 && table != "" {
+		args = append(args, "table", table)
 	}
-	if wan.iface != "" {
-		return []string{"route", "replace", dst, "dev", wan.iface}
-	}
-	if wan.gw != "" {
-		return []string{"route", "replace", dst, "via", wan.gw}
-	}
-	return nil
+	return args
 }
 
 // checkTproxyConflict проверяет наличие правил TPROXY (sing-box, xray, passwall)
@@ -95,8 +103,6 @@ func checkTproxyConflict(serverHosts []string) {
 }
 
 // parseDefaultRoute разбирает вывод команды `ip route show default`.
-// Корректно определяет интерфейсы с PPPoE (например, dev pppoe-wan без via),
-// а также выбирает маршрут с наименьшей метрикой, если маршрутов по умолчанию несколько.
 func parseDefaultRoute(output []byte) wanInfo {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	var bestWan wanInfo
@@ -107,7 +113,6 @@ func parseDefaultRoute(output []byte) wanInfo {
 		if line == "" {
 			continue
 		}
-		// Проверяем строки маршрутов по умолчанию
 		if !strings.HasPrefix(line, "default") && !strings.HasPrefix(line, "0.0.0.0/0") {
 			continue
 		}
@@ -133,7 +138,6 @@ func parseDefaultRoute(output []byte) wanInfo {
 		}
 
 		if dev != "" {
-			// Если метрика не указана явно, в Linux по умолчанию metric 0
 			if !hasMetric {
 				metric = 0
 			}
@@ -146,11 +150,9 @@ func parseDefaultRoute(output []byte) wanInfo {
 	return bestWan
 }
 
-// parseProcNetRoute разбирает текстовый формат /proc/net/route на Linux,
-// находя интерфейс для шлюза 00000000 (0.0.0.0/0).
+// parseProcNetRoute разбирает текстовый формат /proc/net/route на Linux.
 func parseProcNetRoute(data []byte) wanInfo {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
-	// Первая строка — заголовки (Iface Destination Gateway Flags ...)
 	if scanner.Scan() {
 		_ = scanner.Text()
 	}
@@ -190,7 +192,7 @@ func parseProcNetRoute(data []byte) wanInfo {
 	return bestWan
 }
 
-// detectWan определяет физический WAN-интерфейс и шлюз по умолчанию
+// detectWan определяет физический WAN-интерфейс и шлюз по умолчанию.
 func detectWan() wanInfo {
 	out, err := exec.Command("ip", "-4", "route", "show", "default").Output()
 	if err != nil || len(out) == 0 {
@@ -203,7 +205,6 @@ func detectWan() wanInfo {
 		}
 	}
 
-	// Запасной вариант через /proc/net/route
 	if data, err := os.ReadFile("/proc/net/route"); err == nil && len(data) > 0 {
 		wan := parseProcNetRoute(data)
 		if wan.iface != "" {
@@ -214,9 +215,180 @@ func detectWan() wanInfo {
 	return wanInfo{}
 }
 
-// setupRouting настраивает IP-адрес на TUN, host-маршруты к серверу в обход TUN,
-// маршруты по умолчанию 0.0.0.0/1 и 128.0.0.0/1, RuDirect (split tunneling),
-// а также NAT/Forwarding для LAN.
+type cidrRange struct {
+	start uint32
+	end   uint32
+	cidr  string
+}
+
+// ipToUint32 преобразует IPv4 в uint32 для вычисления диапазонов.
+func ipToUint32(ip net.IP) uint32 {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return 0
+	}
+	return binary.BigEndian.Uint32(ip4)
+}
+
+// mergeCIDRs объединяет и дедуплицирует список CIDR, исключая дубликаты
+// и подсети, полностью перекрываемые более крупными диапазонами.
+// Это критично для nftables sets с флагом interval.
+func mergeCIDRs(rawCIDRs []string) []string {
+	var ranges []cidrRange
+	for _, raw := range rawCIDRs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || strings.HasPrefix(raw, "#") {
+			continue
+		}
+		if !strings.Contains(raw, "/") {
+			raw = raw + "/32"
+		}
+		ip, ipNet, err := net.ParseCIDR(raw)
+		if err != nil || ip.To4() == nil {
+			continue
+		}
+
+		ones, bits := ipNet.Mask.Size()
+		if bits != 32 {
+			continue
+		}
+		start := ipToUint32(ipNet.IP)
+		var mask uint32 = 0xFFFFFFFF
+		if ones < 32 {
+			mask = ^(uint32(1)<<(32-ones) - 1)
+		}
+		end := start | (^mask)
+
+		ranges = append(ranges, cidrRange{
+			start: start,
+			end:   end,
+			cidr:  ipNet.String(),
+		})
+	}
+
+	if len(ranges) == 0 {
+		return nil
+	}
+
+	// Сортировка: по start ASC, а при равном start — по end DESC (более крупная сеть первой)
+	sort.Slice(ranges, func(i, j int) bool {
+		if ranges[i].start != ranges[j].start {
+			return ranges[i].start < ranges[j].start
+		}
+		return ranges[i].end > ranges[j].end
+	})
+
+	var merged []cidrRange
+	for _, r := range ranges {
+		if len(merged) == 0 {
+			merged = append(merged, r)
+			continue
+		}
+		curr := merged[len(merged)-1]
+		// Если r лежит полностью внутри текущей сети, пропускаем (уже покрыто)
+		if r.start >= curr.start && r.end <= curr.end {
+			continue
+		}
+		merged = append(merged, r)
+	}
+
+	result := make([]string, len(merged))
+	for i, m := range merged {
+		result[i] = m.cidr
+	}
+	return result
+}
+
+// buildSplitCidrs формирует итоговый список CIDR для split tunneling.
+func buildSplitCidrs(cfg *Config) []string {
+	var raw []string
+
+	// 1. RuDirect диапазоны (если включены)
+	if cfg.IsRuDirectActive() {
+		scanner := bufio.NewScanner(strings.NewReader(ruRangesData))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" && !strings.HasPrefix(line, "#") {
+				raw = append(raw, line)
+			}
+		}
+		log.Printf("[split] RuDirect: добавлено %d диапазонов РФ", len(raw))
+	} else if cfg.SplitTunnel != nil && cfg.SplitTunnel.Mode == "only" {
+		if cfg.SplitTunnel.UseRuDirect != nil && *cfg.SplitTunnel.UseRuDirect {
+			log.Printf("[split] ПРЕДУПРЕЖДЕНИЕ: Опция use_ru_direct игнорируется в режиме 'only'")
+		}
+	}
+
+	// 2. Дополнительные CIDR из конфигурации
+	if cfg.SplitTunnel != nil && len(cfg.SplitTunnel.CIDRs) > 0 {
+		raw = append(raw, cfg.SplitTunnel.CIDRs...)
+		log.Printf("[split] Дополнительные CIDR: %d адресов", len(cfg.SplitTunnel.CIDRs))
+	}
+
+	// 3. Домены (резолвятся в IPv4)
+	if cfg.SplitTunnel != nil && len(cfg.SplitTunnel.Domains) > 0 {
+		resolvedCount := 0
+		for _, dom := range cfg.SplitTunnel.Domains {
+			dom = strings.TrimSpace(dom)
+			if dom == "" {
+				continue
+			}
+			ips, err := net.LookupIP(dom)
+			if err != nil {
+				log.Printf("[split] Не удалось зарезолвить домен %s: %v", dom, err)
+				continue
+			}
+			var domIPs []string
+			for _, ip := range ips {
+				if ip4 := ip.To4(); ip4 != nil {
+					raw = append(raw, ip4.String()+"/32")
+					domIPs = append(domIPs, ip4.String())
+					resolvedCount++
+				}
+			}
+			log.Printf("[split] Домен %s зарезолвлен в IP: %v", dom, domIPs)
+		}
+		log.Printf("[split] Домены: зарезолвлено %d IPv4-адресов", resolvedCount)
+	}
+
+	merged := mergeCIDRs(raw)
+	log.Printf("[split] Итоговый split-список: %d непересекающихся диапазонов", len(merged))
+	return merged
+}
+
+// buildLocalCidrs формирует список локальных сетей и адресов серверов,
+// которые никогда не должны туннелироваться через VPN.
+func buildLocalCidrs(serverHosts []string) []string {
+	locals := []string{
+		"127.0.0.0/8",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"224.0.0.0/4",
+		"255.255.255.255/32",
+	}
+
+	for _, host := range serverHosts {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			continue
+		}
+		ips, err := net.LookupHost(host)
+		if err != nil {
+			ips = []string{host}
+		}
+		for _, ip := range ips {
+			if ipObj := net.ParseIP(ip); ipObj != nil && ipObj.To4() != nil {
+				locals = append(locals, ipObj.To4().String()+"/32")
+			}
+		}
+	}
+
+	return mergeCIDRs(locals)
+}
+
+// setupRouting настраивает виртуальный интерфейс TUN, маршруты в обход к серверу,
+// правила маркировки split tunneling через nftables и policy routing (таблицы 100 и 200).
 func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHosts []string, wan wanInfo) error {
 	tunIP := cfg.TunIP
 	prefix := 24
@@ -237,11 +409,14 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 
 	log.Printf("[route] Настройка интерфейса %s: IP=%s/%d, MTU=%d", tun.name, tunIP, prefix, mtu)
 
-	// 1. Поднять TUN-интерфейс и задать IP
+	// 1. Идемпотентный сброс предыдущих правил
+	cleanupRouting(cfg, tun, serverHosts, wan)
+
+	// 2. Поднять TUN-интерфейс и задать IP
 	runCmd("ip", "link", "set", tun.name, "up", "mtu", fmt.Sprintf("%d", mtu))
 	runCmd("ip", "addr", "replace", fmt.Sprintf("%s/%d", tunIP, prefix), "dev", tun.name)
 
-	// 2. Исключить серверные IP из туннеля (прямой маршрут через WAN)
+	// 3. Прямые host-маршруты к серверу через WAN (в таблице main)
 	for _, host := range serverHosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
@@ -259,82 +434,141 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 		}
 	}
 
-	// 3. Маршруты по умолчанию через TUN (/1 не затирает дефолтный шлюз физического WAN)
-	runCmd("ip", "route", "replace", "0.0.0.0/1", "dev", tun.name)
-	runCmd("ip", "route", "replace", "128.0.0.0/1", "dev", tun.name)
+	// 4. Policy routing:
+	// Таблица 100: маршрут по умолчанию через VPN TUN (mark 0x1)
+	runCmd("ip", "route", "replace", "default", "dev", tun.name, "table", "100")
 
-	// 4. Split tunneling: прямой маршрут для российских диапазонов IP через WAN
-	if cfg.RuDirect {
-		if err := setupRuDirect(wan); err != nil {
-			log.Printf("[route] WARN: RuDirect: %v", err)
-		}
+	// Таблица 200: маршрут по умолчанию через физический WAN (mark 0x2)
+	wanArgs := formatRouteArgsTable("default", wan, "200")
+	if len(wanArgs) > 0 {
+		runCmd("ip", wanArgs...)
 	}
 
-	// 5. Включить IPv4 forwarding в ядре
+	// 5. Правила ip rule:
+	runCmd("ip", "rule", "add", "fwmark", "0x1", "table", "100", "pref", "10100")
+	runCmd("ip", "rule", "add", "fwmark", "0x2", "table", "200", "pref", "10200")
+
+	// 6. Включить IPv4 forwarding в ядре
 	_ = os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
 
-	// 6. Настроить Firewall: masquerade и forwarding для трафика домашней сети LAN -> TUN
+	// 7. Сборка split и локальных списков CIDR
+	splitCIDRs := buildSplitCidrs(cfg)
+	localCIDRs := buildLocalCidrs(serverHosts)
+
 	lanIface := cfg.LanInterface
 	if lanIface == "" {
 		lanIface = "br-lan"
 	}
 
-	// Попытка использовать nftables (OpenWrt 22+)
-	nftErr := setupNftables(tun.name, lanIface)
-	if nftErr != nil {
-		log.Printf("[route] nftables недоступен (%v), пробуем iptables...", nftErr)
+	mode := "bypass"
+	if cfg.SplitTunnel != nil && cfg.SplitTunnel.Mode != "" {
+		mode = cfg.SplitTunnel.Mode
+	}
+
+	// 8. Настройка nftables правил маркировки и NAT
+	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs); err != nil {
+		log.Printf("[route] nftables ошибка: %v. Пробуем iptables fallback...", err)
 		setupIptables(tun.name, lanIface)
 	}
 
-	log.Println("[route] Маршрутизация и NAT успешно активированы")
+	log.Printf("[route] Маршрутизация активирована (режим: %s, split_cidrs: %d)", mode, len(splitCIDRs))
 	return nil
 }
 
-func setupRuDirect(wan wanInfo) error {
-	if wan.iface == "" && wan.gw == "" {
-		return fmt.Errorf("WAN не определён — RuDirect невозможен")
-	}
-	scanner := bufio.NewScanner(strings.NewReader(ruRangesData))
-	count := 0
-	for scanner.Scan() {
-		cidr := strings.TrimSpace(scanner.Text())
-		if cidr == "" || strings.HasPrefix(cidr, "#") {
-			continue
-		}
-		args := formatRouteArgs(cidr, wan)
-		if len(args) > 0 {
-			runCmd("ip", args...)
-		}
-		count++
-	}
-	log.Printf("[route] RuDirect: %d CIDR добавлено напрямую через WAN", count)
-	return nil
-}
+// applySplitTunnelNftables создаёт таблицу ip sirin с наборами local_cidrs и split_cidrs,
+// цепочками маркировки prerouting (для LAN) и output (для роутера), а также NAT/Forward.
+func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string) error {
+	var b strings.Builder
 
-func cleanupRuDirect(wan wanInfo) {
-	scanner := bufio.NewScanner(strings.NewReader(ruRangesData))
-	count := 0
-	for scanner.Scan() {
-		cidr := strings.TrimSpace(scanner.Text())
-		if cidr == "" || strings.HasPrefix(cidr, "#") {
-			continue
-		}
-		runCmd("ip", "route", "del", cidr)
-		count++
+	b.WriteString("table ip sirin {\n")
+
+	// Set local_cidrs
+	b.WriteString("    set local_cidrs {\n")
+	b.WriteString("        type ipv4_addr\n")
+	b.WriteString("        flags interval\n")
+	if len(localCIDRs) > 0 {
+		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(localCIDRs, ", ")))
 	}
-	log.Printf("[route] RuDirect: %d CIDR удалено", count)
+	b.WriteString("    }\n")
+
+	// Set split_cidrs
+	b.WriteString("    set split_cidrs {\n")
+	b.WriteString("        type ipv4_addr\n")
+	b.WriteString("        flags interval\n")
+	if len(splitCIDRs) > 0 {
+		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(splitCIDRs, ", ")))
+	}
+	b.WriteString("    }\n")
+
+	// Mode rules
+	var modeRules string
+	if mode == "only" {
+		// Only mode: только split_cidrs идут в VPN (0x1), всё остальное — напрямую в WAN (0x2)
+		modeRules = "        ip daddr @split_cidrs meta mark set 0x00000001 return\n" +
+			"        meta mark set 0x00000002\n"
+	} else {
+		// Bypass mode: всё в VPN (0x1), кроме split_cidrs (они идут в WAN 0x2)
+		modeRules = "        ip daddr @split_cidrs meta mark set 0x00000002 return\n" +
+			"        meta mark set 0x00000001\n"
+	}
+
+	// Chain prerouting (для клиентов локальной сети)
+	b.WriteString("    chain prerouting {\n")
+	b.WriteString("        type filter hook prerouting priority mangle; policy accept;\n")
+	b.WriteString("        ip daddr @local_cidrs return\n")
+	b.WriteString(modeRules)
+	b.WriteString("    }\n")
+
+	// Chain output (для локальных процессов роутера: dnsmasq, curl и т.д.)
+	b.WriteString("    chain output {\n")
+	b.WriteString("        type route hook output priority mangle; policy accept;\n")
+	b.WriteString("        meta mark 0x00000002 return\n") // Protector VPN-сокета уже имеет mark 0x2
+	b.WriteString("        ip daddr @local_cidrs return\n")
+	b.WriteString(modeRules)
+	b.WriteString("    }\n")
+
+	// Chain postrouting (NAT masquerade на tun0)
+	b.WriteString("    chain postrouting {\n")
+	b.WriteString("        type nat hook postrouting priority 100; policy accept;\n")
+	b.WriteString(fmt.Sprintf("        oifname \"%s\" masquerade\n", tunName))
+	b.WriteString("    }\n")
+
+	// Chain forward (фильтрация LAN -> TUN)
+	b.WriteString("    chain forward {\n")
+	b.WriteString("        type filter hook forward priority 0; policy accept;\n")
+	b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" accept\n", lanIface, tunName))
+	b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" ct state established,related accept\n", tunName, lanIface))
+	b.WriteString("    }\n")
+
+	b.WriteString("}\n")
+
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(b.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("nft apply: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func cleanupRouting(cfg *Config, tun *tunDevice, serverHosts []string, wan wanInfo) {
-	log.Println("[route] Сброс маршрутов и правил файрвола...")
+	log.Println("[route] Сброс маршрутов, ip rule и nftables...")
 
+	// 1. Удалить nftables таблицу
+	_ = exec.Command("nft", "delete", "table", "ip", "sirin").Run()
+
+	// 2. Удалить ip rule для таблиц 100 и 200
+	_ = exec.Command("ip", "rule", "del", "pref", "10100").Run()
+	_ = exec.Command("ip", "rule", "del", "pref", "10200").Run()
+
+	// 3. Очистить таблицы маршрутизации 100 и 200
+	_ = exec.Command("ip", "route", "flush", "table", "100").Run()
+	_ = exec.Command("ip", "route", "flush", "table", "200").Run()
+
+	// 4. Очистить legacy маршруты в table main
 	runCmd("ip", "route", "del", "0.0.0.0/1")
 	runCmd("ip", "route", "del", "128.0.0.0/1")
 
-	if cfg.RuDirect {
-		cleanupRuDirect(wan)
-	}
-
+	// 5. Удалить host-маршруты к серверам в table main
 	for _, host := range serverHosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
@@ -349,10 +583,7 @@ func cleanupRouting(cfg *Config, tun *tunDevice, serverHosts []string, wan wanIn
 		}
 	}
 
-	// Удалить nftables таблицу
-	_ = exec.Command("nft", "delete", "table", "ip", "sirin").Run()
-
-	// Удалить iptables правила
+	// 6. Удалить iptables fallback правила (если использовались)
 	lanIface := cfg.LanInterface
 	if lanIface == "" {
 		lanIface = "br-lan"
@@ -360,25 +591,6 @@ func cleanupRouting(cfg *Config, tun *tunDevice, serverHosts []string, wan wanIn
 	_ = exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", tun.name, "-j", "MASQUERADE").Run()
 	_ = exec.Command("iptables", "-D", "FORWARD", "-i", lanIface, "-o", tun.name, "-j", "ACCEPT").Run()
 	_ = exec.Command("iptables", "-D", "FORWARD", "-i", tun.name, "-o", lanIface, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT").Run()
-}
-
-func setupNftables(tunName, lanIface string) error {
-	cmds := [][]string{
-		{"add", "table", "ip", "sirin"},
-		{"add", "chain", "ip", "sirin", "postrouting", "{ type nat hook postrouting priority 100; }"},
-		{"add", "rule", "ip", "sirin", "postrouting", "oifname", tunName, "masquerade"},
-		{"add", "chain", "ip", "sirin", "forward", "{ type filter hook forward priority 0; }"},
-		{"add", "rule", "ip", "sirin", "forward", "iifname", lanIface, "oifname", tunName, "accept"},
-		{"add", "rule", "ip", "sirin", "forward", "iifname", tunName, "oifname", lanIface, "ct", "state", "established,related", "accept"},
-	}
-
-	for _, args := range cmds {
-		cmd := exec.Command("nft", args...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("nft %v: %w (%s)", args, err, strings.TrimSpace(string(out)))
-		}
-	}
-	return nil
 }
 
 func setupIptables(tunName, lanIface string) {
@@ -390,6 +602,10 @@ func setupIptables(tunName, lanIface string) {
 func runCmd(name string, args ...string) {
 	cmd := exec.Command(name, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("[cmd] %s %s: %v (%s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		// Игнорируем ошибки отсутствия правил при удалении
+		msg := strings.TrimSpace(string(out))
+		if !strings.Contains(msg, "No such process") && !strings.Contains(msg, "does not exist") && !strings.Contains(msg, "No such file") {
+			log.Printf("[cmd] %s %s: %v (%s)", name, strings.Join(args, " "), err, msg)
+		}
 	}
 }

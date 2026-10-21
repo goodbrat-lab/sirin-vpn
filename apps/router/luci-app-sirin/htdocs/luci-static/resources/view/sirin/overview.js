@@ -22,6 +22,25 @@ var callSetConfig = rpc.declare({
 	expect: {}
 });
 
+var callGetSplitConfig = rpc.declare({
+	object: 'sirin',
+	method: 'get_split_config',
+	expect: {}
+});
+
+var callSetSplitConfig = rpc.declare({
+	object: 'sirin',
+	method: 'set_split_config',
+	params: ['mode', 'use_ru_direct', 'cidrs', 'domains'],
+	expect: {}
+});
+
+var callGetRuDirectInfo = rpc.declare({
+	object: 'sirin',
+	method: 'get_ru_direct_info',
+	expect: {}
+});
+
 var callStart = rpc.declare({
 	object: 'sirin',
 	method: 'start',
@@ -83,13 +102,19 @@ return view.extend({
 	load: function() {
 		return Promise.all([
 			callStatus().catch(function() { return {}; }),
-			callGetConfig().catch(function() { return {}; })
+			callGetConfig().catch(function() { return {}; }),
+			callGetSplitConfig().catch(function() { return {}; }),
+			callGetRuDirectInfo().catch(function() { return {}; })
 		]);
 	},
 
 	render: function(data) {
 		var status = data[0] || {};
 		var config = data[1] || {};
+		var splitConfig = data[2] || {};
+		var ruInfo = data[3] || {};
+
+		var ruCount = ruInfo.count || 8641;
 
 		var statusNode = E('span', { class: 'label' }, 'Опрос...');
 		var infoTable = E('table', { class: 'table' }, [
@@ -99,7 +124,7 @@ return view.extend({
 			]),
 			E('tr', { class: 'tr' }, [
 				E('td', { class: 'td' }, 'Версия клиента:'),
-				E('td', { class: 'td', id: 'sirin-version' }, status.version || '1.1.0')
+				E('td', { class: 'td', id: 'sirin-version' }, status.version || '1.2.0')
 			]),
 			E('tr', { class: 'tr' }, [
 				E('td', { class: 'td' }, 'Активный транспорт:'),
@@ -200,7 +225,7 @@ return view.extend({
 			statusNode.textContent = isRunning ? ('Работает (PID: ' + (currentStatus.pid || '—') + ')') : 'Остановлен';
 
 			var elVer = document.getElementById('sirin-version');
-			if (elVer) elVer.textContent = currentStatus.version || '1.1.0';
+			if (elVer) elVer.textContent = currentStatus.version || '1.2.0';
 
 			var elTrans = document.getElementById('sirin-transport');
 			if (elTrans) elTrans.textContent = isRunning ? (currentStatus.transport ? currentStatus.transport.toUpperCase() : 'Определение...') : '—';
@@ -229,6 +254,7 @@ return view.extend({
 			return updateStatusView();
 		}, 5);
 
+		// Section 2: Connection settings
 		var inGateway = E('input', {
 			class: 'cbi-input-text',
 			type: 'text',
@@ -291,11 +317,6 @@ return view.extend({
 			value: config.tun_mtu || 1280
 		});
 
-		var inRuDirect = E('input', {
-			type: 'checkbox',
-			checked: (config.ru_direct !== undefined ? !!config.ru_direct : true)
-		});
-
 		var btnSaveConfig = E('button', {
 			class: 'btn cbi-button cbi-button-save',
 			style: 'margin-right: 8px;',
@@ -304,7 +325,7 @@ return view.extend({
 				var pw = inPassword.value.trim();
 				var did = inDeviceId.value.trim();
 				var mtu = parseInt(inTunMtu.value, 10);
-				var rud = inRuDirect.checked;
+				var rud = (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true);
 
 				if (!gw || /[^a-zA-Z0-9.-]/.test(gw)) {
 					ui.addNotification(null, E('p', {}, 'Ошибка в поле «Шлюз»: укажите валидное доменное имя или IP-адрес'), 'error');
@@ -371,7 +392,6 @@ return view.extend({
 						inPassword.value = cfg.password || '';
 						inDeviceId.value = cfg.device_id || 'router-01';
 						inTunMtu.value = cfg.tun_mtu || 1280;
-						inRuDirect.checked = (cfg.ru_direct !== undefined ? !!cfg.ru_direct : true);
 						ui.addNotification(null, E('p', {}, 'Значения сброшены до текущих настроек файла'), 'info');
 					}
 				}).catch(function() {
@@ -380,6 +400,152 @@ return view.extend({
 			}
 		}, 'Отмена');
 
+		// Section 3: Split Tunneling
+		var splitMode = (splitConfig.mode || 'bypass').toLowerCase();
+		var radBypass = E('input', {
+			type: 'radio',
+			name: 'split_mode',
+			value: 'bypass',
+			checked: splitMode !== 'only'
+		});
+		var radOnly = E('input', {
+			type: 'radio',
+			name: 'split_mode',
+			value: 'only',
+			checked: splitMode === 'only'
+		});
+
+		var chkRuDirect = E('input', {
+			type: 'checkbox',
+			checked: (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true)
+		});
+
+		var ruDirectWarnNode = E('div', {
+			class: 'cbi-value-description',
+			style: 'color: #d99b26; display: ' + (splitMode === 'only' ? 'block' : 'none') + '; margin-top: 4px;'
+		}, 'Внимание: список RuDirect игнорируется в режиме «Only» (через VPN пойдут только адреса из списков ниже).');
+
+		function updateModeUI() {
+			if (radOnly.checked) {
+				ruDirectWarnNode.style.display = 'block';
+			} else {
+				ruDirectWarnNode.style.display = 'none';
+			}
+		}
+
+		radBypass.addEventListener('change', updateModeUI);
+		radOnly.addEventListener('change', updateModeUI);
+
+		var txtCIDRs = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 5,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: '1.1.1.1/32\n104.16.0.0/12'
+		}, (splitConfig.cidrs || []).join('\n'));
+
+		var txtDomains = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 5,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'rutracker.org\nkinopoisk.ru'
+		}, (splitConfig.domains || []).join('\n'));
+
+		var btnSaveSplit = E('button', {
+			class: 'btn cbi-button cbi-button-save',
+			style: 'margin-right: 8px;',
+			click: function() {
+				var mode = radOnly.checked ? 'only' : 'bypass';
+				var useRu = chkRuDirect.checked;
+
+				// Parse and validate CIDRs
+				var rawCidrs = txtCIDRs.value.split('\n');
+				var validCidrs = [];
+				var cidrRegex = /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(\/[0-9]{1,2})?$/;
+				for (var i = 0; i < rawCidrs.length; i++) {
+					var c = rawCidrs[i].trim();
+					if (!c) continue;
+					if (!cidrRegex.test(c)) {
+						ui.addNotification(null, E('p', {}, 'Некорректный формат CIDR или IP: ' + c), 'error');
+						return;
+					}
+					validCidrs.push(c);
+				}
+
+				// Parse and validate domains
+				var rawDomains = txtDomains.value.split('\n');
+				var validDomains = [];
+				var domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+				for (var j = 0; j < rawDomains.length; j++) {
+					var d = rawDomains[j].trim().toLowerCase();
+					if (!d) continue;
+					if (!domainRegex.test(d)) {
+						ui.addNotification(null, E('p', {}, 'Некорректный формат доменного имени: ' + d), 'error');
+						return;
+					}
+					validDomains.push(d);
+				}
+
+				btnSaveSplit.disabled = true;
+				return callSetSplitConfig(mode, useRu, validCidrs, validDomains).then(function(res) {
+					btnSaveSplit.disabled = false;
+					if (res && res.ok) {
+						ui.addNotification(null, E('p', {}, 'Параметры раздельного туннелирования сохранены'), 'info');
+						ui.showModal('Перезапустить службу Sirin?', [
+							E('p', {}, 'Параметры разделения сохранены. Для применения маршрутизации требуется перезапуск службы.'),
+							E('div', { class: 'right' }, [
+								E('button', {
+									class: 'btn cbi-button cbi-button-neutral',
+									style: 'margin-right: 8px;',
+									click: function() {
+										ui.hideModal();
+									}
+								}, 'Нет, позже'),
+								E('button', {
+									class: 'btn cbi-button cbi-button-apply',
+									click: function() {
+										ui.hideModal();
+										callRestart().then(function() {
+											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
+											updateStatusView();
+										});
+									}
+								}, 'Да, перезапустить')
+							])
+						]);
+					} else {
+						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения разделения'), 'error');
+					}
+				}).catch(function(e) {
+					btnSaveSplit.disabled = false;
+					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения'), 'error');
+				});
+			}
+		}, 'Сохранить раздельное туннелирование');
+
+		var btnCancelSplit = E('button', {
+			class: 'btn cbi-button cbi-button-reset',
+			click: function() {
+				btnCancelSplit.disabled = true;
+				return callGetSplitConfig().then(function(sc) {
+					btnCancelSplit.disabled = false;
+					sc = sc || {};
+					if (sc.mode === 'only') {
+						radOnly.checked = true;
+					} else {
+						radBypass.checked = true;
+					}
+					updateModeUI();
+					chkRuDirect.checked = (sc.use_ru_direct !== undefined ? !!sc.use_ru_direct : true);
+					txtCIDRs.value = (sc.cidrs || []).join('\n');
+					txtDomains.value = (sc.domains || []).join('\n');
+					ui.addNotification(null, E('p', {}, 'Настройки разделения сброшены'), 'info');
+				}).catch(function() {
+					btnCancelSplit.disabled = false;
+				});
+			}
+		}, 'Отмена');
+
+		// Section 4: Diagnostics
 		var diagResult = E('div', { style: 'margin-top: 12px; display: none;' });
 
 		var btnTestConn = E('button', {
@@ -394,7 +560,7 @@ return view.extend({
 					btnTestConn.disabled = false;
 					res = res || {};
 					var rudClass = res.rudirect_via_tunnel ? 'label warning' : 'label success';
-					var rudText = res.rudirect_via_tunnel ? 'ОШИБКА: РФ-трафик направлен в туннель' : 'RuDirect напрямую через WAN (ок)';
+					var rudText = res.raw || (res.rudirect_via_tunnel ? 'РФ-трафик направлен в туннель' : 'RuDirect напрямую через WAN (ок)');
 
 					diagResult.innerHTML = '';
 					diagResult.appendChild(E('table', { class: 'table' }, [
@@ -403,7 +569,7 @@ return view.extend({
 							E('td', { class: 'td' }, E('strong', {}, res.public_ip || 'нет ответа'))
 						]),
 						E('tr', { class: 'tr' }, [
-							E('td', { class: 'td' }, 'Раздельное туннелирование (RuDirect):'),
+							E('td', { class: 'td' }, 'Режим разделения трафика:'),
 							E('td', { class: 'td' }, E('span', { class: rudClass }, rudText))
 						])
 					]));
@@ -499,13 +665,6 @@ return view.extend({
 						E('div', { class: 'cbi-value-description' }, 'Размер MTU виртуального сетевого интерфейса sirin0 (от 576 до 1500, по умолчанию 1280)')
 					])
 				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Прямой доступ в РФ (RuDirect)'),
-					E('div', { class: 'cbi-value-field' }, [
-						inRuDirect,
-						E('span', { style: 'margin-left: 8px;' }, 'Направлять трафик к 4945 диапазонам IP РФ напрямую через WAN в обход VPN')
-					])
-				]),
 				E('div', { style: 'margin-top: 16px;' }, [
 					btnSaveConfig,
 					btnCancelConfig
@@ -513,7 +672,53 @@ return view.extend({
 			]),
 
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '3. Диагностика и мониторинг'),
+				E('h3', {}, '3. Раздельное туннелирование (Split Tunneling)'),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Режим работы'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'margin-right: 16px; cursor: pointer;' }, [
+							radBypass,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Bypass (Обход)')),
+							E('span', { style: 'color: #888; margin-left: 4px;' }, '— весь трафик в VPN, кроме списка')
+						]),
+						E('br'),
+						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
+							radOnly,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Only (Только)')),
+							E('span', { style: 'color: #888; margin-left: 4px;' }, '— только адреса из списка через VPN, остальное напрямую')
+						])
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Прямой доступ в РФ (RuDirect)'),
+					E('div', { class: 'cbi-value-field' }, [
+						chkRuDirect,
+						E('span', { style: 'margin-left: 8px;' }, 'Использовать встроенный список RuDirect (' + ruCount + ' диапазонов РФ напрямую через WAN)'),
+						ruDirectWarnNode
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Дополнительные IP / CIDR'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtCIDRs,
+						E('div', { class: 'cbi-value-description' }, 'По одному адресу или подсети на строку (например 1.1.1.1/32 или 104.16.0.0/12)')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Доменные имена'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtDomains,
+						E('div', { class: 'cbi-value-description' }, 'По одному домену на строку (например rutracker.org). IP-адреса разрешаются при запуске службы.')
+					])
+				]),
+				E('div', { style: 'margin-top: 16px;' }, [
+					btnSaveSplit,
+					btnCancelSplit
+				])
+			]),
+
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '4. Диагностика и мониторинг'),
 				E('div', {}, [
 					btnTestConn,
 					btnShowLogs
