@@ -2,6 +2,9 @@ package ru.guseynovia.sirin
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import java.security.MessageDigest
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.FileProvider
@@ -36,7 +39,8 @@ object UpdateChecker {
         val versionName: String,
         val downloadUrl: String,
         val fileName: String,
-        val sizeBytes: Long
+        val sizeBytes: Long,
+        val expectedSha256: String? = null
     )
 
     sealed class CheckStatus {
@@ -176,6 +180,7 @@ object UpdateChecker {
             var apkUrl: String? = null
             var apkName: String? = null
             var apkSize: Long = 0L
+            var checksumsUrl: String? = null
 
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
@@ -184,7 +189,33 @@ object UpdateChecker {
                     apkUrl = asset.optString("browser_download_url")
                     apkName = name
                     apkSize = asset.optLong("size", 0L)
-                    break
+                } else if (name == "checksums.txt" || name == "sha256sums.txt") {
+                    checksumsUrl = asset.optString("browser_download_url")
+                }
+            }
+
+            var expectedSha256: String? = null
+            if (checksumsUrl != null && apkName != null) {
+                try {
+                    val csConn = (URL(checksumsUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = TIMEOUT_MS
+                        readTimeout = TIMEOUT_MS
+                        setRequestProperty("User-Agent", "Sirin-Android-Client")
+                        instanceFollowRedirects = true
+                    }
+                    if (csConn.responseCode == HttpURLConnection.HTTP_OK) {
+                        val csText = csConn.inputStream.bufferedReader().use { it.readText() }
+                        for (line in csText.lines()) {
+                            val parts = line.trim().split(Regex("\\s+"))
+                            if (parts.size >= 2 && parts[1].trimStart('*') == apkName) {
+                                expectedSha256 = parts[0].lowercase()
+                                break
+                            }
+                        }
+                    }
+                    csConn.disconnect()
+                } catch (e: Throwable) {
+                    TunnelLog.add("UpdateChecker: не удалось прочитать checksums.txt (${e.message})")
                 }
             }
 
@@ -194,7 +225,8 @@ object UpdateChecker {
                     versionName = cleanVersion,
                     downloadUrl = apkUrl,
                     fileName = apkName,
-                    sizeBytes = apkSize
+                    sizeBytes = apkSize,
+                    expectedSha256 = expectedSha256
                 )
             } else {
                 null
@@ -277,6 +309,33 @@ object UpdateChecker {
                 finalConn.disconnect()
 
                 TunnelLog.add("APK скачан: ${targetFile.absolutePath} (${targetFile.length()} байт)")
+
+                // 1. Проверка контрольной суммы SHA-256 (если доступна в релизе)
+                if (release.expectedSha256 != null) {
+                    val actualSha = computeSha256(targetFile)
+                    if (!actualSha.equals(release.expectedSha256, ignoreCase = true)) {
+                        targetFile.delete()
+                        val err = "Ошибка проверки целостности: SHA-256 не совпадает (ожидался ${release.expectedSha256}, вычислен $actualSha)"
+                        TunnelLog.add("UpdateChecker: $err")
+                        status.value = CheckStatus.Error(err)
+                        isDownloading.value = false
+                        return@thread
+                    }
+                    TunnelLog.add("UpdateChecker: SHA-256 успешно подтверждён ($actualSha)")
+                }
+
+                // 2. Проверка цифровой подписи APK (сертификат должен совпадать с текущим приложением)
+                val signValid = verifyApkSignature(appCtx, targetFile)
+                if (!signValid) {
+                    targetFile.delete()
+                    val err = "Ошибка безопасности: цифровая подпись скачанного APK не совпадает с установленным приложением"
+                    TunnelLog.add("UpdateChecker: $err")
+                    status.value = CheckStatus.Error(err)
+                    isDownloading.value = false
+                    return@thread
+                }
+                TunnelLog.add("UpdateChecker: цифровая подпись APK успешно подтверждена")
+
                 status.value = CheckStatus.ReadyToInstall(targetFile)
                 isDownloading.value = false
 
@@ -309,6 +368,77 @@ object UpdateChecker {
         } catch (e: Throwable) {
             TunnelLog.add("Ошибка запуска установщика: ${e.message}")
             status.value = CheckStatus.Error("Не удалось запустить установку: ${e.message}")
+        }
+    }
+
+    /**
+     * Вычисление контрольной суммы SHA-256 файла.
+     */
+    fun computeSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(16 * 1024)
+            var read: Int
+            while (input.read(buffer).also { read = it } != -1) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Проверка совпадения цифрового сертификата подписи между текущим
+     * работающим приложением и скачанным обновлением APK.
+     */
+    fun verifyApkSignature(context: Context, apkFile: File): Boolean {
+        return try {
+            val currentSignatures = getCurrentSignatures(context)
+            if (currentSignatures.isEmpty()) {
+                TunnelLog.add("UpdateChecker: не удалось извлечь подпись текущего приложения")
+                return false
+            }
+
+            val archiveSignatures = getArchiveSignatures(context, apkFile)
+            if (archiveSignatures.isEmpty()) {
+                TunnelLog.add("UpdateChecker: не удалось прочитать подпись скачанного APK")
+                return false
+            }
+
+            val matches = currentSignatures.any { curSig ->
+                archiveSignatures.any { newSig -> curSig.contentEquals(newSig) }
+            }
+            matches
+        } catch (e: Throwable) {
+            TunnelLog.add("UpdateChecker: сбой при проверке сертификата подписи: ${e.message}")
+            false
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getCurrentSignatures(context: Context): List<ByteArray> {
+        val pm = context.packageManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            info.signingInfo?.apkContentsSigners?.map { it.toByteArray() }
+                ?: info.signingInfo?.signingCertificateHistory?.map { it.toByteArray() }
+                ?: emptyList()
+        } else {
+            val info = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+            info.signatures?.map { it.toByteArray() } ?: emptyList()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getArchiveSignatures(context: Context, apkFile: File): List<ByteArray> {
+        val pm = context.packageManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+            info?.signingInfo?.apkContentsSigners?.map { it.toByteArray() }
+                ?: info?.signingInfo?.signingCertificateHistory?.map { it.toByteArray() }
+                ?: emptyList()
+        } else {
+            val info = pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
+            info?.signatures?.map { it.toByteArray() } ?: emptyList()
         }
     }
 }
