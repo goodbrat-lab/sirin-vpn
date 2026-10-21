@@ -3,7 +3,8 @@ name: Build and Release APK
 on:
   push:
     tags:
-      - 'v*' # Запускать при пуше тега, начинающегося с v (например, v1.0.0)
+      - 'v*'
+      - 'android-v*'
   workflow_dispatch: # Позволяет запускать вручную из вкладки Actions
 
 permissions:
