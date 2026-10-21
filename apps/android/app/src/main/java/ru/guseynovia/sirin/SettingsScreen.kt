@@ -82,6 +82,16 @@ fun SettingsScreen(
             icon = { AppsIcon() },
             onClick = onSplit,
         )
+        SwitchEntry(
+            title = "Kill Switch",
+            hint = if (KillSwitch.enabled.value)
+                "блокировать интернет при обрыве туннеля"
+            else
+                "выключен (возможна утечка IP при разрыве)",
+            icon = { ShieldIcon() },
+            checked = KillSwitch.enabled.value,
+            onCheckedChange = { KillSwitch.set(context, it) },
+        )
         Entry(
             title = "Сменить ключ",
             hint = "ввести новый UUID",
@@ -306,6 +316,41 @@ private fun Entry(
             Text(title, color = Brand.text, fontSize = 17.sp)
             Text(hint, color = Brand.dim, fontSize = 13.sp)
         }
+    }
+    HorizontalDivider(color = Glass.cardBorder)
+}
+
+@Composable
+private fun SwitchEntry(
+    title: String,
+    hint: String,
+    icon: @Composable () -> Unit,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        icon()
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Brand.text, fontSize = 17.sp)
+            Text(hint, color = Brand.dim, fontSize = 13.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedThumbColor = Brand.text,
+                checkedTrackColor = Brand.cyberBlue,
+                uncheckedThumbColor = Brand.dim,
+                uncheckedTrackColor = Brand.space,
+            )
+        )
     }
     HorizontalDivider(color = Glass.cardBorder)
 }

@@ -367,10 +367,16 @@ class SirinVpnService : VpnService() {
     }
 
     private fun establishBlackhole(reason: String, announce: Boolean = true) = synchronized(killSwitchLock) {
+        if (!KillSwitch.enabled.value) {
+            TunnelLog.add("Kill Switch выключен пользователем — заглушка не устанавливается ($reason)")
+            dropBlackhole()
+            return@synchronized
+        }
         val wasAlready = blackhole != null
         try {
             val builder = Builder()
                 .setSession("Сирин")
+                .setBlocking(true)
                 .addAddress(BLACKHOLE_ADDRESS, BLACKHOLE_PREFIX)
                 .addRoute("0.0.0.0", 0)
             for (s in DNS_SERVERS) builder.addDnsServer(s)
@@ -381,6 +387,8 @@ class SirinVpnService : VpnService() {
                 // IPv6 для заглушки Kill Switch: активирует IPv6 на интерфейсе
                 builder.addAddress("fd00::1", 128)
                 builder.addRoute("::", 0)
+                builder.addDnsServer("2606:4700:4700::1111")
+                builder.addDnsServer("2001:4860:4860::8888")
             } catch (e: Throwable) {
                 TunnelLog.add(
                     "Kill Switch: IPv6 в заглушку забрать не вышло (${e.message})"
@@ -598,6 +606,7 @@ class SirinVpnService : VpnService() {
         Access.attach(this)
         ApiClient.attach(this)
         Params.attach(this)
+        KillSwitch.attach(this)
         updateAttach(this)
     }
 
@@ -1348,6 +1357,7 @@ class SirinVpnService : VpnService() {
                 fun makeBuilder(): Builder {
                 val builder = Builder()
                     .setSession("Сирин")
+                    .setBlocking(true)
                     .addAddress(address, prefix)
                     // ДВА РЕЗОЛВЕРА, А НЕ ОДИН.
                     //
@@ -1412,6 +1422,8 @@ class SirinVpnService : VpnService() {
                     // и весь IPv6 уходит мимо туннеля (утечка).
                     builder.addAddress("fd00::1", 128)
                     builder.addRoute("::", 0)
+                    builder.addDnsServer("2606:4700:4700::1111")
+                    builder.addDnsServer("2001:4860:4860::8888")
                     TunnelLog.add("IPv6 забран в туннель и глушится — шлюз его не несёт")
                 } catch (e: Throwable) {
                     TunnelLog.add(
@@ -1445,6 +1457,18 @@ class SirinVpnService : VpnService() {
                 }
                 val pfd = builder.establish()
                     ?: throw IllegalStateException("establish() вернул null — разрешение отозвано?")
+
+                // Закрепление нижней сети для предотвращения утечки трафика в обход туннеля
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                    val connMgr = getSystemService(ConnectivityManager::class.java)
+                    val activeUnder = connMgr?.underlyingActive()
+                    if (activeUnder != null) {
+                        setUnderlyingNetworks(arrayOf(activeUnder))
+                        TunnelLog.add("underlying network закреплена: $activeUnder")
+                    } else {
+                        setUnderlyingNetworks(null)
+                    }
+                }
 
                 // KILL SWITCH: заглушку этот establish() уже сменил сам
                 // (Android заменяет интерфейс службы атомарно при
@@ -2128,6 +2152,9 @@ class SirinVpnService : VpnService() {
      * и таймер: кто первым, тот и поднимает.
      */
     private fun onUnderlyingAvailable(net: Network) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 && TunnelState.connected.value) {
+            setUnderlyingNetworks(arrayOf(net))
+        }
         main.post {
             if (shuttingDown.get()) return@post
             if (!Access.hasKey()) return@post
