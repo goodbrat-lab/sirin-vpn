@@ -296,13 +296,83 @@ fun TunnelScreen(modifier: Modifier = Modifier, onSettings: () -> Unit = {}) {
 
     NotificationsAsk()
 
-    // ПЛАНЕТА ПО ЦЕНТРУ ЭКРАНА (54.3). Пустоты сверху и снизу равные,
-    // поэтому она остаётся в середине независимо от того, сколько
-    // строк занял блок доступа.
+    // Проверка обновлений при старте с соблюдением 24-часового кэша
+    LaunchedEffect(Unit) {
+        UpdateChecker.checkOnStart(context)
+    }
+
+    // Всплывающий диалог при наличии новой версии на GitHub
+    val pendingRelease = UpdateChecker.pendingDialogRelease.value
+    if (pendingRelease != null) {
+        AlertDialog(
+            onDismissRequest = { UpdateChecker.pendingDialogRelease.value = null },
+            title = { Text("Доступно обновление", color = Brand.text) },
+            text = {
+                Text(
+                    "Доступна версия ${pendingRelease.versionName}. Обновить?",
+                    color = Brand.dim
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val r = pendingRelease
+                    UpdateChecker.pendingDialogRelease.value = null
+                    UpdateChecker.startDownloadAndInstall(context, r)
+                }) {
+                    Text("Скачать", color = Brand.cyberBlue)
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        UpdateChecker.dismissVersion(context, pendingRelease.versionName)
+                        UpdateChecker.pendingDialogRelease.value = null
+                    }) {
+                        Text("Не напоминать", color = Brand.dim)
+                    }
+                    TextButton(onClick = {
+                        UpdateChecker.pendingDialogRelease.value = null
+                    }) {
+                        Text("Позже", color = Brand.dim)
+                    }
+                }
+            }
+        )
+    }
+
+    if (UpdateChecker.isDownloading.value) {
+        val prog = UpdateChecker.downloadProgress.floatValue
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Загрузка обновления…", color = Brand.text) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Загрузка APK: ${(prog * 100).toInt()}%", color = Brand.dim)
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { prog },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Brand.cyberBlue,
+                        trackColor = Brand.space
+                    )
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
     Column(
-        modifier = modifier.fillMaxSize().padding(16.dp),
+        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Значок настроек перенесен в правый верхний угол
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GearButton(size = 44.dp, tint = Brand.text, onClick = onSettings)
+        }
+
         Spacer(modifier = Modifier.weight(1f))
 
         // Планета нажимается, только пока доступ есть.
@@ -406,15 +476,6 @@ fun TunnelScreen(modifier: Modifier = Modifier, onSettings: () -> Unit = {}) {
         // Осталось ровно три вещи: планета, доступ, шестерёнка.
 
         Spacer(modifier = Modifier.weight(1f))
-
-        // Настройки: ссылки VK и логи. Значок без подписи — шестерёнка
-        // не нуждается в объяснении.
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center,
-        ) {
-            GearButton(size = 48.dp, tint = Brand.text, onClick = onSettings)
-        }
     }
 }
 

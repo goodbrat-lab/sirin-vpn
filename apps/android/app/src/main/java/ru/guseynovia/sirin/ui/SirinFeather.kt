@@ -108,17 +108,38 @@ fun SirinLogoWithPadlock(
     val infiniteTransition = rememberInfiniteTransition(label = "sirinLogoTransition")
 
     // Парение крыльев для CONNECTED
-    val hoverY by infiniteTransition.animateFloat(
-        initialValue = -3.5f,
-        targetValue = 3.5f,
+    // Непрерывная лёгкая пульсация дыхания в idle (DISCONNECTED)
+    val idlePulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2600, easing = FastOutSlowInEasing),
+            animation = tween(2200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "hoverY"
+        label = "idlePulseAlpha"
     )
 
-    // Пульсация свечения для CONNECTING
+    val idlePulseScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.045f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "idlePulseScale"
+    )
+
+    // Пульсация масштаба и свечения для CONNECTING
+    val connectingPulseScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.065f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "connectingPulseScale"
+    )
+
     val pulseGlow by infiniteTransition.animateFloat(
         initialValue = 0.45f,
         targetValue = 0.95f,
@@ -127,6 +148,17 @@ fun SirinLogoWithPadlock(
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulseGlow"
+    )
+
+    // Парение крыльев для CONNECTED
+    val hoverY by infiniteTransition.animateFloat(
+        initialValue = -3.5f,
+        targetValue = 3.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "hoverY"
     )
 
     // Вспышка свечения при переходе в CONNECTED
@@ -163,9 +195,16 @@ fun SirinLogoWithPadlock(
     val currentOffsetY = if (state == FeatherState.CONNECTED) hoverY else 0f
     val glitchOffsetX = if (isGlitching) glitchJitter else 0f
 
-    val alpha = when (state) {
-        FeatherState.DISCONNECTED -> 0.65f
-        FeatherState.CONNECTING -> 0.95f
+    val currentScale = when (state) {
+        FeatherState.DISCONNECTED -> idlePulseScale
+        FeatherState.CONNECTING -> connectingPulseScale
+        FeatherState.CONNECTED -> 1.0f
+        FeatherState.ERROR -> 1.0f
+    }
+
+    val currentAlpha = when (state) {
+        FeatherState.DISCONNECTED -> idlePulseAlpha
+        FeatherState.CONNECTING -> 0.96f
         FeatherState.CONNECTED -> 1.0f
         FeatherState.ERROR -> 0.95f
     }
@@ -175,56 +214,48 @@ fun SirinLogoWithPadlock(
             .graphicsLayer {
                 translationX = glitchOffsetX
                 translationY = currentOffsetY
-                this.alpha = alpha
+                scaleX = currentScale
+                scaleY = currentScale
+                this.alpha = currentAlpha
             },
         contentAlignment = Alignment.Center
     ) {
         // Фоновое свечение (Aura) за иллюстрацией
-        if (state != FeatherState.DISCONNECTED) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val radius = size.minDimension * 0.48f
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val radius = size.minDimension * 0.48f
 
-                val glowColor = when (state) {
-                    FeatherState.CONNECTED -> Brand.cyberBlue
-                    FeatherState.CONNECTING -> Brand.neonOrange
-                    FeatherState.ERROR -> Brand.neonRed
-                    FeatherState.DISCONNECTED -> Color.Transparent
-                }
+            val (glowColor, alphaMultiplier) = when (state) {
+                FeatherState.CONNECTED -> Brand.cyberBlue to (0.45f * flashAnim.value)
+                FeatherState.CONNECTING -> Brand.neonOrange to (0.42f * pulseGlow)
+                FeatherState.ERROR -> Brand.neonRed to 0.42f
+                FeatherState.DISCONNECTED -> Brand.cyberBlue to (0.14f * idlePulseAlpha)
+            }
 
-                val glowMultiplier = if (state == FeatherState.CONNECTED) {
-                    flashAnim.value
-                } else if (state == FeatherState.CONNECTING) {
-                    pulseGlow
-                } else {
-                    1.0f
-                }
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0.0f to glowColor.copy(alpha = alphaMultiplier),
+                    0.55f to glowColor.copy(alpha = alphaMultiplier * 0.35f),
+                    1.0f to Color.Transparent,
+                    center = Offset(cx, cy),
+                    radius = radius
+                ),
+                radius = radius,
+                center = Offset(cx, cy)
+            )
 
+            if (state == FeatherState.CONNECTED) {
                 drawCircle(
                     brush = Brush.radialGradient(
-                        0.0f to glowColor.copy(alpha = 0.42f * glowMultiplier),
-                        0.55f to glowColor.copy(alpha = 0.12f * glowMultiplier),
-                        1.0f to Color.Transparent,
+                        0.0f to Brand.neonPurple.copy(alpha = 0.35f * flashAnim.value),
+                        0.7f to Color.Transparent,
                         center = Offset(cx, cy),
-                        radius = radius
+                        radius = radius * 0.8f
                     ),
-                    radius = radius,
+                    radius = radius * 0.8f,
                     center = Offset(cx, cy)
                 )
-
-                if (state == FeatherState.CONNECTED) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            0.0f to Brand.neonPurple.copy(alpha = 0.35f * flashAnim.value),
-                            0.7f to Color.Transparent,
-                            center = Offset(cx, cy),
-                            radius = radius * 0.8f
-                        ),
-                        radius = radius * 0.8f,
-                        center = Offset(cx, cy)
-                    )
-                }
             }
         }
 

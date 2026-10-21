@@ -1,33 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Передний план адаптивного значка: птица Сирин (Mini) -->
+<!-- Foreground for Sirin Adaptive Icon: Approved Feather Design -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="512"
     android:viewportHeight="512">
 
-    <!-- Масштабирование в безопасную зону 66dp адаптивной иконки -->
+    <!-- Scaled into the 66dp safe zone (0.72 scale factor centered at 256, 256) -->
     <group
         android:pivotX="256"
         android:pivotY="256"
-        android:scaleX="0.74"
-        android:scaleY="0.74">
+        android:scaleX="0.72"
+        android:scaleY="0.72">
 
-        <!-- Голова птицы Сирин (золотой акцент бренда) -->
+        <!-- Левое опахало пера (теневое золото) -->
         <path
-            android:fillColor="@color/crp_accent_gold"
-            android:pathData="M 110,265 L 235,200 C 235,135 258,88 315,55 C 270,100 278,150 298,180 C 322,168 362,168 382,192 C 414,224 402,286 358,318 C 298,366 266,448 278,458 C 222,382 210,278 245,200 L 110,265 Z" />
+            android:fillColor="#CCA140"
+            android:pathData="M 254,398 C 241,390 226,370 218,348 C 225,344 235,346 244,352 C 214,330 198,298 196,266 C 206,262 218,266 229,274 C 200,244 196,204 207,166 C 216,162 228,166 238,174 C 216,140 224,102 246,70 C 252,60 256,54 260,50 C 256,150 250,270 254,398 Z" />
 
-        <!-- Контрастное око Сирин (заливка фоном + золотая обводка 6px) -->
+        <!-- Правое опахало пера (светлое сияющее золото) -->
         <path
-            android:fillColor="@color/crp_bg"
-            android:strokeColor="@color/crp_accent_gold"
-            android:strokeWidth="6"
-            android:pathData="M300,206 a22,22 0 1,0 0.1,0 Z" />
+            android:fillColor="#E8C36F"
+            android:pathData="M 257,398 C 272,390 292,370 302,348 C 293,344 280,346 270,352 C 305,330 326,298 328,266 C 316,262 300,266 287,274 C 324,244 329,204 316,166 C 304,162 288,166 277,174 C 308,140 302,102 278,70 C 271,60 266,54 260,50 C 258,150 253,270 257,398 Z" />
 
-        <!-- Блик зрачка (белый) -->
+        <!-- Лазурный акцент Сирин у основания (левый) -->
         <path
-            android:fillColor="@color/white"
-            android:pathData="M306,214.5 a7.5,7.5 0 1,0 0.1,0 Z" />
+            android:fillColor="#3B82F6"
+            android:pathData="M 254,398 C 243,392 229,374 222,354 C 229,350 238,354 246,362 C 251,372 253,386 254,398 Z" />
+
+        <!-- Лазурный акцент Сирин у основания (правый) -->
+        <path
+            android:fillColor="#5B8DEF"
+            android:pathData="M 257,398 C 270,392 288,374 297,354 C 288,350 276,354 267,362 C 261,372 258,386 257,398 Z" />
+
+        <!-- Очин пера (основание) -->
+        <path
+            android:fillColor="#6B470D"
+            android:pathData="M 253,465 C 252,450 251.5,430 252.5,400 L 258.5,400 C 259.5,430 259,450 258,465 C 257.5,468 253.5,468 253,465 Z" />
+
+        <!-- Центральный стержень (рахис) -->
+        <path
+            android:fillColor="#FFF2CA"
+            android:pathData="M 254,400 C 249,280 253,160 259.2,50 L 260.8,50 C 255,160 251,280 257,400 Z" />
+
+        <!-- Блик света на гребне стержня -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round"
+            android:pathData="M 256,390 C 250,280 254,160 260,54" />
+
+        <!-- Закругленный сияющий кончик -->
+        <path
+            android:fillColor="#FFF8E0"
+            android:pathData="M 255.5,53 C 256.5,47 263.5,47 264.5,53 C 264.5,56 255.5,56 255.5,53 Z" />
     </group>
 </vector>

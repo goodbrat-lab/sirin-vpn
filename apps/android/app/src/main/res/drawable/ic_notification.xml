@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Sirin Status Bar & Notification Panel Icon (Monochrome Vector Drawable).
+    Strictly monochrome (#FFFFFFFF), 24x24dp, optimized for Android 15 status bar and notification drawer.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Левое опахало пера -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.5,4 C11.5,4 8,8 7.5,12 C7.2,14.5 8.2,16.5 9.5,17.5 L11.5,16.2 L11.5,18 C10.8,18 10,18.8 9.5,19.5 L11.5,19.5 L11.5,4 Z" />
+
+    <!-- Правое опахало пера -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.5,4 L12.5,19.5 L14.5,19.5 C14,18.8 13.2,18 12.5,18 L12.5,16.2 L14.5,17.5 C15.8,16.5 16.8,14.5 16.5,12 C16,8 12.5,4 12.5,4 Z" />
+
+    <!-- Центральный стержень и очин пера -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.2,3 C11.2,2.5 12.8,2.5 12.8,3 L12.6,20.5 C12.6,21.5 12.4,22 12,22 C11.6,22 11.4,21.5 11.4,20.5 Z" />
+</vector>

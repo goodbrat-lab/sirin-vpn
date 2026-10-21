@@ -149,7 +149,7 @@ object TrialAlarm {
                     .setContentTitle("Сирин")
                     .setContentText(text)
                     .setStyle(Notification.BigTextStyle().bigText(text))
-                    .setSmallIcon(R.drawable.ic_sirin_notify)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setContentIntent(open)
                     .setAutoCancel(true)
                     .build()

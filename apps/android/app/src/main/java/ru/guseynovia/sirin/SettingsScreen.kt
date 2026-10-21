@@ -147,11 +147,82 @@ fun SettingsScreen(
         // directDebug и directRelease.
         DebugRows()
 
-        // Строка версии. В прямой раздаче она нажимаемая и проверяет
-        // обновление, в сборке для Play — обычный текст: там этим
-        // занимается магазин. Экран не знает, какая сборка, — как и с
-        // покупкой, разница живёт в раздельных исходниках.
-        UpdateRow(Modifier)
+        // Блок автообновления клиента Sirin через GitHub Releases
+        Spacer(modifier = Modifier.padding(top = 16.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassCard()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Версия: ${appVersion(context)}",
+                        color = Brand.text,
+                        fontSize = 14.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                    )
+                    val statusText = when (val st = UpdateChecker.status.value) {
+                        is UpdateChecker.CheckStatus.Idle -> "Нажмите для проверки"
+                        is UpdateChecker.CheckStatus.Checking -> "Проверка обновлений…"
+                        is UpdateChecker.CheckStatus.UpToDate -> "Обновлений нет (установлена последняя)"
+                        is UpdateChecker.CheckStatus.Available -> "Доступна v${st.release.versionName}"
+                        is UpdateChecker.CheckStatus.Downloading -> "Скачивание: ${(st.progress * 100).toInt()}% (${st.currentMb.toInt()} из ${st.totalMb.toInt()} МБ)"
+                        is UpdateChecker.CheckStatus.ReadyToInstall -> "Загрузка завершена. Готово к установке."
+                        is UpdateChecker.CheckStatus.Error -> "Ошибка сети: ${st.message}"
+                    }
+                    val statusColor = when (UpdateChecker.status.value) {
+                        is UpdateChecker.CheckStatus.Available -> Brand.cyberBlue
+                        is UpdateChecker.CheckStatus.Error -> Brand.neonRed
+                        is UpdateChecker.CheckStatus.ReadyToInstall -> Brand.neonOrange
+                        else -> Brand.dim
+                    }
+                    Text(
+                        text = statusText,
+                        color = statusColor,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            when (val st = UpdateChecker.status.value) {
+                is UpdateChecker.CheckStatus.Available -> {
+                    GlassAccentButton(
+                        text = "Скачать v${st.release.versionName}",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { UpdateChecker.startDownloadAndInstall(context, st.release) }
+                    )
+                }
+                is UpdateChecker.CheckStatus.ReadyToInstall -> {
+                    GlassAccentButton(
+                        text = "Установить обновление",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { UpdateChecker.installApk(context, st.apkFile) }
+                    )
+                }
+                is UpdateChecker.CheckStatus.Downloading -> {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { st.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Brand.cyberBlue,
+                        trackColor = Brand.space
+                    )
+                }
+                else -> {
+                    GlassButton(
+                        text = "Проверить обновления",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { UpdateChecker.checkManually(context) }
+                    )
+                }
+            }
+        }
     }
 
     if (showChangeKeyDialog) {

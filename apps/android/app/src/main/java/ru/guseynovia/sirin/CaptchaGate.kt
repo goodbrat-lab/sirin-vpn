@@ -169,7 +169,7 @@ object CaptchaGate {
                 Notification.Builder(ctx, CHANNEL_ID)
                     .setContentTitle("Сирин: нужна проверка")
                     .setContentText("VK просит подтвердить, что вы не робот — нажмите")
-                    .setSmallIcon(R.drawable.ic_sirin_notify)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setContentIntent(open)
                     .setAutoCancel(true)
                     .build()

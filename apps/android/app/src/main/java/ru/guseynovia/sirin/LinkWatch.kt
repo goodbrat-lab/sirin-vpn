@@ -131,7 +131,7 @@ object LinkWatch {
                     .setContentTitle("Сирин")
                     .setContentText(WARN)
                     .setStyle(Notification.BigTextStyle().bigText(WARN))
-                    .setSmallIcon(R.drawable.ic_sirin_notify)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setContentIntent(open)
                     .setAutoCancel(true)
                     .build()
