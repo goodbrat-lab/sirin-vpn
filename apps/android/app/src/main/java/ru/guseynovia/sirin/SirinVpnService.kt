@@ -48,11 +48,11 @@ class SirinVpnService : VpnService() {
          */
         const val ACTION_RECONNECT = "ru.guseynovia.sirin.RECONNECT"
 
-        private const val CHANNEL_ID = "sirin_tunnel"
+        private const val CHANNEL_ID = "sirin_tunnel_v2"
         private const val NOTIFICATION_ID = 1
 
         // Причина отказа. 2 и 3 заняты капчей и триалом.
-        private const val FAIL_CHANNEL_ID = "sirin_fail"
+        private const val FAIL_CHANNEL_ID = "sirin_fail_v2"
         private const val FAIL_NOTIFICATION_ID = 4
 
         // Сколько ждать параллельного резолва после неудачи по кэшу.
@@ -2698,6 +2698,7 @@ class SirinVpnService : VpnService() {
 
     private fun createChannel() {
         val mgr = getSystemService(NotificationManager::class.java)
+        try { mgr.deleteNotificationChannel("sirin_tunnel"); mgr.deleteNotificationChannel("sirin_fail") } catch (_: Throwable) {}
         if (mgr.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -2742,7 +2743,7 @@ class SirinVpnService : VpnService() {
                     .setContentTitle("Сирин не подключился")
                     .setContentText(text)
                     .setStyle(Notification.BigTextStyle().bigText(text))
-                    .setSmallIcon(R.drawable.ic_sirin_notify)
+                    .setSmallIcon(R.drawable.ic_notification)
             .setColor(0xFF00FFFF.toInt())
                     .setContentIntent(open)
                     .setAutoCancel(true)
@@ -2800,7 +2801,7 @@ class SirinVpnService : VpnService() {
             // туннеля ещё нет, и надпись врала бы. Обновляется в
             // updateNotification() после установки туннеля.
             .setContentText(if (connected) "Туннель активен" else "Подключаюсь…")
-            .setSmallIcon(R.drawable.ic_sirin_notify)
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(0xFF00FFFF.toInt())
             .setContentIntent(open)
             .setOngoing(true)

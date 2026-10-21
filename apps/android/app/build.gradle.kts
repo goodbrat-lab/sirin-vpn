@@ -66,8 +66,8 @@ android {
         // старой, а удаление стирает и пул хешей, и память пути — то
         // есть ровно то, что мы отлаживаем. С растущим versionCode APK
         // ставится поверх, и накопленное переживает установку.
-        versionCode = 6
-        versionName = "1.3.0"
+        versionCode = 7
+        versionName = "1.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -115,6 +115,13 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            val debugPass = "android"
+            storeFile = file("debug.keystore")
+            storePassword = debugPass
+            keyAlias = "androiddebugkey"
+            keyPassword = debugPass
+        }
         if (keystoreProps != null) {
             create("release") {
                 storeFile = file(keystoreProps.getProperty("storeFile"))

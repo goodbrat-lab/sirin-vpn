@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Отдаём наружу ТОЛЬКО каталог logs внутри кэша приложения.
-
-    Не корень кэша и не files: в буфере обмена и в чужих приложениях
-    должен оказываться ровно тот файл, который мы сами туда положили,
-    и ничего больше.
+    FileProvider paths for logs export and app self-update APK installation.
 -->
 <paths>
     <cache-path name="logs" path="logs/" />
+    <cache-path name="updates" path="updates/" />
+    <external-files-path name="external_updates" path="updates/" />
 </paths>

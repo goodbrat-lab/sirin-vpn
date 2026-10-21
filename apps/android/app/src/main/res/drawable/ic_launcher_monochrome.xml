@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome for Android 13+ Themed Launcher Icon: White Feather -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.72"
+        android:scaleY="0.72">
+
+        <!-- Левое опахало пера -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M 254,398 C 241,390 226,370 218,348 C 225,344 235,346 244,352 C 214,330 198,298 196,266 C 206,262 218,266 229,274 C 200,244 196,204 207,166 C 216,162 228,166 238,174 C 216,140 224,102 246,70 C 252,60 256,54 260,50 C 256,150 250,270 254,398 Z" />
+
+        <!-- Правое опахало пера -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M 257,398 C 272,390 292,370 302,348 C 293,344 280,346 270,352 C 305,330 326,298 328,266 C 316,262 300,266 287,274 C 324,244 329,204 316,166 C 304,162 288,166 277,174 C 308,140 302,102 278,70 C 271,60 266,54 260,50 C 258,150 253,270 257,398 Z" />
+
+        <!-- Очин пера (основание) -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M 253,465 C 252,450 251.5,430 252.5,400 L 258.5,400 C 259.5,430 259,450 258,465 C 257.5,468 253.5,468 253,465 Z" />
+
+        <!-- Центральный стержень и кончик -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M 254,400 C 249,280 253,160 259.2,50 L 260.8,50 C 255,160 251,280 257,400 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M 255.5,53 C 256.5,47 263.5,47 264.5,53 C 264.5,56 255.5,56 255.5,53 Z" />
+    </group>
+</vector>

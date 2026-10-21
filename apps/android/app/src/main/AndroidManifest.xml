@@ -32,6 +32,7 @@
         случилось.
     -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
         Раздел queries: без него с Android 11 приложение видит только
@@ -164,7 +165,7 @@
         -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.logs"
+            android:authorities="${applicationId}.fileprovider;${applicationId}.logs"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
