@@ -66,8 +66,8 @@ android {
         // старой, а удаление стирает и пул хешей, и память пути — то
         // есть ровно то, что мы отлаживаем. С растущим versionCode APK
         // ставится поверх, и накопленное переживает установку.
-        versionCode = 7
-        versionName = "1.3.1"
+        versionCode = 8
+        versionName = "1.3.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -245,6 +245,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+    implementation("org.bouncycastle:bcutil-jdk18on:1.80")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.80")
 
     // PLAY BILLING — ТОЛЬКО В ВАРИАНТЕ PLAY.
     //
