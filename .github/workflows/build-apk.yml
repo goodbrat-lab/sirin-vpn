@@ -77,8 +77,8 @@ jobs:
           cd apps/android
           ./gradlew assembleDirectDebug --no-daemon
 
-      # 6. Переименовываем APK (добавляем версию из тега)
-      - name: Rename APK
+      # 6. Переименовываем APK и генерируем контрольные суммы SHA-256
+      - name: Rename APK and Generate Checksums
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
           # Если тег не задан (ручной запуск), используем "dev"
@@ -87,20 +87,30 @@ jobs:
           fi
           mv apps/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk \
              apps/android/app/build/outputs/apk/direct/debug/sirin-${TAG_NAME}.apk
+          
+          # Вычисляем SHA-256 для проверки целостности при самообновлении
+          cd apps/android/app/build/outputs/apk/direct/debug
+          sha256sum sirin-${TAG_NAME}.apk > checksums.txt
+          echo "Generated checksums.txt:"
+          cat checksums.txt
 
-      # 7. Загружаем APK как артефакт (для истории, даже если релиз не создаётся)
+      # 7. Загружаем APK и контрольные суммы как артефакт
       - name: Upload Artifact
         uses: actions/upload-artifact@v5
         with:
           name: sirin-apk
-          path: apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
+          path: |
+            apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
+            apps/android/app/build/outputs/apk/direct/debug/checksums.txt
 
-      # 8. Создаём релиз и прикрепляем APK (только если это тег)
+      # 8. Создаём релиз и прикрепляем APK и checksums.txt (только если это тег)
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
+          files: |
+            apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
+            apps/android/app/build/outputs/apk/direct/debug/checksums.txt
           generate_release_notes: true # Автоматически создаст описание из коммитов
           draft: false
           prerelease: false
