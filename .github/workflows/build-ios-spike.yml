@@ -1,0 +1,58 @@
+name: Build iOS Spike (Pre-flight)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/ios-spike/**'
+      - 'core/engine/**'
+      - '.github/workflows/build-ios-spike.yml'
+
+jobs:
+  build-spike:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go 1.27
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+
+      - name: Build Mobile.xcframework
+        working-directory: apps/ios-spike
+        run: |
+          chmod +x build-xcframework.sh
+          ./build-xcframework.sh
+
+      - name: Measure Framework Binary Size
+        working-directory: apps/ios-spike
+        run: |
+          echo "=== Размер скомпилированного XCFramework ==="
+          du -sh Mobile.xcframework
+          find Mobile.xcframework -type f -exec ls -lh {} +
+
+      - name: Verify Swift Compilation
+        working-directory: apps/ios-spike
+        run: |
+          echo "Проверка компиляции Swift-файлов туннеля..."
+          swiftc -target arm64-apple-ios16.0-simulator \
+            -F . \
+            -I . \
+            -parse-as-library \
+            -c SirinSpikeTunnel/PacketTunnelProvider.swift \
+            -o /tmp/PacketTunnelProvider.o
+          echo "OK: Swift PacketTunnelProvider успешно скомпилирован!"
+
+      - name: Upload XCFramework Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: sirin-ios-spike-xcframework
+          path: apps/ios-spike/Mobile.xcframework
