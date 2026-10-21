@@ -1,5 +1,23 @@
 # Changelog
 
+## [android-v1.3.2] - 2026-10-22
+
+### Security
+- **GPG-подпись checksums.txt (защита от подмены релизов на GitHub)**:
+  - CI генерирует отсоединённую цифровую подпись `checksums.txt.asc` с использованием RSA 4096-bit GPG ключа автора.
+  - В APK вшит открытый ключ `sirin_pubkey.asc`.
+- **Трёхуровневая эшелонированная верификация обновлений**:
+  - `UpdateChecker` проверяет подлинность `checksums.txt` через OpenPGP (BouncyCastle).
+  - Сверка SHA-256 хэша скачанного APK.
+  - Сверка сертификата подписи APK с текущим установленным приложением через Android `PackageManager`.
+  - При любом несоответствии скачанный файл немедленно удаляется из файловой системы.
+- **Kill Switch совместим со split tunneling (BYPASS)**:
+  - Проверено и подтверждено: заглушка «чёрной дыры» Kill Switch сохраняет исключение пакетов (`addDisallowedApplication`), позволяя bypass-трафику безопасно продолжать идти напрямую через WAN.
+
+### Documentation
+- `docs/ACCEPTANCE_ANDROID.md`: детальный пошаговый чек-лист ручной приёмки на реальном устройстве (Kill Switch, GPG, IPv6, Split Tunneling).
+- `docs/SECURITY.md`: архитектура цепочки доверия и модель угроз автообновления.
+
 ## [router-v1.2.0] - 2026-10-21
 
 ### Added
