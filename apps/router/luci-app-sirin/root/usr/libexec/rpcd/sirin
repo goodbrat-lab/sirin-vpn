@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
-VERSION="1.1.2"
+VERSION="1.2.0"
 
 get_input() {
     if [ "$MODE" = "call" ] && [ -n "$ARG3" ]; then
@@ -66,7 +66,7 @@ method_get_config() {
         ru_direct = "false"
         tun_mtu = 1280
     }
-    /^\[\[/ { in_top = 0 }
+    /^\[/ { in_top = 0 }
     in_top && /^[ \t]*gateway[ \t]*=/ {
         if (match($0, /"[^"]*"/)) gateway = substr($0, RSTART + 1, RLENGTH - 2)
     }
@@ -103,7 +103,6 @@ method_set_config() {
         raw_input=$(cat 2>/dev/null)
     fi
 
-    # Extract fields from JSON input
     eval $(awk -v json="$raw_input" '
     function get_field(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
@@ -125,7 +124,6 @@ method_set_config() {
         did = get_field("device_id")
         rud = get_field("ru_direct")
         mtu = get_field("tun_mtu")
-        # Sanitize for shell eval
         gsub(/'\''/, "'\''\\'\'''\''", gw)
         gsub(/'\''/, "'\''\\'\'''\''", pw)
         gsub(/'\''/, "'\''\\'\'''\''", did)
@@ -135,18 +133,15 @@ method_set_config() {
     }
     ')
 
-    # Validation
-    # 1. Gateway: hostname or IPv4, non-empty, no spaces
     if [ -z "$NEW_GW" ] || echo "$NEW_GW" | grep -qE "[^a-zA-Z0-9.-]"; then
         printf '{"ok":false,"error":"gateway: неверный формат хоста или IP"}\n'
         return
     fi
 
-    # If password is still masked with "…", retrieve existing real password
     if echo "$NEW_PW" | grep -qE "(…|\.\.\.)"; then
         if [ -f "$CONFIG_FILE" ]; then
             EXISTING_PW=$(awk '
-                /^\[\[/ { exit }
+                /^\[/ { exit }
                 /^[ \t]*password[ \t]*=/ {
                     if (match($0, /"[^"]*"/)) {
                         print substr($0, RSTART + 1, RLENGTH - 2)
@@ -160,7 +155,6 @@ method_set_config() {
         fi
     fi
 
-    # 2. Password: non-empty check
     if [ -z "$NEW_PW" ]; then
         printf '{"ok":false,"error":"password: пустой ключ"}\n'
         return
@@ -172,32 +166,25 @@ method_set_config() {
         PW_WARN="не похоже на UUID v4"
     fi
 
-    # 3. Device ID: [a-zA-Z0-9._-]{1,64}
     if [ -z "$NEW_DID" ] || echo "$NEW_DID" | grep -qE "[^a-zA-Z0-9._-]" || [ ${#NEW_DID} -gt 64 ]; then
         printf '{"ok":false,"error":"device_id: допустимы символы a-z, 0-9, ., _, -, длина до 64"}\n'
         return
     fi
 
-    # 4. TUN MTU: 576..1500
     if ! echo "$NEW_MTU" | grep -qE "^[0-9]+$" || [ "$NEW_MTU" -lt 576 ] || [ "$NEW_MTU" -gt 1500 ]; then
         printf '{"ok":false,"error":"tun_mtu: должно быть от 576 до 1500"}\n'
         return
     fi
 
-    # 5. RuDirect: bool
     if [ "$NEW_RUD" != "true" ] && [ "$NEW_RUD" != "false" ]; then
         NEW_RUD="false"
     fi
 
-    # Create directory if missing
     mkdir -p "$(dirname "$CONFIG_FILE")"
-
-    # Backup existing config
     if [ -f "$CONFIG_FILE" ]; then
         cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s 2>/dev/null || echo $$)"
     fi
 
-    # Update or create /etc/sirin/client.toml preserving [[ladder]]
     TMP_CONF="/tmp/client.toml.tmp.$$"
     awk -v new_gw="$NEW_GW" \
         -v new_pw="$NEW_PW" \
@@ -212,9 +199,8 @@ method_set_config() {
         seen_rud = 0
         seen_mtu = 0
     }
-    /^\[\[/ {
+    /^\[/ {
         if (in_top) {
-            # Append any missing top-level keys before first [[ladder]]
             if (!seen_gw) print "gateway = \"" new_gw "\""
             if (!seen_pw) print "password = \"" new_pw "\""
             if (!seen_did) print "device_id = \"" new_did "\""
@@ -274,6 +260,270 @@ method_set_config() {
     fi
 }
 
+method_get_split_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        printf '{"mode":"bypass","use_ru_direct":true,"cidrs":[],"domains":[]}\n'
+        return
+    fi
+
+    awk '
+    BEGIN {
+        in_split = 0
+        in_cidrs = 0
+        in_domains = 0
+        mode = "bypass"
+        use_ru = "true"
+        cidrs = ""
+        domains = ""
+    }
+    /^\[split_tunnel\]/ {
+        in_split = 1
+        next
+    }
+    /^\[/ && !/^\[split_tunnel\]/ {
+        in_split = 0
+        in_cidrs = 0
+        in_domains = 0
+    }
+    in_split && /^[ \t]*mode[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) mode = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_split && /^[ \t]*use_ru_direct[ \t]*=/ {
+        if ($0 ~ /false/i) use_ru = "false"
+        else use_ru = "true"
+    }
+    in_split && /^[ \t]*cidrs[ \t]*=[ \t]*\[/ {
+        in_cidrs = 1
+    }
+    in_cidrs {
+        line = $0
+        sub(/^[ \t]*cidrs[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            gsub(/"/, "\\\"", item)
+            if (cidrs != "") cidrs = cidrs ","
+            cidrs = cidrs "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_cidrs = 0
+    }
+    in_split && /^[ \t]*domains[ \t]*=[ \t]*\[/ {
+        in_domains = 1
+    }
+    in_domains {
+        line = $0
+        sub(/^[ \t]*domains[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            gsub(/"/, "\\\"", item)
+            if (domains != "") domains = domains ","
+            domains = domains "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_domains = 0
+    }
+    END {
+        printf "{\"mode\":\"%s\",\"use_ru_direct\":%s,\"cidrs\":[%s],\"domains\":[%s]}\n", mode, use_ru, cidrs, domains
+    }
+    ' "$CONFIG_FILE"
+}
+
+method_set_split_config() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    eval $(awk -v json="$raw_input" '
+    function get_str(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*\"", "", val)
+            sub("\"$", "", val)
+            return val
+        }
+        return ""
+    }
+    function get_bool(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*", "", val)
+            return val
+        }
+        return ""
+    }
+    function get_array(k,    subjson, res, item) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\\[")) {
+            subjson = substr(json, RSTART + RLENGTH)
+            if (match(subjson, /\]/)) {
+                subjson = substr(subjson, 1, RSTART - 1)
+                res = ""
+                while (match(subjson, /"[^"]*"/)) {
+                    item = substr(subjson, RSTART + 1, RLENGTH - 2)
+                    if (res != "") res = res ","
+                    res = res item
+                    subjson = substr(subjson, RSTART + RLENGTH)
+                }
+                return res
+            }
+        }
+        return ""
+    }
+    BEGIN {
+        m = tolower(get_str("mode"))
+        if (m == "") m = "bypass"
+        rud = tolower(get_bool("use_ru_direct"))
+        if (rud == "") rud = "true"
+        c = get_array("cidrs")
+        d = tolower(get_array("domains"))
+
+        gsub(/'\''/, "'\''\\'\'''\''", m)
+        gsub(/'\''/, "'\''\\'\'''\''", rud)
+        gsub(/'\''/, "'\''\\'\'''\''", c)
+        gsub(/'\''/, "'\''\\'\'''\''", d)
+
+        printf "SPLIT_MODE='\''%s'\''; SPLIT_RU='\''%s'\''; SPLIT_CIDRS='\''%s'\''; SPLIT_DOMAINS='\''%s'\'';\n", m, rud, c, d
+    }
+    ')
+
+    if [ "$SPLIT_MODE" != "bypass" ] && [ "$SPLIT_MODE" != "only" ]; then
+        printf '{"ok":false,"error":"Недопустимый режим mode (только bypass или only)"}\n'
+        return
+    fi
+
+    # Валидация CIDR
+    CLEAN_CIDRS=""
+    if [ -n "$SPLIT_CIDRS" ]; then
+        old_ifs="$IFS"
+        IFS=','
+        for cidr in $SPLIT_CIDRS; do
+            cidr=$(echo "$cidr" | tr -d ' \t\r\n')
+            [ -z "$cidr" ] && continue
+            if echo "$cidr" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(/[0-9]{1,2})?$'; then
+                if ! echo "$cidr" | grep -q '/'; then
+                    cidr="${cidr}/32"
+                fi
+                if [ -z "$CLEAN_CIDRS" ]; then
+                    CLEAN_CIDRS="$cidr"
+                else
+                    CLEAN_CIDRS="$CLEAN_CIDRS,$cidr"
+                fi
+            else
+                IFS="$old_ifs"
+                printf '{"ok":false,"error":"Неверный CIDR или IP: %s"}\n' "$cidr"
+                return
+            fi
+        done
+        IFS="$old_ifs"
+    fi
+
+    # Валидация доменов
+    CLEAN_DOMAINS=""
+    if [ -n "$SPLIT_DOMAINS" ]; then
+        old_ifs="$IFS"
+        IFS=','
+        for dom in $SPLIT_DOMAINS; do
+            dom=$(echo "$dom" | tr -d ' \t\r\n' | tr 'A-Z' 'a-z')
+            [ -z "$dom" ] && continue
+            if echo "$dom" | grep -qE '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$'; then
+                if [ -z "$CLEAN_DOMAINS" ]; then
+                    CLEAN_DOMAINS="$dom"
+                else
+                    CLEAN_DOMAINS="$CLEAN_DOMAINS,$dom"
+                fi
+            else
+                IFS="$old_ifs"
+                printf '{"ok":false,"error":"Неверное доменное имя: %s"}\n' "$dom"
+                return
+            fi
+        done
+        IFS="$old_ifs"
+    fi
+
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    if [ -f "$CONFIG_FILE" ]; then
+        cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s 2>/dev/null || echo $$)"
+    else
+        touch "$CONFIG_FILE"
+    fi
+
+    TMP_CONF="/tmp/client.toml.split.$$"
+    awk -v new_mode="$SPLIT_MODE" \
+        -v new_use_ru="$SPLIT_RU" \
+        -v new_cidrs="$CLEAN_CIDRS" \
+        -v new_domains="$CLEAN_DOMAINS" '
+    BEGIN {
+        in_split = 0
+        split_written = 0
+    }
+    function write_split() {
+        if (!split_written) {
+            print "[split_tunnel]"
+            print "mode = \"" new_mode "\""
+            print "use_ru_direct = " new_use_ru
+            print "cidrs = ["
+            n_c = split(new_cidrs, arr_c, ",")
+            for (i = 1; i <= n_c; i++) {
+                gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", arr_c[i])
+                if (arr_c[i] != "") {
+                    comma = (i < n_c) ? "," : ""
+                    print "    \"" arr_c[i] "\"" comma
+                }
+            }
+            print "]"
+            print "domains = ["
+            n_d = split(new_domains, arr_d, ",")
+            for (i = 1; i <= n_d; i++) {
+                gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", arr_d[i])
+                if (arr_d[i] != "") {
+                    comma = (i < n_d) ? "," : ""
+                    print "    \"" arr_d[i] "\"" comma
+                }
+            }
+            print "]"
+            print ""
+            split_written = 1
+        }
+    }
+    /^\[split_tunnel\]/ {
+        in_split = 1
+        write_split()
+        next
+    }
+    /^\[/ && !/^\[split_tunnel\]/ {
+        if (in_split) in_split = 0
+        if (!split_written) write_split()
+        print $0
+        next
+    }
+    in_split { next }
+    { print $0 }
+    END {
+        if (!split_written) {
+            print ""
+            write_split()
+        }
+    }
+    ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
+
+    if [ -s "$TMP_CONF" ]; then
+        mv "$TMP_CONF" "$CONFIG_FILE"
+        printf '{"ok":true}\n'
+    else
+        rm -f "$TMP_CONF"
+        printf '{"ok":false,"error":"Не удалось обновить секцию split_tunnel"}\n'
+    fi
+}
+
+method_get_ru_direct_info() {
+    count=8641
+    if [ -f "/etc/sirin/ru-ranges.txt" ]; then
+        cnt=$(grep -cvE '^[[:space:]]*(#|$)' "/etc/sirin/ru-ranges.txt" 2>/dev/null)
+        [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && count="$cnt"
+    fi
+    printf '{"count":%d,"updated":"2026-10-18","embedded":true}\n' "$count"
+}
+
 method_service() {
     action="$1"
     err_out=$(/etc/init.d/sirin "$action" 2>&1)
@@ -327,6 +577,7 @@ method_get_logs() {
 }
 
 method_test_connection() {
+    # Проверка маршрута к российскому IP 77.88.8.8 (Яндекс DNS)
     rudirect_via_tunnel=false
     if ip route get 77.88.8.8 2>/dev/null | grep -q sirin0; then
         rudirect_via_tunnel=true
@@ -340,14 +591,32 @@ method_test_connection() {
         public_ip="нет ответа"
     fi
 
-    if [ "$rudirect_via_tunnel" = "false" ]; then
-        raw="RuDirect: трафик РФ идёт напрямую через WAN"
-    else
-        raw="ВНИМАНИЕ: трафик РФ идёт через VPN"
+    # Определение режима split_tunnel
+    split_mode="bypass"
+    if [ -f "$CONFIG_FILE" ]; then
+        sm=$(awk '
+            /^\[split_tunnel\]/ { in_s = 1; next }
+            /^\[/ { in_s = 0 }
+            in_s && /^[ \t]*mode[ \t]*=/ {
+                if (match($0, /"[^"]*"/)) print substr($0, RSTART+1, RLENGTH-2)
+            }
+        ' "$CONFIG_FILE")
+        [ -n "$sm" ] && split_mode="$sm"
     fi
 
-    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"raw":"%s"}\n' \
-        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$raw"
+    raw="Режим: $split_mode"
+    if [ "$split_mode" = "only" ]; then
+        raw="Split (Only): через VPN идут только адреса из split-списка, остальное напрямую"
+    else
+        if [ "$rudirect_via_tunnel" = "false" ]; then
+            raw="RuDirect (Bypass): трафик РФ идёт напрямую через WAN"
+        else
+            raw="ВНИМАНИЕ: трафик РФ идёт через VPN"
+        fi
+    fi
+
+    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"split_mode":"%s","raw":"%s"}\n' \
+        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$split_mode" "$raw"
 }
 
 # Entry point
@@ -364,6 +633,14 @@ case "$1" in
     "ru_direct": "bool",
     "tun_mtu": "int"
   },
+  "get_split_config": {},
+  "set_split_config": {
+    "mode": "str",
+    "use_ru_direct": "bool",
+    "cidrs": "array",
+    "domains": "array"
+  },
+  "get_ru_direct_info": {},
   "start": {},
   "stop": {},
   "restart": {},
@@ -400,6 +677,15 @@ case "$cmd" in
         ;;
     set_config)
         method_set_config "$(get_input)"
+        ;;
+    get_split_config)
+        method_get_split_config
+        ;;
+    set_split_config)
+        method_set_split_config "$(get_input)"
+        ;;
+    get_ru_direct_info)
+        method_get_ru_direct_info
         ;;
     start|stop|restart|enable|disable)
         method_service "$cmd"

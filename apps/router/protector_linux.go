@@ -30,7 +30,9 @@ func (p *linuxProtector) Protect(fd int32) bool {
 			log.Printf("[protect] Предупреждение SO_BINDTODEVICE к %s: %v", p.wanIface, err)
 		}
 	}
-	_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, 0x1)
+	// Устанавливаем марку 0x2 (WAN), чтобы трафик самого туннеля направлялся в обход VPN
+	// через таблицу маршрутизации 200 и не перехватывался правилами маркировки туннеля.
+	_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, 0x2)
 	return true
 }
 

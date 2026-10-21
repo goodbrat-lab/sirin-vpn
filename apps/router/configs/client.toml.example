@@ -11,7 +11,30 @@ lan_interface = "br-lan"
 wan_interface = ""
 
 api_url = "https://crp.guseynovia.ru"
-ru_direct = false
+
+# Раздельное туннелирование (Split Tunneling)
+[split_tunnel]
+# mode:
+#   "bypass" — весь трафик направляется в VPN, за исключением адресов из split-списка (RuDirect, cidrs, domains).
+#   "only"   — только адреса из split-списка (cidrs, domains) направляются в VPN, всё остальное идёт напрямую через WAN.
+mode = "bypass"
+
+# use_ru_direct:
+#   Использовать встроенный список диапазонов IP РФ (8641 CIDR).
+#   Действует только в режиме "bypass". В режиме "only" игнорируется с предупреждением в лог.
+use_ru_direct = true
+
+# Дополнительные диапазоны IP (IPv4 CIDR или отдельные IP)
+cidrs = [
+    # "1.1.1.1/32",
+    # "104.16.0.0/12"
+]
+
+# Домены для включения в список (резолвятся в IP-адреса)
+domains = [
+    # "rutracker.org",
+    # "kinopoisk.ru"
+]
 
 # Fallback: если API недоступен, использовать статический пул узлов
 [[ladder]]
