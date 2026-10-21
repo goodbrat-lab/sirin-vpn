@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
         TransportSetting.attach(this)
         HashStore.attach(this)
         SplitTunnel.attach(this)
+        KillSwitch.attach(this)
         Access.attach(this)
         ApiClient.attach(this)
         Params.attach(this)

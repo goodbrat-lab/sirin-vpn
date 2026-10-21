@@ -333,3 +333,25 @@ fun KeyIcon(modifier: Modifier = Modifier, tint: Color? = null) {
         drawLine(brush, tooth2Start, tooth2End, strokeWidth = w, cap = StrokeCap.Round)
     }
 }
+
+/**
+ * Щит: контурный щит для Kill Switch.
+ */
+@Composable
+fun ShieldIcon(modifier: Modifier = Modifier, tint: Color? = null) {
+    IconBtn(modifier = modifier, tint = tint) { brush, r ->
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val w = 1.8f.dp.toPx()
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(c.x, c.y - r * 0.82f)
+            lineTo(c.x + r * 0.72f, c.y - r * 0.48f)
+            lineTo(c.x + r * 0.58f, c.y + r * 0.35f)
+            lineTo(c.x, c.y + r * 0.85f)
+            lineTo(c.x - r * 0.58f, c.y + r * 0.35f)
+            lineTo(c.x - r * 0.72f, c.y - r * 0.48f)
+            close()
+        }
+        drawPath(path, brush = brush, style = Stroke(width = w, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
