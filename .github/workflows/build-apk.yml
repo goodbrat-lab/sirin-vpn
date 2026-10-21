@@ -77,8 +77,11 @@ jobs:
           cd apps/android
           ./gradlew assembleDirectDebug --no-daemon
 
-      # 6. Переименовываем APK и генерируем контрольные суммы SHA-256
-      - name: Rename APK and Generate Checksums
+      # 6. Переименовываем APK и генерируем контрольные суммы SHA-256 с GPG-подписью
+      - name: Rename APK and Generate Signed Checksums
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
           # Если тег не задан (ручной запуск), используем "dev"
@@ -94,7 +97,19 @@ jobs:
           echo "Generated checksums.txt:"
           cat checksums.txt
 
-      # 7. Загружаем APK и контрольные суммы как артефакт
+          # Подписываем checksums.txt приватным GPG-ключом автора
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+            gpg --batch --yes --pinentry-mode loopback \
+                --passphrase "$GPG_PASSPHRASE" \
+                --detach-sign --armor checksums.txt
+            echo "Generated detached signature checksums.txt.asc:"
+            cat checksums.txt.asc
+          else
+            echo "WARNING: GPG_PRIVATE_KEY not set in secrets, skipping GPG detached signature"
+          fi
+
+      # 7. Загружаем APK и контрольные суммы с подписью как артефакт
       - name: Upload Artifact
         uses: actions/upload-artifact@v5
         with:
@@ -102,8 +117,9 @@ jobs:
           path: |
             apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
             apps/android/app/build/outputs/apk/direct/debug/checksums.txt
+            apps/android/app/build/outputs/apk/direct/debug/checksums.txt.asc
 
-      # 8. Создаём релиз и прикрепляем APK и checksums.txt (только если это тег)
+      # 8. Создаём релиз и прикрепляем APK, checksums.txt и подпись (только если это тег)
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -111,6 +127,7 @@ jobs:
           files: |
             apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
             apps/android/app/build/outputs/apk/direct/debug/checksums.txt
+            apps/android/app/build/outputs/apk/direct/debug/checksums.txt.asc
           generate_release_notes: true # Автоматически создаст описание из коммитов
           draft: false
           prerelease: false

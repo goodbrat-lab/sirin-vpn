@@ -89,7 +89,11 @@ object TunnelLog {
     private const val FLUSH_DELAY_MS = 400L
 
     private val stamp = SimpleDateFormat("dd.MM HH:mm:ss", Locale.US)
-    private val main = Handler(Looper.getMainLooper())
+    private val main: Handler? = try {
+        Handler(Looper.getMainLooper())
+    } catch (_: Throwable) {
+        null
+    }
 
     val lines = mutableStateListOf<String>()
 
@@ -109,7 +113,7 @@ object TunnelLog {
      */
     fun attach(ctx: Context) {
         val app = ctx.applicationContext
-        main.post {
+        main?.post {
             if (appCtx == null) appCtx = app
             if (loaded) return@post
             loaded = true
@@ -196,9 +200,9 @@ object TunnelLog {
         // опознать событие в записке о падении, ради которой запись и
         // сделана синхронной.
         if (BuildConfig.DEBUG) {
-            Log.i(TAG, if (text.length <= LOGCAT_MAX) text else text.take(LOGCAT_MAX) + "…")
+            try { Log.i(TAG, if (text.length <= LOGCAT_MAX) text else text.take(LOGCAT_MAX) + "…") } catch (_: Throwable) {}
         }
-        main.post {
+        main?.post {
             if (headOpen) {
                 head.add(text)
                 if (head.size >= HEAD_MAX || line.startsWith("подключено")) headOpen = false
@@ -222,8 +226,8 @@ object TunnelLog {
      */
     fun separator(title: String) {
         // В релизе в системный лог не пишем — как и в write().
-        if (BuildConfig.DEBUG) Log.i(TAG, "──────── $title ────────")
-        main.post {
+        if (BuildConfig.DEBUG) { try { Log.i(TAG, "──────── $title ────────") } catch (_: Throwable) {} }
+        main?.post {
             val text = "──────── $title ────────"
             if (title == "подключение") {
                 head.clear(); head.add(text); headOpen = true
@@ -237,17 +241,17 @@ object TunnelLog {
             trimTail()
             // Разделитель пишем на диск немедленно: он размечает границу
             // попытки, и потерять его — значит потерять смысл хвоста.
-            main.removeCallbacks(flush)
+            main?.removeCallbacks(flush)
             writeTail()
         }
     }
 
     /** Стирает и экран, и хвост. Только по явной команде человека. */
     fun clear() {
-        main.post {
+        main?.post {
             lines.clear()
             tail.clear()
-            main.removeCallbacks(flush)
+            main?.removeCallbacks(flush)
             writeTail()
         }
     }
@@ -259,8 +263,8 @@ object TunnelLog {
     }
 
     private fun scheduleFlush() {
-        main.removeCallbacks(flush)
-        main.postDelayed(flush, FLUSH_DELAY_MS)
+        main?.removeCallbacks(flush)
+        main?.postDelayed(flush, FLUSH_DELAY_MS)
     }
 
     private fun writeTail() {
@@ -277,7 +281,11 @@ object TunnelLog {
 }
 
 object TunnelState {
-    private val main = Handler(Looper.getMainLooper())
+    private val main: Handler? = try {
+        Handler(Looper.getMainLooper())
+    } catch (_: Throwable) {
+        null
+    }
 
     /**
      * Контекст для обновления плитки быстрых настроек. Ставится в
@@ -310,7 +318,7 @@ object TunnelState {
     val busy = mutableStateOf(false)
 
     fun setBusy(value: Boolean) {
-        main.post {
+        main?.post {
             busy.value = value
             refreshTile()
         }
@@ -321,7 +329,7 @@ object TunnelState {
      * Иначе застрявшее true оставило бы планету вращаться навсегда.
      */
     fun setConnected(value: Boolean, whiteMode: Boolean = false) {
-        main.post {
+        main?.post {
             connected.value = value
             white.value = value && whiteMode
             busy.value = false

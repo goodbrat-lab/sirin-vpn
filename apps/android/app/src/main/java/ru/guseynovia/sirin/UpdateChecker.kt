@@ -4,7 +4,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.openpgp.PGPObjectFactory
+import org.bouncycastle.openpgp.PGPPublicKeyRingCollection
+import org.bouncycastle.openpgp.PGPSignatureList
+import org.bouncycastle.openpgp.PGPUtil
+import org.bouncycastle.openpgp.operator.jcajce.JcaKeyFingerprintCalculator
+import org.bouncycastle.openpgp.operator.jcajce.JcaPGPContentVerifierBuilderProvider
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.security.MessageDigest
+import java.security.Security
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.FileProvider
@@ -40,7 +50,9 @@ object UpdateChecker {
         val downloadUrl: String,
         val fileName: String,
         val sizeBytes: Long,
-        val expectedSha256: String? = null
+        val expectedSha256: String? = null,
+        val checksumsData: ByteArray? = null,
+        val signatureData: ByteArray? = null
     )
 
     sealed class CheckStatus {
@@ -181,6 +193,7 @@ object UpdateChecker {
             var apkName: String? = null
             var apkSize: Long = 0L
             var checksumsUrl: String? = null
+            var signatureUrl: String? = null
 
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
@@ -191,32 +204,31 @@ object UpdateChecker {
                     apkSize = asset.optLong("size", 0L)
                 } else if (name == "checksums.txt" || name == "sha256sums.txt") {
                     checksumsUrl = asset.optString("browser_download_url")
+                } else if (name == "checksums.txt.asc" || name == "sha256sums.txt.asc") {
+                    signatureUrl = asset.optString("browser_download_url")
                 }
             }
 
             var expectedSha256: String? = null
-            if (checksumsUrl != null && apkName != null) {
-                try {
-                    val csConn = (URL(checksumsUrl).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = TIMEOUT_MS
-                        readTimeout = TIMEOUT_MS
-                        setRequestProperty("User-Agent", "Sirin-Android-Client")
-                        instanceFollowRedirects = true
-                    }
-                    if (csConn.responseCode == HttpURLConnection.HTTP_OK) {
-                        val csText = csConn.inputStream.bufferedReader().use { it.readText() }
-                        for (line in csText.lines()) {
-                            val parts = line.trim().split(Regex("\\s+"))
-                            if (parts.size >= 2 && parts[1].trimStart('*') == apkName) {
-                                expectedSha256 = parts[0].lowercase()
-                                break
-                            }
+            var checksumsData: ByteArray? = null
+            var signatureData: ByteArray? = null
+
+            if (checksumsUrl != null) {
+                checksumsData = downloadUrlToBytes(checksumsUrl)
+                if (checksumsData != null && apkName != null) {
+                    val csText = String(checksumsData, Charsets.UTF_8)
+                    for (line in csText.lines()) {
+                        val parts = line.trim().split(Regex("\\s+"))
+                        if (parts.size >= 2 && parts[1].trimStart('*') == apkName) {
+                            expectedSha256 = parts[0].lowercase()
+                            break
                         }
                     }
-                    csConn.disconnect()
-                } catch (e: Throwable) {
-                    TunnelLog.add("UpdateChecker: не удалось прочитать checksums.txt (${e.message})")
                 }
+            }
+
+            if (signatureUrl != null) {
+                signatureData = downloadUrlToBytes(signatureUrl)
             }
 
             if (apkUrl != null && apkName != null) {
@@ -226,7 +238,9 @@ object UpdateChecker {
                     downloadUrl = apkUrl,
                     fileName = apkName,
                     sizeBytes = apkSize,
-                    expectedSha256 = expectedSha256
+                    expectedSha256 = expectedSha256,
+                    checksumsData = checksumsData,
+                    signatureData = signatureData
                 )
             } else {
                 null
@@ -310,25 +324,67 @@ object UpdateChecker {
 
                 TunnelLog.add("APK скачан: ${targetFile.absolutePath} (${targetFile.length()} байт)")
 
-                // 1. Проверка контрольной суммы SHA-256 (если доступна в релизе)
+                // 1. ШАГ 1: Проверка криптографической GPG-подписи checksums.txt
+                if (release.checksumsData == null || release.signatureData == null) {
+                    targetFile.delete()
+                    val err = "Ошибка безопасности: checksums.txt не подписан GPG-ключом или файл подписи (.asc) отсутствует в релизе"
+                    TunnelLog.add("UpdateChecker: $err")
+                    status.value = CheckStatus.Error(err)
+                    isDownloading.value = false
+                    return@thread
+                }
+
+                val pubKeyStream = try {
+                    appCtx.resources.openRawResource(R.raw.sirin_pubkey)
+                } catch (e: Throwable) {
+                    targetFile.delete()
+                    val err = "Ошибка безопасности: встроенный GPG-ключ приложения (sirin_pubkey.asc) не найден (${e.message})"
+                    TunnelLog.add("UpdateChecker: $err")
+                    status.value = CheckStatus.Error(err)
+                    isDownloading.value = false
+                    return@thread
+                }
+
+                val gpgValid = pubKeyStream.use { pkIn ->
+                    verifyGpgSignature(release.checksumsData, release.signatureData, pkIn)
+                }
+
+                if (!gpgValid) {
+                    targetFile.delete()
+                    val err = "Ошибка безопасности: GPG-подпись checksums.txt недействительна (возможна подмена файлов релиза)"
+                    TunnelLog.add("UpdateChecker: $err")
+                    status.value = CheckStatus.Error(err)
+                    isDownloading.value = false
+                    return@thread
+                }
+                TunnelLog.add("UpdateChecker: GPG-подпись checksums.txt успешно подтверждена ключом автора")
+
+                // 2. ШАГ 2: Проверка контрольной суммы SHA-256 скачанного APK (из подтверждённого checksums.txt)
                 if (release.expectedSha256 != null) {
                     val actualSha = computeSha256(targetFile)
                     if (!actualSha.equals(release.expectedSha256, ignoreCase = true)) {
                         targetFile.delete()
-                        val err = "Ошибка проверки целостности: SHA-256 не совпадает (ожидался ${release.expectedSha256}, вычислен $actualSha)"
+                        val err = "Ошибка проверки целостности: SHA-256 скачанного APK не совпадает (ожидался ${release.expectedSha256}, вычислен $actualSha)"
                         TunnelLog.add("UpdateChecker: $err")
                         status.value = CheckStatus.Error(err)
                         isDownloading.value = false
                         return@thread
                     }
                     TunnelLog.add("UpdateChecker: SHA-256 успешно подтверждён ($actualSha)")
+                } else {
+                    targetFile.delete()
+                    val err = "Ошибка целостности: контрольная сумма для ${release.fileName} не найдена в подписанном checksums.txt"
+                    TunnelLog.add("UpdateChecker: $err")
+                    status.value = CheckStatus.Error(err)
+                    isDownloading.value = false
+                    return@thread
                 }
 
-                // 2. Проверка цифровой подписи APK (сертификат должен совпадать с текущим приложением)
+                // 3. ШАГ 3: Проверка цифровой подписи APK (сертификат должен совпадать с текущим приложением)
                 val signValid = verifyApkSignature(appCtx, targetFile)
                 if (!signValid) {
                     targetFile.delete()
-                    val err = "Ошибка безопасности: цифровая подпись скачанного APK не совпадает с установленным приложением"
+                    val err = "Ошибка безопасности: сертификат подписи скачанного APK не совпадает с установленным приложением"
                     TunnelLog.add("UpdateChecker: $err")
                     status.value = CheckStatus.Error(err)
                     isDownloading.value = false
@@ -368,6 +424,70 @@ object UpdateChecker {
         } catch (e: Throwable) {
             TunnelLog.add("Ошибка запуска установщика: ${e.message}")
             status.value = CheckStatus.Error("Не удалось запустить установку: ${e.message}")
+        }
+    }
+
+    /**
+     * Загрузка байт по HTTP URL с таймаутом.
+     */
+    private fun downloadUrlToBytes(urlString: String): ByteArray? {
+        return try {
+            val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                connectTimeout = TIMEOUT_MS
+                readTimeout = TIMEOUT_MS
+                setRequestProperty("User-Agent", "Sirin-Android-Client")
+                instanceFollowRedirects = true
+            }
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                conn.inputStream.use { it.readBytes() }
+            } else {
+                null
+            }.also { conn.disconnect() }
+        } catch (e: Throwable) {
+            TunnelLog.add("UpdateChecker: ошибка загрузки $urlString: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Верификация отсоединённой GPG-подписи (.asc) на основе открытого ключа OpenPGP.
+     */
+    fun verifyGpgSignature(
+        dataBytes: ByteArray,
+        signatureBytes: ByteArray,
+        publicKeyStream: InputStream
+    ): Boolean {
+        return try {
+            if (Security.getProvider("BC") == null) {
+                Security.addProvider(BouncyCastleProvider())
+            }
+
+            val sigIn = PGPUtil.getDecoderStream(ByteArrayInputStream(signatureBytes))
+            val pgpFact = PGPObjectFactory(sigIn, JcaKeyFingerprintCalculator())
+            val obj = pgpFact.nextObject() ?: return false
+            val sigList = when (obj) {
+                is PGPSignatureList -> obj
+                is org.bouncycastle.openpgp.PGPCompressedData -> {
+                    val compFact = PGPObjectFactory(obj.dataStream, JcaKeyFingerprintCalculator())
+                    compFact.nextObject() as? PGPSignatureList
+                }
+                else -> null
+            } ?: return false
+
+            if (sigList.isEmpty) return false
+            val sig = sigList.get(0)
+
+            val keyIn = PGPUtil.getDecoderStream(publicKeyStream)
+            val keyRings = PGPPublicKeyRingCollection(keyIn, JcaKeyFingerprintCalculator())
+            val pubKey = keyRings.getPublicKey(sig.keyID) ?: return false
+
+            sig.init(JcaPGPContentVerifierBuilderProvider().setProvider("BC"), pubKey)
+            sig.update(dataBytes)
+
+            sig.verify()
+        } catch (e: Throwable) {
+            TunnelLog.add("UpdateChecker: сбой проверки GPG: ${e.message}")
+            false
         }
     }
 
