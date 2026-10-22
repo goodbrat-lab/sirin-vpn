@@ -1,5 +1,13 @@
 # Changelog
 
+## [android-v1.3.4] - 2026-10-22
+
+### Fixed
+- **Исправлена инициализация криптопровайдера Bouncy Castle на Android**:
+  - Устранена коллизия со встроенным системным урезанным провайдером Android `com.android.org.bouncycastle`.
+  - Явная передача экземпляра `BouncyCastleProvider` в `JcaPGPContentVerifierBuilderProvider` и `JcaKeyFingerprintCalculator`.
+  - Устранена ошибка ложного отклонения GPG-подписи в `UpdateChecker`.
+
 ## [android-v1.3.3] - 2026-10-22
 
 ### Changed
