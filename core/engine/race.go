@@ -150,11 +150,11 @@ func (s *session) raise(
 	//
 	// Флаг появился до потоков (0.1.102), и слово «прямые» в его имени
 	// значило именно UDP-прямые. Теперь оно значит то же и на деле.
-	if c.transport == transTCP || c.transport == transTLS || c.transport == transVLESS {
+	if c.transport == transTCP || c.transport == transTLS || c.transport == transVLESS || c.transport == transXHTTP {
 		r, err := s.raiseStream(ctx, gateway, c, password, prot, budget)
-		// Пиновленный TLS поднялся — сервер из этой сети виден (failure.go).
+		// Пиновленный TLS или Reality поднялся — сервер из этой сети виден (failure.go).
 		// Голый TCP не в счёт: connect может принять и посредник.
-		if err == nil && c.transport == transTLS {
+		if err == nil && (c.transport == transTLS || c.transport == transVLESS || c.transport == transXHTTP) {
 			s.reached.Store(true)
 		}
 		return r, err

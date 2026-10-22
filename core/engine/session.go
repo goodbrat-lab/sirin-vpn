@@ -703,7 +703,7 @@ func (s *session) climb(gateway string, ladder *Ladder, password, deviceID strin
 		switch {
 		case c.isRelay:
 			relays = append(relays, c)
-		case c.transport == transTCP || c.transport == transTLS || c.transport == transVLESS:
+		case c.transport == transTCP || c.transport == transTLS || c.transport == transVLESS || c.transport == transXHTTP:
 			// ПОТОКОВЫЕ СТУПЕНИ (TCP/TLS/VLESS) — ОТДЕЛЬНО ОТ UDP. В гонку их
 			// не берём (по спецификации: несколько TCP не лечат head-of-line,
 			// а размножают его и конкурируют за одну полосу). Пробуем по
@@ -1306,7 +1306,7 @@ func (s *session) proveRung(r *rung) error {
 	case r.cand.remembered && !r.cand.spent:
 		marks = 1
 		s.logf("%s: запомненная ступень — проверяю одной меткой", r.cand.name)
-	case r.cand.transport == transTCP || r.cand.transport == transTLS || r.cand.transport == transVLESS:
+	case r.cand.transport == transTCP || r.cand.transport == transTLS || r.cand.transport == transVLESS || r.cand.transport == transXHTTP:
 		marks = 1
 		s.logf("%s: поток — проверяю одной меткой", r.cand.name)
 	}
