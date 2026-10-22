@@ -56,6 +56,8 @@ type LadderEntry struct {
 	SNIs      []string `toml:"snis,omitempty"`
 	PBK       string   `toml:"pbk,omitempty"`
 	SID       string   `toml:"sid,omitempty"`
+	Path      string   `toml:"path,omitempty"`
+	Mode      string   `toml:"mode,omitempty"`
 	DTLS      bool     `toml:"dtls,omitempty"`
 }
 

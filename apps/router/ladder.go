@@ -33,6 +33,8 @@ type ParamsEntry struct {
 	SNIs      []string `json:"snis"`
 	PBK       string   `json:"pbk"`
 	SID       string   `json:"sid"`
+	Path      string   `json:"path,omitempty"`
+	Mode      string   `json:"mode,omitempty"`
 }
 
 // buildLadder строит структуру engine.Ladder и список IP/хостов серверов.
@@ -147,6 +149,33 @@ func buildFromParams(resp *ParamsResponse) (*engine.Ladder, string, []string, er
 				return nil, "", nil, fmt.Errorf("AddVLESS %s: %w", entry.ID, err)
 			}
 			hasEntries = true
+		case "xhttp":
+			sniCSV := strings.Join(entry.SNIs, ",")
+			if sniCSV == "" {
+				sniCSV = entry.SNI
+			}
+			target := "127.0.0.1:56006"
+			path := entry.Path
+			if path == "" {
+				path = "/s1r1nxhttp2026k"
+			}
+			err := ladder.AddXHTTP(
+				entry.ID,
+				entry.Host,
+				int32(entry.Port),
+				defaultVlessUUID,
+				entry.PBK,
+				entry.SID,
+				entry.SNI,
+				target,
+				sniCSV,
+				path,
+				entry.Mode,
+			)
+			if err != nil {
+				return nil, "", nil, fmt.Errorf("AddXHTTP %s: %w", entry.ID, err)
+			}
+			hasEntries = true
 		}
 	}
 
@@ -195,6 +224,33 @@ func buildFromStatic(entries []LadderEntry, fallbackGw string) (*engine.Ladder, 
 			)
 			if err != nil {
 				return nil, "", nil, fmt.Errorf("AddVLESS %s: %w", entry.Name, err)
+			}
+			hasEntries = true
+		case "xhttp":
+			sniCSV := strings.Join(entry.SNIs, ",")
+			if sniCSV == "" {
+				sniCSV = entry.SNI
+			}
+			target := "127.0.0.1:56006"
+			path := entry.Path
+			if path == "" {
+				path = "/s1r1nxhttp2026k"
+			}
+			err := ladder.AddXHTTP(
+				entry.Name,
+				entry.Host,
+				int32(entry.Port),
+				defaultVlessUUID,
+				entry.PBK,
+				entry.SID,
+				entry.SNI,
+				target,
+				sniCSV,
+				path,
+				entry.Mode,
+			)
+			if err != nil {
+				return nil, "", nil, fmt.Errorf("AddXHTTP %s: %w", entry.Name, err)
 			}
 			hasEntries = true
 		}

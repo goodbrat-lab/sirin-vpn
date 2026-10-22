@@ -23,6 +23,7 @@ const (
 	transTCP                      // TCP-поток, кадры obfs (порт 56004, без DTLS)
 	transTLS                      // TLS-поток, кадры obfs внутри (порт 443, SNI + отпечаток)
 	transVLESS                    // NEW: VLESS+Reality с XTLS Vision
+	transXHTTP                    // NEW: VLESS+XHTTP+Reality (stream-one)
 )
 
 // DefaultSNIPool is the extended default pool of resilient TLS 1.3 SNI domains
@@ -47,6 +48,8 @@ func streamKindText(t transportKind) string {
 		return "TLS"
 	case transVLESS:
 		return "VLESS"
+	case transXHTTP:
+		return "XHTTP"
 	default:
 		return "UDP"
 	}
@@ -96,11 +99,13 @@ type candidate struct {
 	sni     string
 	sniList []string // NEW: пул SNI для ротации при сбое
 
-	// Для transVLESS:
+	// Для transVLESS и transXHTTP:
 	vlessUUID      [16]byte // VLESS UUID (секрет Xray)
 	vlessPublicKey []byte   // Reality public key (32 байта)
 	vlessShortID   []byte   // Reality short ID
 	vlessTarget    string   // "127.0.0.1:56006"
+	xhttpPath      string   // например, "/s1r1nxhttp2026k"
+	xhttpMode      string   // "stream-one"
 
 	// turnAddr — ЗАПАСНОЙ адрес релея из настроек.
 	//
@@ -327,6 +332,76 @@ func (l *Ladder) AddVLESS(
 		vlessPublicKey: pubKey,
 		vlessShortID:   shortID,
 		vlessTarget:    target,
+		mtu:            mtuFor(false),
+	})
+	return nil
+}
+
+// AddXHTTP — СТУПЕНЬ 6: VLESS+XHTTP+Reality (stream-one).
+func (l *Ladder) AddXHTTP(
+	name, host string, port int32,
+	uuidStr string,
+	pubKeyBase64 string,
+	shortIDHex string,
+	sni string,
+	target string,
+	sniListCSV string,
+	path string,
+	mode string,
+) error {
+	uuid, err := vless.ParseUUID(uuidStr)
+	if err != nil {
+		return fmt.Errorf("AddXHTTP %s: %w", name, err)
+	}
+	pubKey, err := base64.RawURLEncoding.DecodeString(pubKeyBase64)
+	if err != nil {
+		return fmt.Errorf("AddXHTTP %s: decode pubkey: %w", name, err)
+	}
+	if len(pubKey) != 32 {
+		return fmt.Errorf("AddXHTTP %s: pubkey must be 32 bytes, got %d", name, len(pubKey))
+	}
+	shortID, err := hex.DecodeString(shortIDHex)
+	if err != nil {
+		return fmt.Errorf("AddXHTTP %s: decode shortID: %w", name, err)
+	}
+	if target == "" {
+		target = "127.0.0.1:56006"
+	}
+	if path == "" {
+		path = "/s1r1nxhttp2026k"
+	}
+	if mode == "" {
+		mode = "stream-one"
+	}
+	var sniList []string
+	if sniListCSV != "" {
+		for _, s := range strings.Split(sniListCSV, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				sniList = append(sniList, s)
+			}
+		}
+	}
+	if len(sniList) == 0 {
+		if sni != "" {
+			sniList = []string{sni}
+		} else {
+			sniList = DefaultSNIPool
+		}
+	}
+	l.items = append(l.items, candidate{
+		name:           name,
+		host:           host,
+		port:           port,
+		transport:      transXHTTP,
+		sni:            sni,
+		sniList:        sniList,
+		vlessUUID:      uuid,
+		vlessPublicKey: pubKey,
+		vlessShortID:   shortID,
+		vlessTarget:    target,
+		xhttpPath:      path,
+		xhttpMode:      mode,
 		mtu:            mtuFor(false),
 	})
 	return nil

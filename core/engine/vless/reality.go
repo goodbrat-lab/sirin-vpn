@@ -148,10 +148,7 @@ func dialOne(ctx context.Context, cfg *RealityConfig, sni string) (net.Conn, err
 	aead.Seal(hello.SessionId[:0], hello.Random[20:], hello.SessionId[:16], hello.Raw)
 	copy(hello.Raw[39:], hello.SessionId)
 
-	hsCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-
-	if err := uConn.HandshakeContext(hsCtx); err != nil {
+	if err := uConn.HandshakeContext(ctx); err != nil {
 		rawConn.Close()
 		return nil, fmt.Errorf("utls reality handshake: %w", err)
 	}
