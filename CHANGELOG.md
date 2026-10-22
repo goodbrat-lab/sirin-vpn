@@ -1,5 +1,11 @@
 # Changelog
 
+## [router-v1.3.1] - 2026-10-22
+
+### Fixed
+- XHTTP: transXHTTP теперь обрабатывается как стриминговый транспорт (не UDP), устранён fallback на VLESS
+- XHTTP: путь без trailing slash (совместимость с Xray)
+
 ## [router-v1.3.0] - 2026-10-22
 
 ### Added

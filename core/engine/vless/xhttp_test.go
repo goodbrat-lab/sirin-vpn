@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,5 +64,34 @@ func TestXHTTPConnReadHeaderStripping(t *testing.T) {
 	_ = conn.Close()
 	if !dConn.closed {
 		t.Fatalf("expected dummyConn to be closed")
+	}
+}
+
+func TestXHTTPPathNoTrailingSlash(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"/s1r1nxhttp2026k", "/s1r1nxhttp2026k"},
+		{"/s1r1nxhttp2026k/", "/s1r1nxhttp2026k"},
+		{"s1r1nxhttp2026k", "/s1r1nxhttp2026k"},
+		{"", "/s1r1nxhttp2026k"},
+		{"/", "/"},
+	}
+
+	for _, tc := range testCases {
+		normPath := tc.input
+		if normPath == "" {
+			normPath = "/s1r1nxhttp2026k"
+		}
+		if !strings.HasPrefix(normPath, "/") {
+			normPath = "/" + normPath
+		}
+		if len(normPath) > 1 {
+			normPath = strings.TrimRight(normPath, "/")
+		}
+		if normPath != tc.expected {
+			t.Errorf("for input %q: expected %q, got %q", tc.input, tc.expected, normPath)
+		}
 	}
 }

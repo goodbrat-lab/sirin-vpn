@@ -39,6 +39,11 @@ var DefaultSNIPool = []string{
 	"www.samsung.com",
 }
 
+// isStreamTransport возвращает true, если транспорт потоковый (TCP, TLS, VLESS, XHTTP), а не датаграммный (UDP).
+func isStreamTransport(t transportKind) bool {
+	return t == transTCP || t == transTLS || t == transVLESS || t == transXHTTP
+}
+
 // streamKindText — короткое имя транспорта для лога.
 func streamKindText(t transportKind) string {
 	switch t {

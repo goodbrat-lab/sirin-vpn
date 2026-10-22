@@ -71,8 +71,8 @@ func DialXHTTP(ctx context.Context, uuid [16]byte, target string, cfg *XHTTPConf
 	if !strings.HasPrefix(normPath, "/") {
 		normPath = "/" + normPath
 	}
-	if !strings.HasSuffix(normPath, "/") {
-		normPath = normPath + "/"
+	if len(normPath) > 1 {
+		normPath = strings.TrimRight(normPath, "/")
 	}
 
 	reqURL := fmt.Sprintf("https://%s%s", sni, normPath)

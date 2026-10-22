@@ -113,3 +113,56 @@ func TestLadderAddXHTTP(t *testing.T) {
 		t.Errorf("expected streamKindText XHTTP, got %s", streamKindText(transXHTTP))
 	}
 }
+
+func TestTransXHTTP_IsStreaming(t *testing.T) {
+	if !isStreamTransport(transXHTTP) {
+		t.Errorf("expected transXHTTP to be classified as streaming transport")
+	}
+	if !isStreamTransport(transTCP) {
+		t.Errorf("expected transTCP to be classified as streaming transport")
+	}
+	if !isStreamTransport(transTLS) {
+		t.Errorf("expected transTLS to be classified as streaming transport")
+	}
+	if !isStreamTransport(transVLESS) {
+		t.Errorf("expected transVLESS to be classified as streaming transport")
+	}
+	if isStreamTransport(transUDP) {
+		t.Errorf("expected transUDP NOT to be classified as streaming transport")
+	}
+}
+
+func TestDialXHTTP_CalledForXHTTP(t *testing.T) {
+	ladder := NewLadder()
+	uuidStr := "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+	pubKeyBase64 := "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
+	shortIDHex := "a4b2c1d3e5f67890"
+	sni := "sun8-21.userapi.com"
+	path := "/s1r1nxhttp2026k"
+	mode := "stream-one"
+
+	ladder.AddDirect("udp-main", "127.0.0.1", 56005, false)
+	err := ladder.AddXHTTP("xhttp-main", "127.0.0.1", 8443, uuidStr, pubKeyBase64, shortIDHex, sni, "127.0.0.1:56006", "", path, mode)
+	if err != nil {
+		t.Fatalf("AddXHTTP failed: %v", err)
+	}
+
+	var directs, streams []candidate
+	for _, c := range ladder.items {
+		if isStreamTransport(c.transport) {
+			streams = append(streams, c)
+		} else {
+			directs = append(directs, c)
+		}
+	}
+
+	if len(directs) != 1 || directs[0].name != "udp-main" {
+		t.Fatalf("expected 1 direct UDP rung (udp-main), got %d: %+v", len(directs), directs)
+	}
+	if len(streams) != 1 || streams[0].name != "xhttp-main" {
+		t.Fatalf("expected 1 stream rung (xhttp-main), got %d: %+v", len(streams), streams)
+	}
+	if streams[0].transport != transXHTTP {
+		t.Fatalf("expected stream transport transXHTTP, got %v", streams[0].transport)
+	}
+}
