@@ -12,7 +12,7 @@ import (
 	"sirin/engine/desktop"
 )
 
-var Version = "1.3.1"
+var Version = "1.3.2"
 
 func main() {
 	configPath := flag.String("config", "/etc/sirin/client.toml", "путь к конфигурационному файлу TOML")

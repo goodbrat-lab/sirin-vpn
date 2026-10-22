@@ -478,6 +478,18 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 // applySplitTunnelNftables создаёт таблицу ip sirin с наборами local_cidrs и split_cidrs,
 // цепочками маркировки prerouting (для LAN) и output (для роутера), а также NAT/Forward.
 func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string) error {
+	rules := generateNftablesRules(tunName, lanIface, mode, localCIDRs, splitCIDRs)
+
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(rules)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("nft apply: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// generateNftablesRules генерирует конфигурацию nftables для split tunneling.
+func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string) string {
 	var b strings.Builder
 
 	b.WriteString("table ip sirin {\n")
@@ -512,9 +524,12 @@ func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitC
 			"        meta mark set 0x00000001\n"
 	}
 
-	// Chain prerouting (для клиентов локальной сети)
+	// Chain prerouting (только для клиентов локальной сети lanIface!)
+	// Входящие пакеты из WAN/PPPoE не должны маркироваться, чтобы ответный трафик
+	// возвращался в LAN через таблицу main, а не отправлялся обратно в WAN/TUN.
 	b.WriteString("    chain prerouting {\n")
 	b.WriteString("        type filter hook prerouting priority mangle; policy accept;\n")
+	b.WriteString(fmt.Sprintf("        iifname != \"%s\" return\n", lanIface))
 	b.WriteString("        ip daddr @local_cidrs return\n")
 	b.WriteString(modeRules)
 	b.WriteString("    }\n")
@@ -541,13 +556,7 @@ func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitC
 	b.WriteString("    }\n")
 
 	b.WriteString("}\n")
-
-	cmd := exec.Command("nft", "-f", "-")
-	cmd.Stdin = strings.NewReader(b.String())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nft apply: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return b.String()
 }
 
 func cleanupRouting(cfg *Config, tun *tunDevice, serverHosts []string, wan wanInfo) {
