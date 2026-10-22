@@ -1,5 +1,14 @@
 # Changelog
 
+## [router-v1.3.0] - 2026-10-22
+
+### Added
+- XHTTP+Reality транспорт (P1): полнодуплексный HTTP/2 поверх Reality, маскировка под Chrome
+- Path и Mode в ladder, поддержка из /v1/params и статического client.toml
+
+### Verified
+- E2E: клиент → :8443 → sirind:56006
+
 ## [android-v1.3.4] - 2026-10-22
 
 ### Fixed
