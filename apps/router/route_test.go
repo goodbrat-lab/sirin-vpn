@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -254,5 +255,36 @@ func TestSplitTunnelConfig_BackwardCompatibility(t *testing.T) {
 	cfg.SplitTunnel.Mode = "only"
 	if cfg.IsRuDirectActive() {
 		t.Fatalf("RuDirect НЕ должен быть активен в режиме only")
+	}
+}
+
+func TestGenerateNftablesRules(t *testing.T) {
+	tunName := "sirin0"
+	lanIface := "br-lan"
+	localCIDRs := []string{"192.168.0.0/16", "10.0.0.0/8"}
+	splitCIDRs := []string{"213.180.192.0/19", "77.88.0.0/18"}
+
+	// 1. Bypass mode
+	rulesBypass := generateNftablesRules(tunName, lanIface, "bypass", localCIDRs, splitCIDRs)
+
+	// Должно содержать iifname != "br-lan" return в chain prerouting
+	expectedPreroutingRule := "iifname != \"br-lan\" return"
+	if !strings.Contains(rulesBypass, expectedPreroutingRule) {
+		t.Fatalf("В chain prerouting отсутствует защита обратного трафика WAN: ожидалось %q", expectedPreroutingRule)
+	}
+
+	// Должно содержать mark 0x2 для split_cidrs в bypass режиме
+	if !strings.Contains(rulesBypass, "ip daddr @split_cidrs meta mark set 0x00000002 return") {
+		t.Fatalf("Bypass mode: ожидалось направление split_cidrs в WAN (0x2)")
+	}
+
+	// 2. Only mode
+	rulesOnly := generateNftablesRules(tunName, "eth1", "only", localCIDRs, splitCIDRs)
+	expectedCustomLan := "iifname != \"eth1\" return"
+	if !strings.Contains(rulesOnly, expectedCustomLan) {
+		t.Fatalf("Only mode: ожидалось %q для lanIface=eth1", expectedCustomLan)
+	}
+	if !strings.Contains(rulesOnly, "ip daddr @split_cidrs meta mark set 0x00000001 return") {
+		t.Fatalf("Only mode: ожидалось направление split_cidrs в VPN (0x1)")
 	}
 }
