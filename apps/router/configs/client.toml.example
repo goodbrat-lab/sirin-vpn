@@ -40,13 +40,13 @@ domains = [
 [[ladder]]
 name = "A"
 transport = "udp"
-host = "94.183.159.114"
+host = "crp.guseynovia.ru"
 port = 56005
 
 [[ladder]]
 name = "B"
 transport = "vless"
-host = "94.183.159.114"
+host = "crp.guseynovia.ru"
 port = 443
 sni = "sun8-21.userapi.com"
 # Расширенный пул SNI для ротации при блокировках ТСПУ (VK CDN, Kinopoisk, WB, IKEA, Microsoft, Apple, Samsung):
@@ -62,3 +62,17 @@ snis = [
 ]
 pbk = "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
 sid = "8283f99ec6a0f52e"
+
+# XHTTP+Reality (экспериментальный транспорт P1 против поведенческого DPI 2026, поддержка в Router v1.3.0+)
+# [[ladder]]
+# name = "C"
+# transport = "xhttp"
+# host = "crp.guseynovia.ru"
+# port = 8443
+# sni = "sun8-21.userapi.com"
+# pbk = "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
+# sid = "a4b2c1d3e5f67890"
+# path = "/s1r1nxhttp2026k"
+# mode = "auto"
+
+

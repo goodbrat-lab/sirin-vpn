@@ -159,6 +159,24 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 			PBK: "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
 			SID: "8283f99ec6a0f52e",
 		})
+		resp.Entries = append(resp.Entries, ParamsEntry{
+			ID:        s.cfg.ServerID + "-xhttp",
+			Host:      s.cfg.VLESSHost,
+			Port:      8443,
+			DTLS:      false,
+			Transport: "xhttp",
+			SNI:       "sun8-21.userapi.com",
+			SNIs: []string{
+				"sun8-21.userapi.com",
+				"www.kinopoisk.ru",
+				"wildberries.ru",
+				"www.ikea.com",
+			},
+			PBK:  "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
+			SID:  "a4b2c1d3e5f67890",
+			Path: "/s1r1nxhttp2026k",
+			Mode: "auto",
+		})
 	}
 
 	writeJSON(w, 200, resp)

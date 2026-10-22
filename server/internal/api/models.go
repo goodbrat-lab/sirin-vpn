@@ -24,15 +24,17 @@ type KeyVerdict struct {
 
 // ParamsEntry — один узел в /v1/params.
 type ParamsEntry struct {
-	ID        string `json:"id"`
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	DTLS      bool   `json:"dtls"`
+	ID        string   `json:"id"`
+	Host      string   `json:"host"`
+	Port      int      `json:"port"`
+	DTLS      bool     `json:"dtls"`
 	Transport string   `json:"transport"`
 	SNI       string   `json:"sni"`
 	SNIs      []string `json:"snis,omitempty"`
 	PBK       string   `json:"pbk,omitempty"`
-	SID       string `json:"sid,omitempty"`
+	SID       string   `json:"sid,omitempty"`
+	Path      string   `json:"path,omitempty"`
+	Mode      string   `json:"mode,omitempty"`
 }
 
 // ParamsRelay — секция relay в /v1/params.

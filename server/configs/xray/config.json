@@ -1,0 +1,120 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-tcp-in",
+      "listen": "127.0.0.1",
+      "port": 4430,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "5f26ebc3-6eb0-45fb-a490-c8c92b86b644",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "sun8-21.userapi.com:443",
+          "xver": 0,
+          "serverNames": [
+            "sun8-21.userapi.com",
+            "www.kinopoisk.ru",
+            "wildberries.ru",
+            "www.ikea.com"
+          ],
+          "privateKey": "KPIF3r7B8pV-e3eKzi8kfeEs-IpRv4jB91g1ZlrBNFg",
+          "shortIds": [
+            "8283f99ec6a0f52e",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "tag": "vless-xhttp-in",
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "/s1r1nxhttp2026k",
+          "mode": "auto"
+        },
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "sun8-21.userapi.com:443",
+          "xver": 0,
+          "serverNames": [
+            "sun8-21.userapi.com",
+            "www.kinopoisk.ru",
+            "wildberries.ru",
+            "www.ikea.com"
+          ],
+          "privateKey": "KPIF3r7B8pV-e3eKzi8kfeEs-IpRv4jB91g1ZlrBNFg",
+          "shortIds": [
+            "a4b2c1d3e5f67890",
+            ""
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "sirind-forward",
+      "settings": {
+        "domainStrategy": "UseIP"
+      }
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "ip": [
+          "127.0.0.1"
+        ],
+        "port": "56006",
+        "outboundTag": "sirind-forward"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "block"
+      }
+    ]
+  }
+}
