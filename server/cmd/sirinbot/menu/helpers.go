@@ -165,11 +165,14 @@ func (d *CallbackDedup) cleanupLoop() {
 	}
 }
 
+// DefaultWebLinkHost хост веб-редиректа для импорта ключа в приложение.
+const DefaultWebLinkHost = "crp.guseynovia.ru"
+
 // BuildDeepLink формирует прямой deep-link и веб-ссылку для ключа.
 func BuildDeepLink(host string, uuid string) (deepLink string, webLink string) {
 	deepLink = fmt.Sprintf("sirin://key?uuid=%s", uuid)
 	if host == "" {
-		host = "vpn.example.com"
+		host = DefaultWebLinkHost
 	}
 	webLink = fmt.Sprintf("https://%s/key?uuid=%s", host, uuid)
 	return deepLink, webLink

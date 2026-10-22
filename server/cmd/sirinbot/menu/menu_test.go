@@ -539,3 +539,22 @@ func TestTrialAndOrderLifecycle(t *testing.T) {
 		t.Errorf("expected no pending orders after approval")
 	}
 }
+
+func TestBuildDeepLink(t *testing.T) {
+	testUUID := "12345678-abcd-ef01-2345-6789abcdef01"
+
+	// Default host
+	deep, web := BuildDeepLink("", testUUID)
+	if deep != "sirin://key?uuid="+testUUID {
+		t.Errorf("unexpected deepLink: %s", deep)
+	}
+	if web != "https://crp.guseynovia.ru/key?uuid="+testUUID {
+		t.Errorf("unexpected webLink: %s", web)
+	}
+
+	// Custom host
+	_, customWeb := BuildDeepLink("custom.domain.org", testUUID)
+	if customWeb != "https://custom.domain.org/key?uuid="+testUUID {
+		t.Errorf("unexpected customWeb: %s", customWeb)
+	}
+}

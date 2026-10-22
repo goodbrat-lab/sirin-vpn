@@ -40,6 +40,12 @@ func (m *Manager) registerRoutes() {
 	tb.Handle("/start", m.handleStart)
 	tb.Handle("/help", m.handleHelp)
 	tb.Handle("/menu", m.handleMenuCommand)
+	tb.Handle("/apps", func(c tele.Context) error {
+		return m.ShowClientApps(c, false)
+	})
+	tb.Handle("/mykey", func(c tele.Context) error {
+		return m.ShowClientKey(c, false)
+	})
 
 	// Старые админ-команды (обратная совместимость)
 	tb.Handle("/list", m.bot.AdminOnly(m.handleListCommand))
@@ -306,17 +312,21 @@ func (m *Manager) handleCallback(c tele.Context) error {
 		case "delete":
 			return m.ShowDeleteConfirmation(c, uuid, true)
 		case "link":
-			deepLink, webLink := BuildDeepLink(c.Bot().Me.Username, uuid)
+			deepLink, webLink := BuildDeepLink(DefaultWebLinkHost, uuid)
 			text := fmt.Sprintf(
 				"🔗 *Ссылки для подключения:*\n\n"+
 					"Прямой deep-link:\n`%s`\n\n"+
-					"Веб-ссылка:\n`%s`",
+					"Веб-ссылка (редирект):\n`%s`",
 				deepLink,
 				webLink,
 			)
 			markup := &tele.ReplyMarkup{}
+			btnOpen := markup.URL("🕊 Открыть в Сирин", webLink)
 			btnCard := markup.Data("👤 К карточке", "client", "view", uuid)
-			markup.Inline(markup.Row(btnCard))
+			markup.Inline(
+				markup.Row(btnOpen),
+				markup.Row(btnCard),
+			)
 			return c.Send(text, markup, tele.ModeMarkdown)
 		}
 
