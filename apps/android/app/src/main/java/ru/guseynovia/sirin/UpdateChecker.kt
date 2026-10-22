@@ -458,17 +458,24 @@ object UpdateChecker {
         publicKeyStream: InputStream
     ): Boolean {
         return try {
-            if (Security.getProvider("BC") == null) {
-                Security.addProvider(BouncyCastleProvider())
-            }
+            val bcProvider = BouncyCastleProvider()
+            try {
+                if (Security.getProvider("BC") == null) {
+                    Security.addProvider(bcProvider)
+                } else if (Security.getProvider("BC") !is BouncyCastleProvider) {
+                    Security.removeProvider("BC")
+                    Security.insertProviderAt(bcProvider, 1)
+                }
+            } catch (_: Throwable) {}
 
             val sigIn = PGPUtil.getDecoderStream(ByteArrayInputStream(signatureBytes))
-            val pgpFact = PGPObjectFactory(sigIn, JcaKeyFingerprintCalculator())
+            val keyCalc = JcaKeyFingerprintCalculator().setProvider(bcProvider)
+            val pgpFact = PGPObjectFactory(sigIn, keyCalc)
             val obj = pgpFact.nextObject() ?: return false
             val sigList = when (obj) {
                 is PGPSignatureList -> obj
                 is org.bouncycastle.openpgp.PGPCompressedData -> {
-                    val compFact = PGPObjectFactory(obj.dataStream, JcaKeyFingerprintCalculator())
+                    val compFact = PGPObjectFactory(obj.dataStream, keyCalc)
                     compFact.nextObject() as? PGPSignatureList
                 }
                 else -> null
@@ -478,10 +485,10 @@ object UpdateChecker {
             val sig = sigList.get(0)
 
             val keyIn = PGPUtil.getDecoderStream(publicKeyStream)
-            val keyRings = PGPPublicKeyRingCollection(keyIn, JcaKeyFingerprintCalculator())
+            val keyRings = PGPPublicKeyRingCollection(keyIn, keyCalc)
             val pubKey = keyRings.getPublicKey(sig.keyID) ?: return false
 
-            sig.init(JcaPGPContentVerifierBuilderProvider().setProvider("BC"), pubKey)
+            sig.init(JcaPGPContentVerifierBuilderProvider().setProvider(bcProvider), pubKey)
             sig.update(dataBytes)
 
             sig.verify()
