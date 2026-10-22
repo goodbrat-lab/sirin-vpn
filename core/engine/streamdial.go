@@ -85,6 +85,35 @@ func (s *session) dialStream(
 		return conn, nil
 	}
 
+	// NEW: VLESS+XHTTP+Reality
+	if c.transport == transXHTTP {
+		s.logf("переключение на XHTTP: открываю XHTTP+Reality поток %s до %s:%d (SNI: %s, path: %s)", c.name, host, c.port, c.sni, c.xhttpPath)
+		cfg := &vless.RealityConfig{
+			ServerHost:  host,
+			ServerPort:  int(c.port),
+			PublicKey:   c.vlessPublicKey,
+			ShortID:     c.vlessShortID,
+			SNI:         c.sni,
+			SNIList:     c.sniList,
+			Fingerprint: "chrome",
+			Control:     protectDialControl(prot, s.logf, c.name),
+			Logf:        s.logf,
+		}
+		client := vless.NewClient(c.vlessUUID, cfg)
+
+		target := c.vlessTarget
+		if target == "" {
+			target = "127.0.0.1:56006"
+		}
+
+		conn, err := client.DialXHTTP(ctx, target, c.xhttpPath, c.xhttpMode)
+		if err != nil {
+			return nil, fmt.Errorf("%s: xhttp dial: %w", c.name, err)
+		}
+		s.logf("%s: XHTTP+Reality поднят (target %s), кадрирование внутри", c.name, target)
+		return conn, nil
+	}
+
 	// protect в Control исключает сокет из туннеля — как у UDP-сокета в
 	// listenProtected. Без него запрос ушёл бы ВНУТРЬ туннеля, который
 	// мы ещё и поднимаем.

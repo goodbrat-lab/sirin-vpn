@@ -69,3 +69,47 @@ func TestLadderAddVLESS(t *testing.T) {
 		t.Errorf("expected streamKindText VLESS, got %s", streamKindText(transVLESS))
 	}
 }
+
+func TestLadderAddXHTTP(t *testing.T) {
+	ladder := NewLadder()
+
+	uuidStr := "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+	pubKeyBase64 := "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
+	shortIDHex := "a4b2c1d3e5f67890"
+	sni := "sun8-21.userapi.com"
+	target := "127.0.0.1:56006"
+	path := "/s1r1nxhttp2026k"
+	mode := "stream-one"
+
+	err := ladder.AddXHTTP("xhttp-test", "crp.guseynovia.ru", 8443, uuidStr, pubKeyBase64, shortIDHex, sni, target, "sun8-21.userapi.com,www.kinopoisk.ru", path, mode)
+	if err != nil {
+		t.Fatalf("AddXHTTP failed: %v", err)
+	}
+
+	if ladder.Len() != 1 {
+		t.Fatalf("expected 1 candidate, got %d", ladder.Len())
+	}
+
+	c := ladder.items[0]
+	if c.name != "xhttp-test" {
+		t.Errorf("expected name xhttp-test, got %s", c.name)
+	}
+	if c.host != "crp.guseynovia.ru" {
+		t.Errorf("expected host crp.guseynovia.ru, got %s", c.host)
+	}
+	if c.port != 8443 {
+		t.Errorf("expected port 8443, got %d", c.port)
+	}
+	if c.transport != transXHTTP {
+		t.Errorf("expected transport transXHTTP, got %v", c.transport)
+	}
+	if c.xhttpPath != path {
+		t.Errorf("expected path %s, got %s", path, c.xhttpPath)
+	}
+	if c.xhttpMode != mode {
+		t.Errorf("expected mode %s, got %s", mode, c.xhttpMode)
+	}
+	if streamKindText(transXHTTP) != "XHTTP" {
+		t.Errorf("expected streamKindText XHTTP, got %s", streamKindText(transXHTTP))
+	}
+}

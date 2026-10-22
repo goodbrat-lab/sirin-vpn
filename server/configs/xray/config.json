@@ -64,7 +64,7 @@
         "network": "xhttp",
         "xhttpSettings": {
           "path": "/s1r1nxhttp2026k",
-          "mode": "auto"
+          "mode": "stream-one"
         },
         "security": "reality",
         "realitySettings": {
