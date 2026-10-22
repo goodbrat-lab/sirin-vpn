@@ -558,3 +558,28 @@ func TestBuildDeepLink(t *testing.T) {
 		t.Errorf("unexpected customWeb: %s", customWeb)
 	}
 }
+
+func TestReleaseCache(t *testing.T) {
+	cache := &ReleaseCache{
+		urls: map[string]string{
+			"android": defaultAndroidReleaseURL,
+			"desktop": defaultDesktopReleaseURL,
+			"windows": defaultDesktopReleaseURL,
+			"router":  defaultRouterReleaseURL,
+		},
+		lastFetch: time.Now(),
+	}
+
+	if u := cache.Get("android"); u != defaultAndroidReleaseURL {
+		t.Errorf("expected default android URL, got %s", u)
+	}
+	if u := cache.Get("desktop"); u != defaultDesktopReleaseURL {
+		t.Errorf("expected default desktop URL, got %s", u)
+	}
+	if u := cache.Get("windows"); u != defaultDesktopReleaseURL {
+		t.Errorf("expected default windows URL, got %s", u)
+	}
+	if u := cache.Get("router"); u != defaultRouterReleaseURL {
+		t.Errorf("expected default router URL, got %s", u)
+	}
+}
