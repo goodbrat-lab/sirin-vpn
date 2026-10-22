@@ -165,13 +165,18 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 
 // ShowClientApps выводит ссылки на загрузку клиентских приложений.
 func (m *Manager) ShowClientApps(c tele.Context, edit bool) error {
+	androidURL := m.GetReleaseURL("android")
+	windowsURL := m.GetReleaseURL("desktop")
+	routerDocsURL := "https://goodbrat-lab.github.io/sirin-vpn/ROUTER.html"
+	docsURL := "https://goodbrat-lab.github.io/sirin-vpn/"
+
 	text := "📥 *Клиентские приложения «Сирин»*\n\n" +
 		"Выберите вашу платформу для загрузки и установки:\n\n" +
 		"📱 *Android:*\n" +
-		"• [Скачать APK (GitHub Releases)](https://github.com/goodbrat-lab/sirin-vpn/releases/latest)\n" +
+		fmt.Sprintf("• [Скачать APK (GitHub Release)](%s)\n", androidURL) +
 		"• [Инструкция и проверка](https://goodbrat-lab.github.io/sirin-vpn/ACCEPTANCE_ANDROID.html)\n\n" +
 		"💻 *Windows Desktop:*\n" +
-		"• [Скачать установщик (.exe)](https://github.com/goodbrat-lab/sirin-vpn/releases)\n\n" +
+		fmt.Sprintf("• [Скачать установщик .exe (GitHub)](%s)\n\n", windowsURL) +
 		"📡 *Wi-Fi Роутер (OpenWrt):*\n" +
 		"• [Инструкция по установке (Web)](https://goodbrat-lab.github.io/sirin-vpn/ROUTER.html)\n" +
 		"• [Архивы пакетов (GitHub)](https://github.com/goodbrat-lab/sirin-vpn/releases)\n\n" +
@@ -180,10 +185,10 @@ func (m *Manager) ShowClientApps(c tele.Context, edit bool) error {
 		"После установки приложения нажмите *«🕊 Открыть в Сирин»* в главном меню для импорта ключа."
 
 	markup := &tele.ReplyMarkup{}
-	btnAndroid := markup.URL("📱 Android (APK)", "https://github.com/goodbrat-lab/sirin-vpn/releases/latest")
-	btnWindows := markup.URL("💻 Windows (.exe)", "https://github.com/goodbrat-lab/sirin-vpn/releases")
-	btnRouter := markup.URL("📡 Инструкция Роутер", "https://goodbrat-lab.github.io/sirin-vpn/ROUTER.html")
-	btnDocs := markup.URL("📚 Документация", "https://goodbrat-lab.github.io/sirin-vpn/")
+	btnAndroid := markup.URL("📱 Android", androidURL)
+	btnWindows := markup.URL("💻 Windows", windowsURL)
+	btnRouter := markup.URL("🌐 Router", routerDocsURL)
+	btnDocs := markup.URL("📚 Документация", docsURL)
 	btnBack := markup.Data("◀ В меню", "my", "home")
 
 	markup.Inline(
