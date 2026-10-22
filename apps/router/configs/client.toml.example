@@ -71,8 +71,8 @@ sid = "8283f99ec6a0f52e"
 # port = 8443
 # sni = "sun8-21.userapi.com"
 # pbk = "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
-# sid = "a4b2c1d3e5f67890"
+# sid = "8283f99ec6a0f52e"
 # path = "/s1r1nxhttp2026k"
-# mode = "auto"
+# mode = "stream-one"
 
 
