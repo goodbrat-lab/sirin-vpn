@@ -119,8 +119,8 @@ func TestHandleParamsWithVLESS(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
-	if len(p.Entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(p.Entries))
+	if len(p.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(p.Entries))
 	}
 
 	udpEntry := p.Entries[0]
@@ -137,6 +137,14 @@ func TestHandleParamsWithVLESS(t *testing.T) {
 	}
 	if vlessEntry.SID == "" {
 		t.Fatal("expected non-empty SID")
+	}
+
+	xhttpEntry := p.Entries[2]
+	if xhttpEntry.Transport != "xhttp" || xhttpEntry.Port != 8443 {
+		t.Fatalf("unexpected xhttp entry: %+v", xhttpEntry)
+	}
+	if xhttpEntry.Path == "" || xhttpEntry.PBK == "" || xhttpEntry.SID == "" {
+		t.Fatalf("expected non-empty path/pbk/sid in xhttp entry: %+v", xhttpEntry)
 	}
 	if vlessEntry.Port != 443 {
 		t.Fatalf("expected port 443, got %d", vlessEntry.Port)
