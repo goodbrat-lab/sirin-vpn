@@ -136,13 +136,16 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 	}
 
 	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", client.UUID)
+	deepLink := fmt.Sprintf("sirin://key?uuid=%s", client.UUID)
 	text := fmt.Sprintf(
 		"🔑 *Ваш персональный ключ доступа:*\n\n"+
 			"`%s`\n\n"+
 			"_(нажмите на ключ, чтобы скопировать)_\n\n"+
-			"• Для автоматической настройки нажмите кнопку *«Открыть в Сирин»* ниже.\n"+
+			"• Для автоматической настройки нажмите кнопку *«🕊 Открыть в Сирин»* ниже.\n"+
+			"• Deep-link: `%s`\n"+
 			"• Либо вставьте скопированный ключ вручную в приложении.",
 		client.UUID,
+		deepLink,
 	)
 
 	markup := &tele.ReplyMarkup{}
@@ -162,19 +165,32 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 
 // ShowClientApps выводит ссылки на загрузку клиентских приложений.
 func (m *Manager) ShowClientApps(c tele.Context, edit bool) error {
-	text := "📥 *Приложения «Сирин»*\n\n" +
-		"Выберите вашу платформу для загрузки приложения:\n\n" +
+	text := "📥 *Клиентские приложения «Сирин»*\n\n" +
+		"Выберите вашу платформу для загрузки и установки:\n\n" +
 		"📱 *Android:*\n" +
-		"• [Скачать APK (GitHub)](https://github.com/goodbrat-lab/sirin-vpn/releases)\n\n" +
+		"• [Скачать APK (GitHub Releases)](https://github.com/goodbrat-lab/sirin-vpn/releases/latest)\n" +
+		"• [Инструкция и проверка](https://goodbrat-lab.github.io/sirin-vpn/ACCEPTANCE_ANDROID.html)\n\n" +
 		"💻 *Windows Desktop:*\n" +
-		"• [Скачать установщик .exe (GitHub)](https://github.com/goodbrat-lab/sirin-vpn/releases)\n\n" +
+		"• [Скачать установщик (.exe)](https://github.com/goodbrat-lab/sirin-vpn/releases)\n\n" +
 		"📡 *Wi-Fi Роутер (OpenWrt):*\n" +
-		"• Поддерживается установка на роутер через скрипт `install.sh`.\n\n" +
-		"После установки приложения просто нажмите кнопку *«🕊 Открыть в Сирин»* в боте."
+		"• [Инструкция по установке (Web)](https://goodbrat-lab.github.io/sirin-vpn/ROUTER.html)\n" +
+		"• [Архивы пакетов (GitHub)](https://github.com/goodbrat-lab/sirin-vpn/releases)\n\n" +
+		"📚 *База знаний и документация:*\n" +
+		"• [https://goodbrat-lab.github.io/sirin-vpn/](https://goodbrat-lab.github.io/sirin-vpn/)\n\n" +
+		"После установки приложения нажмите *«🕊 Открыть в Сирин»* в главном меню для импорта ключа."
 
 	markup := &tele.ReplyMarkup{}
+	btnAndroid := markup.URL("📱 Android (APK)", "https://github.com/goodbrat-lab/sirin-vpn/releases/latest")
+	btnWindows := markup.URL("💻 Windows (.exe)", "https://github.com/goodbrat-lab/sirin-vpn/releases")
+	btnRouter := markup.URL("📡 Инструкция Роутер", "https://goodbrat-lab.github.io/sirin-vpn/ROUTER.html")
+	btnDocs := markup.URL("📚 Документация", "https://goodbrat-lab.github.io/sirin-vpn/")
 	btnBack := markup.Data("◀ В меню", "my", "home")
-	markup.Inline(markup.Row(btnBack))
+
+	markup.Inline(
+		markup.Row(btnAndroid, btnWindows),
+		markup.Row(btnRouter, btnDocs),
+		markup.Row(btnBack),
+	)
 
 	if edit {
 		return EditOrSend(c, text, markup)
