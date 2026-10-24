@@ -122,8 +122,8 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = debugPass
         }
-        if (keystoreProps != null) {
-            create("release") {
+        create("release") {
+            if (keystoreProps != null) {
                 storeFile = file(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
@@ -214,8 +214,7 @@ android {
             // Ошибиться и выложить такой в Play нельзя: отладочные
             // сертификаты Play отвергает на загрузке. Плюс сборка
             // предупреждает об этом отдельной строкой.
-            signingConfig = signingConfigs.findByName("release")
-                ?: signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
 
 
             // Отладочного в релизе быть не должно: тестовый пароль,

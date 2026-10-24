@@ -71,26 +71,26 @@ jobs:
           cp apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt.template \
              apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt
 
-      # 4.6. Готовим release keystore (если секреты заданы)
-      - name: Setup Release Keystore
+      # 4.6. Проверка и подготовка release keystore (fail-fast если секреты отсутствуют)
+      - name: Check Keystore Secrets and Setup
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > apps/android/release.jks
-            cat <<EOF > apps/android/keystore.properties
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Required keystore secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) are missing! Refusing to build debug APK for release."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > apps/android/release.jks
+          cat <<EOF > apps/android/keystore.properties
 storeFile=release.jks
 storePassword=$KEYSTORE_PASSWORD
 keyAlias=$KEY_ALIAS
 keyPassword=$KEY_PASSWORD
 EOF
-            echo "Release keystore configured from GitHub Secrets."
-          else
-            echo "WARNING: KEYSTORE_BASE64 not set, Gradle will fallback to debug signing"
-          fi
+          echo "Release keystore configured from GitHub Secrets."
 
       # 5. Собираем APK через Gradle (Direct Release)
       - name: Build APK
