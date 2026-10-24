@@ -67,15 +67,15 @@ func TestXHTTPConnReadHeaderStripping(t *testing.T) {
 	}
 }
 
-func TestXHTTPPathNoTrailingSlash(t *testing.T) {
+func TestXHTTPPathTrailingSlash(t *testing.T) {
 	testCases := []struct {
 		input    string
 		expected string
 	}{
-		{"/s1r1nxhttp2026k", "/s1r1nxhttp2026k"},
-		{"/s1r1nxhttp2026k/", "/s1r1nxhttp2026k"},
-		{"s1r1nxhttp2026k", "/s1r1nxhttp2026k"},
-		{"", "/s1r1nxhttp2026k"},
+		{"/s1r1nxhttp2026k", "/s1r1nxhttp2026k/"},
+		{"/s1r1nxhttp2026k/", "/s1r1nxhttp2026k/"},
+		{"s1r1nxhttp2026k", "/s1r1nxhttp2026k/"},
+		{"", "/s1r1nxhttp2026k/"},
 		{"/", "/"},
 	}
 
@@ -87,8 +87,8 @@ func TestXHTTPPathNoTrailingSlash(t *testing.T) {
 		if !strings.HasPrefix(normPath, "/") {
 			normPath = "/" + normPath
 		}
-		if len(normPath) > 1 {
-			normPath = strings.TrimRight(normPath, "/")
+		if !strings.HasSuffix(normPath, "/") {
+			normPath = normPath + "/"
 		}
 		if normPath != tc.expected {
 			t.Errorf("for input %q: expected %q, got %q", tc.input, tc.expected, normPath)
