@@ -127,7 +127,9 @@ android {
         }
         create("release") {
             if (keystoreProps != null) {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
+                val propPath = keystoreProps.getProperty("storeFile")
+                val resolved = rootProject.file(propPath).takeIf { it.exists() } ?: file(propPath)
+                storeFile = resolved
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")

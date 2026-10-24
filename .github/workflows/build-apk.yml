@@ -83,6 +83,7 @@ jobs:
             echo "::error::Required keystore secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) are missing! Refusing to build debug APK for release."
             exit 1
           fi
+          echo "$KEYSTORE_BASE64" | base64 -d > apps/android/app/release.jks
           echo "$KEYSTORE_BASE64" | base64 -d > apps/android/release.jks
           printf "storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n" \
             "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > apps/android/keystore.properties
