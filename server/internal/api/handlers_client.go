@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"time"
 )
@@ -139,13 +140,24 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 	//   - wildberries.ru (TLS 1.3, AS WB)
 	//   - пустой SNI (крайняя мера, работает всегда)
 	if s.cfg.VLESSEnabled && s.cfg.VLESSHost != "" {
+		vlessHost := s.cfg.VLESSHost
+		if key != "" {
+			if c, ok := s.storage.Get(key); ok && c.RelayID == 1 {
+				if s.cfg.Relay1Host != "" {
+					vlessHost = s.cfg.Relay1Host
+				} else {
+					vlessHost = net.IPv4(185, 182, 65, 219).String()
+				}
+			}
+		}
+
 		port := s.cfg.VLESSPort
 		if port == 0 {
 			port = 443
 		}
 		resp.Entries = append(resp.Entries, ParamsEntry{
 			ID:        s.cfg.ServerID + "-vless",
-			Host:      s.cfg.VLESSHost,
+			Host:      vlessHost,
 			Port:      port,
 			DTLS:      false,
 			Transport: "vless",
@@ -161,7 +173,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		})
 		resp.Entries = append(resp.Entries, ParamsEntry{
 			ID:        s.cfg.ServerID + "-xhttp",
-			Host:      s.cfg.VLESSHost,
+			Host:      vlessHost,
 			Port:      8443,
 			DTLS:      false,
 			Transport: "xhttp",

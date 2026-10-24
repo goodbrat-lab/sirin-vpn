@@ -190,4 +190,20 @@ func TestClientsStorage_Scenarios(t *testing.T) {
 	if len(diskStorage2.List()) != 2 {
 		t.Errorf("expected 2 clients on disk after deletion, got %d", len(diskStorage2.List()))
 	}
+
+	// 9. AddWithRelay and SetRelayID
+	newRelayClient, err := storage.AddWithRelay("Relay User", 30, 1)
+	if err != nil {
+		t.Fatalf("AddWithRelay failed: %v", err)
+	}
+	if newRelayClient.RelayID != 1 {
+		t.Errorf("expected RelayID=1, got %d", newRelayClient.RelayID)
+	}
+	updatedRelayClient, err := storage.SetRelayID(newRelayClient.UUID, 0)
+	if err != nil {
+		t.Fatalf("SetRelayID failed: %v", err)
+	}
+	if updatedRelayClient.RelayID != 0 {
+		t.Errorf("expected RelayID=0 after SetRelayID, got %d", updatedRelayClient.RelayID)
+	}
 }

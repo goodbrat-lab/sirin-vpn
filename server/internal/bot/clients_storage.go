@@ -22,6 +22,7 @@ type Client struct {
 	DeviceID  string     `json:"device_id,omitempty"`
 	LastSeen  *time.Time `json:"last_seen,omitempty"`
 	Comment   string     `json:"comment,omitempty"`
+	RelayID   int        `json:"relay_id,omitempty"` // 0 = прямой NL, 1 = Relay 1
 }
 
 // IsActive возвращает true, если клиент не отозван и срок действия не истёк.
@@ -162,8 +163,13 @@ func (s *ClientsStorage) Get(key string) (*Client, bool) {
 	return &clone, true
 }
 
-// Add создаёт нового клиента.
+// Add создаёт нового клиента с relay_id = 0.
 func (s *ClientsStorage) Add(name string, daysValid int) (*Client, error) {
+	return s.AddWithRelay(name, daysValid, 0)
+}
+
+// AddWithRelay создаёт нового клиента с указанным relay_id.
+func (s *ClientsStorage) AddWithRelay(name string, daysValid int, relayID int) (*Client, error) {
 	_ = s.Reload()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -176,6 +182,7 @@ func (s *ClientsStorage) Add(name string, daysValid int) (*Client, error) {
 		Name:      name,
 		CreatedAt: now,
 		Revoked:   false,
+		RelayID:   relayID,
 	}
 
 	if daysValid > 0 {
@@ -187,6 +194,26 @@ func (s *ClientsStorage) Add(name string, daysValid int) (*Client, error) {
 
 	if err := s.saveLocked(); err != nil {
 		delete(s.data.Clients, newUUID)
+		return nil, err
+	}
+
+	clone := *c
+	return &clone, nil
+}
+
+// SetRelayID устанавливает узел подключения клиента (0 = прямой NL, 1 = Relay 1).
+func (s *ClientsStorage) SetRelayID(key string, relayID int) (*Client, error) {
+	_ = s.Reload()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return nil, fmt.Errorf("client %s not found", key)
+	}
+
+	c.RelayID = relayID
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 
