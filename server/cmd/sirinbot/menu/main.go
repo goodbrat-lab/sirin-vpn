@@ -59,6 +59,7 @@ func (m *Manager) registerRoutes() {
 	tb.Handle("/delete", m.bot.AdminOnly(m.handleDeleteCommand))
 	tb.Handle("/find", m.bot.AdminOnly(m.handleFindCommand))
 	tb.Handle("/status", m.bot.AdminOnly(m.handleStatusCommand))
+	tb.Handle("/setrelay", m.bot.AdminOnly(m.handleSetRelayCommand))
 
 	// Перехват текстовых сообщений для FSM и ReplyKeyboard
 	tb.Handle(tele.OnText, m.handleText)
@@ -311,6 +312,18 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			return m.ShowClientCard(c, cl, true)
 		case "delete":
 			return m.ShowDeleteConfirmation(c, uuid, true)
+		case "set_relay":
+			if len(args) >= 2 {
+				relayID, _ := strconv.Atoi(args[1])
+				_, err := m.bot.ClientsStorage().SetRelayID(uuid, relayID)
+				if err != nil {
+					RespondAlert(c, "Ошибка: "+err.Error())
+					return nil
+				}
+				m.bot.LogAdminAction(c.Sender().ID, "set_relay", uuid, true)
+				cl, _ := m.bot.ClientsStorage().Get(uuid)
+				return m.ShowClientCard(c, cl, true)
+			}
 		case "link":
 			deepLink, webLink := BuildDeepLink(DefaultWebLinkHost, uuid)
 			text := fmt.Sprintf(
@@ -674,12 +687,42 @@ func (m *Manager) handleNewKeyCommand(c tele.Context) error {
 		return m.StartNewClientWizard(c, false)
 	}
 
+	relayID := 0
+	fields := strings.Fields(raw)
+	// Поддержка флага --relay 1 / --relay=1
+	var filtered []string
+	for i := 0; i < len(fields); i++ {
+		if fields[i] == "--relay" && i+1 < len(fields) {
+			if r, err := strconv.Atoi(fields[i+1]); err == nil && (r == 0 || r == 1) {
+				relayID = r
+				i++
+				continue
+			}
+		} else if strings.HasPrefix(fields[i], "--relay=") {
+			val := strings.TrimPrefix(fields[i], "--relay=")
+			if r, err := strconv.Atoi(val); err == nil && (r == 0 || r == 1) {
+				relayID = r
+				continue
+			}
+		}
+		filtered = append(filtered, fields[i])
+	}
+	fields = filtered
+	// Поддержка позиционного relay_id в конце: /newkey Имя 30 1
+	if len(fields) >= 3 && (fields[len(fields)-1] == "0" || fields[len(fields)-1] == "1") {
+		if _, errConv := strconv.Atoi(fields[len(fields)-2]); errConv == nil {
+			relayID, _ = strconv.Atoi(fields[len(fields)-1])
+			fields = fields[:len(fields)-1]
+		}
+	}
+	raw = strings.Join(fields, " ")
+
 	name, days, _, err := bot.ParseNewKeyArgsDetailed(raw)
 	if err != nil {
-		return c.Send("Ошибка: " + err.Error() + "\nПример: `/newkey Марина Иванова 365`")
+		return c.Send("Ошибка: " + err.Error() + "\nПример: `/newkey Марина Иванова 365 [0|1]`")
 	}
 
-	return m.ExecuteCreateClient(c, name, days)
+	return m.ExecuteCreateClientWithRelay(c, name, days, relayID)
 }
 
 func (m *Manager) handleRenameCommand(c tele.Context) error {
@@ -846,4 +889,38 @@ func (m *Manager) handleFindCommand(c tele.Context) error {
 func (m *Manager) handleStatusCommand(c tele.Context) error {
 	m.fsm.Clear(c.Sender().ID)
 	return m.ShowStats(c, false)
+}
+
+func (m *Manager) handleSetRelayCommand(c tele.Context) error {
+	m.fsm.Clear(c.Sender().ID)
+	tokens := strings.Fields(strings.TrimSpace(c.Data()))
+	if len(tokens) < 2 {
+		return c.Send("Использование: `/setrelay <имя|uuid> <0|1>`\nПример: `/setrelay Марина 1`", tele.ModeMarkdown)
+	}
+	relayStr := tokens[len(tokens)-1]
+	relayID, err := strconv.Atoi(relayStr)
+	if err != nil || (relayID != 0 && relayID != 1) {
+		return c.Send("Номер релея должен быть `0` (NL) или `1` (Relay 1 RU).", tele.ModeMarkdown)
+	}
+	target := strings.Join(tokens[:len(tokens)-1], " ")
+
+	all := m.bot.ClientsStorage().List()
+	client, err, _ := bot.ResolveClient(all, target)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Клиент «%s» не найден.", target))
+	}
+
+	_, err = m.bot.ClientsStorage().SetRelayID(client.UUID, relayID)
+	if err != nil {
+		return c.Send("Ошибка: " + err.Error())
+	}
+
+	m.bot.LogAdminAction(c.Sender().ID, "set_relay", client.UUID, true)
+	updated, _ := m.bot.ClientsStorage().Get(client.UUID)
+	nodeName := "Прямой NL (Нидерланды)"
+	if relayID == 1 {
+		nodeName = "Relay 1 (Москва, RU)"
+	}
+	_ = c.Send(fmt.Sprintf("✅ Клиент *%s* переключён на: *%s*", updated.Name, nodeName), tele.ModeMarkdown)
+	return m.ShowClientCard(c, updated, false)
 }

@@ -73,6 +73,7 @@ type Client struct {
 	DeviceID  string     `json:"device_id,omitempty"`
 	LastSeen  *time.Time `json:"last_seen,omitempty"`
 	Comment   string     `json:"comment,omitempty"`
+	RelayID   int        `json:"relay_id,omitempty"` // 0 = прямой NL, 1 = Relay 1
 }
 
 // ClientsFile — корневая структура clients.json.

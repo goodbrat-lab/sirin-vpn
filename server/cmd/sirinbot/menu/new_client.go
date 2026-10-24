@@ -125,7 +125,12 @@ func (m *Manager) ShowNewClientStep3(c tele.Context, name string, days int, edit
 
 // ExecuteCreateClient создаёт клиента в хранилище и выводит карточку успеха.
 func (m *Manager) ExecuteCreateClient(c tele.Context, name string, days int) error {
-	client, err := m.bot.ClientsStorage().Add(name, days)
+	return m.ExecuteCreateClientWithRelay(c, name, days, 0)
+}
+
+// ExecuteCreateClientWithRelay создаёт клиента с указанным relay_id в хранилище и выводит карточку успеха.
+func (m *Manager) ExecuteCreateClientWithRelay(c tele.Context, name string, days int, relayID int) error {
+	client, err := m.bot.ClientsStorage().AddWithRelay(name, days, relayID)
 	if err != nil {
 		RespondAlert(c, "Ошибка при создании: "+err.Error())
 		return err
@@ -134,13 +139,20 @@ func (m *Manager) ExecuteCreateClient(c tele.Context, name string, days int) err
 	m.fsm.Clear(c.Sender().ID)
 	m.bot.LogAdminAction(c.Sender().ID, "create_client", client.UUID, true)
 
+	relayName := "Прямой NL (Нидерланды)"
+	if client.RelayID == 1 {
+		relayName = "Relay 1 (Москва, RU)"
+	}
+
 	text := fmt.Sprintf(
 		"✅ *Ключ создан*\n\n"+
 			"👤 Имя: *%s*\n"+
 			"⏱ Срок: *%d дней*\n"+
+			"📡 Узел: *%s*\n"+
 			"🔑 `%s`",
 		client.Name,
 		days,
+		relayName,
 		bot.MaskUUID(client.UUID),
 	)
 

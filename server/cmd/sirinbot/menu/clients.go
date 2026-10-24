@@ -160,18 +160,25 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 
 	daysLeftStr := bot.FormatDaysLeft(client.ExpiresAt)
 
+	relayStr := "Прямой NL (Нидерланды)"
+	if client.RelayID == 1 {
+		relayStr = "Relay 1 (Москва, RU)"
+	}
+
 	text := fmt.Sprintf(
 		"👤 *%s*\n"+
 			"🆔 `%s`\n"+
 			"📅 Создан: %s (МСК)\n"+
 			"⏱ Срок: %s\n"+
 			"📊 Осталось: %s\n"+
+			"📡 Узел: %s\n"+
 			"%s Статус: %s",
 		client.Name,
 		masked,
 		createdStr,
 		expiryStr,
 		daysLeftStr,
+		relayStr,
 		emoji,
 		statusLabel,
 	)
@@ -191,6 +198,13 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 	}
 	btnDelete := markup.Data("🗑 Удалить", "client", "delete", client.UUID)
 
+	var btnRelay tele.Btn
+	if client.RelayID == 1 {
+		btnRelay = markup.Data("🌐 Переключить на NL", "client", "set_relay", client.UUID, "0")
+	} else {
+		btnRelay = markup.Data("📡 Переключить на Relay 1", "client", "set_relay", client.UUID, "1")
+	}
+
 	btnBackList := markup.Data("⬅️ К клиентам", "menu", "clients")
 	btnBackMain := markup.Data("🏠 В меню", "menu", "main")
 
@@ -198,6 +212,7 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 		markup.Row(btnShowUUID, btnRename),
 		markup.Row(btnExtend, btnShorten),
 		markup.Row(btnToggle, btnDelete),
+		markup.Row(btnRelay),
 		markup.Row(btnBackList, btnBackMain),
 	)
 
