@@ -10,30 +10,49 @@ if [ -z "$files" ]; then
 fi
 
 for file in $files; do
-    # Проверка 1: приватные ключи — для всех файлов
+    case "$file" in
+        shared/geoip/*|shared/geosite/*|*_test.go|*.md|AUDIT_ENDPOINTS.md|.gitignore|.githooks/*|*.example|*.template|go.sum|.github/*)
+            # Пропускаем проверку для публичных баз, тестов, документации, шаблонов и CI
+            continue
+            ;;
+    esac
+
+    # Проверка 1: приватные ключи PEM
     if git diff --cached "$file" | grep -E -q "^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----"; then
         echo "[SECURITY HOOK] Приватный ключ в $file"
         has_violation=1
     fi
 
-    # Проверка 2: пароли и токены — для всех файлов (требуется кавычка после =)
+    # Проверка 2: пароли и токены
     if git diff --cached "$file" | grep -E -i -q "^\+.*(password|token|api_key|secret)[[:space:]]*=[[:space:]]*[\"']"; then
         echo "[SECURITY HOOK] Пароль/токен в $file"
         has_violation=1
     fi
 
-    # Проверка 3: IP-адреса — только для «обычных» файлов
-    case "$file" in
-        shared/geoip/*|shared/geosite/*|*_test.go|*.md|AUDIT_ENDPOINTS.md|.gitignore)
-            # пропускаем проверку IP для публичных баз, тестов и документации
-            ;;
-        *)
-            if git diff --cached "$file" | grep -E "^\+[^+]" | grep -E -o "([0-9]{1,3}\.){3}[0-9]{1,3}" | grep -E -v "^(127\.0\.0\.1|0\.0\.0\.0)$" | grep -q .; then
-                echo "[SECURITY HOOK] IP-адрес в $file"
-                has_violation=1
-            fi
-            ;;
-    esac
+    # Проверка 3: privateKey в JSON (S-01)
+    if git diff --cached "$file" | grep -E -i -q "^\+.*[\"']?privateKey[\"']?[[:space:]]*:[[:space:]]*[\"'][^\"']+[\"']"; then
+        echo "[SECURITY HOOK] Reality privateKey в $file"
+        has_violation=1
+    fi
+
+    # Проверка 4: VLESS UUID в поле 'id' в JSON (S-02)
+    if git diff --cached "$file" | grep -E -q "^\+.*[\"']id[\"'][[:space:]]*:[[:space:]]*[\"'][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}[\"']"; then
+        echo "[SECURITY HOOK] VLESS UUID в $file"
+        has_violation=1
+    fi
+
+    # Проверка 5: base64-строки 43+ символов / ключи X25519 (S-10)
+    # Исключаем явные публичные ключи (PBK) и docker image sha256 digests
+    if git diff --cached "$file" | grep -E "^\+[^+]" | grep -v "PBK:" | grep -v "sha256:" | grep -E -q "[\"'][A-Za-z0-9+/=_-]{43,}[\"']|[A-Za-z0-9+/]{40,}={1,2}"; then
+        echo "[SECURITY HOOK] Потенциальный секрет / base64 ключ (43+ симв.) в $file"
+        has_violation=1
+    fi
+
+    # Проверка 6: IP-адреса
+    if git diff --cached "$file" | grep -E "^\+[^+]" | grep -E -o "([0-9]{1,3}\.){3}[0-9]{1,3}" | grep -E -v "^(127\.0\.0\.1|0\.0\.0\.0)$" | grep -q .; then
+        echo "[SECURITY HOOK] IP-адрес в $file"
+        has_violation=1
+    fi
 done
 
 if [ $has_violation -ne 0 ]; then

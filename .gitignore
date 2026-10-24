@@ -70,7 +70,22 @@ desktop.ini
 /cache/
 
 # === Локальные аудиты ===
-AUDIT_ENDPOINTS.md
+# AUDIT_ENDPOINTS.md (C-06: включен в репозиторий)
+
+# === Конфигурации сервера с секретами (S-01, S-02, S-03) ===
+server/configs/xray/config.json
+server/configs/sirinbot.toml
+server/configs/sirinapi.toml
+server/configs/*.local.*
+
+# === Бинарники (C-01) ===
+apps/desktop/*.exe
+apps/desktop/dist/
+apps/router/*.exe
+server/sirinbot*
+server/srv_test*
+core/engine/*.jar
+apps/android/app/libs/*.aar
 
 # === Исключения для Gradle Wrapper ===
 !apps/android/gradle/wrapper/gradle-wrapper.jar

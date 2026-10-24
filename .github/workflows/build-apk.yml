@@ -71,12 +71,33 @@ jobs:
           cp apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt.template \
              apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt
 
-      # 5. Собираем APK через Gradle
+      # 4.6. Готовим release keystore (если секреты заданы)
+      - name: Setup Release Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > apps/android/release.jks
+            cat <<EOF > apps/android/keystore.properties
+storeFile=release.jks
+storePassword=$KEYSTORE_PASSWORD
+keyAlias=$KEY_ALIAS
+keyPassword=$KEY_PASSWORD
+EOF
+            echo "Release keystore configured from GitHub Secrets."
+          else
+            echo "WARNING: KEYSTORE_BASE64 not set, Gradle will fallback to debug signing"
+          fi
+
+      # 5. Собираем APK через Gradle (Direct Release)
       - name: Build APK
         run: |
           chmod +x apps/android/gradlew
           cd apps/android
-          ./gradlew assembleDirectDebug --no-daemon
+          ./gradlew assembleDirectRelease --no-daemon
 
       # 6. Переименовываем APK и генерируем контрольные суммы SHA-256 с GPG-подписью
       - name: Rename APK and Generate Signed Checksums
@@ -89,11 +110,16 @@ jobs:
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "$GITHUB_REF" ]; then
             TAG_NAME="dev"
           fi
-          mv apps/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk \
-             apps/android/app/build/outputs/apk/direct/debug/sirin-${TAG_NAME}.apk
+          mv apps/android/app/build/outputs/apk/direct/release/app-direct-release.apk \
+             apps/android/app/build/outputs/apk/direct/release/sirin-${TAG_NAME}.apk
           
+          # Проверяем сертификат подписи через apksigner (если доступен в PATH)
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner verify --print-certs apps/android/app/build/outputs/apk/direct/release/sirin-${TAG_NAME}.apk || true
+          fi
+
           # Вычисляем SHA-256 для проверки целостности при самообновлении
-          cd apps/android/app/build/outputs/apk/direct/debug
+          cd apps/android/app/build/outputs/apk/direct/release
           sha256sum sirin-${TAG_NAME}.apk > checksums.txt
           echo "Generated checksums.txt:"
           cat checksums.txt
@@ -116,9 +142,9 @@ jobs:
         with:
           name: sirin-apk
           path: |
-            apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
-            apps/android/app/build/outputs/apk/direct/debug/checksums.txt
-            apps/android/app/build/outputs/apk/direct/debug/checksums.txt.asc
+            apps/android/app/build/outputs/apk/direct/release/sirin-*.apk
+            apps/android/app/build/outputs/apk/direct/release/checksums.txt
+            apps/android/app/build/outputs/apk/direct/release/checksums.txt.asc
 
       # 8. Создаём релиз и прикрепляем APK, checksums.txt и подпись (только если это тег)
       - name: Create Release
@@ -126,9 +152,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            apps/android/app/build/outputs/apk/direct/debug/sirin-*.apk
-            apps/android/app/build/outputs/apk/direct/debug/checksums.txt
-            apps/android/app/build/outputs/apk/direct/debug/checksums.txt.asc
+            apps/android/app/build/outputs/apk/direct/release/sirin-*.apk
+            apps/android/app/build/outputs/apk/direct/release/checksums.txt
+            apps/android/app/build/outputs/apk/direct/release/checksums.txt.asc
           generate_release_notes: true # Автоматически создаст описание из коммитов
           draft: false
           prerelease: false

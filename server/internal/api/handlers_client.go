@@ -198,7 +198,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 				"wildberries.ru",
 				"www.ikea.com",
 			},
-			PBK: "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
+			PBK: "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
 			SID: "8283f99ec6a0f52e",
 		})
 		resp.Entries = append(resp.Entries, ParamsEntry{
@@ -214,7 +214,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 				"wildberries.ru",
 				"www.ikea.com",
 			},
-			PBK:  "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4",
+			PBK:  "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
 			SID:  "a4b2c1d3e5f67890",
 			Path: "/s1r1nxhttp2026k",
 			Mode: "auto",

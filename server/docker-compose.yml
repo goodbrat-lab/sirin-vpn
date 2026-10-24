@@ -23,7 +23,7 @@ services:
 
   # xray: VLESS+Reality (TCP 443 → 127.0.0.1:4430)
   xray:
-    image: ghcr.io/xtls/xray-core:latest
+    image: ghcr.io/xtls/xray-core:v26.3.27@sha256:592ec4d11f656db95598d01e76dbcc6e002d67360b96a5436500a938230f52c7
     container_name: sirin-xray
     network_mode: host
     restart: unless-stopped

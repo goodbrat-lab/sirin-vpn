@@ -1,0 +1,19 @@
+# Пример конфигурации Sirin Telegram Bot
+bot_token = "REPLACE_WITH_BOT_TOKEN"
+admin_id = 0 # REPLACE_WITH_ADMIN_TELEGRAM_ID
+
+# [admin]
+# telegram_ids = [123456789]
+
+api_url = "http://127.0.0.1:8080"
+api_admin_token = "REPLACE_WITH_API_ADMIN_TOKEN"
+storage_path = "/etc/sirin/bot_users.json"
+clients_path = "/etc/sirin/clients.json"
+relays_path = "/etc/sirin/relays.json"
+
+[payment]
+sbp_phone = "+79000000000"
+sbp_bank = "Сбер"
+card_number = "0000 0000 0000 0000"
+recipient_name = "Иван И."
+support_username = "sirin_support"
