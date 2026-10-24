@@ -3,11 +3,15 @@
 ## [android-v1.3.5] - 2026-10-24
 
 ### Security
-- CI: fail-fast при отсутствии keystore secrets (блокировка сборки debug APK для релиза)
-- Production keystore для release-сборок (прямая привязка signingConfig.release без debug fallback)
+- Переход на production keystore (новый сертификат RSA 4096-bit)
+- CI: fail-fast при отсутствии keystore secrets
+- Production keystore вместо debug.keystore
+
+### Breaking
+- Требуется однократное удаление старой версии (1.3.4 и ранее) и установка 1.3.5 начисто — из-за смены сертификата подписи.
 
 ### Fixed
-- Повышение versionCode до 11 (versionName 1.3.5)
+- versionCode = 11, versionName = "1.3.5"
 
 ## [server-v1.4.0] - 2026-10-24
 
