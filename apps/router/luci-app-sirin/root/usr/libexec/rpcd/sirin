@@ -53,7 +53,7 @@ method_status() {
 
 method_get_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        printf '{"gateway":"","password":"","device_id":"","ru_direct":false,"tun_mtu":1280}\n'
+        printf '{"gateway":"","password":"","device_id":"","ru_direct":false,"tun_mtu":1280,"kill_switch":true}\n'
         return
     fi
 
@@ -65,6 +65,7 @@ method_get_config() {
         device_id = ""
         ru_direct = "false"
         tun_mtu = 1280
+        kill_switch = "true"
     }
     /^\[/ { in_top = 0 }
     in_top && /^[ \t]*gateway[ \t]*=/ {
@@ -80,6 +81,10 @@ method_get_config() {
         if ($0 ~ /true/i) ru_direct = "true"
         else ru_direct = "false"
     }
+    in_top && /^[ \t]*kill_switch[ \t]*=/ {
+        if ($0 ~ /false/i) kill_switch = "false"
+        else kill_switch = "true"
+    }
     in_top && /^[ \t]*tun_mtu[ \t]*=/ {
         sub(/^[ \t]*tun_mtu[ \t]*=[ \t]*/, "")
         if (match($0, /[0-9]+/)) tun_mtu = substr($0, RSTART, RLENGTH)
@@ -92,7 +97,7 @@ method_get_config() {
         gsub(/"/, "\\\"", gateway)
         gsub(/"/, "\\\"", masked_pw)
         gsub(/"/, "\\\"", device_id)
-        printf "{\"gateway\":\"%s\",\"password\":\"%s\",\"device_id\":\"%s\",\"ru_direct\":%s,\"tun_mtu\":%d}\n", gateway, masked_pw, device_id, ru_direct, tun_mtu
+        printf "{\"gateway\":\"%s\",\"password\":\"%s\",\"device_id\":\"%s\",\"ru_direct\":%s,\"tun_mtu\":%d,\"kill_switch\":%s}\n", gateway, masked_pw, device_id, ru_direct, tun_mtu, kill_switch
     }
     ' "$CONFIG_FILE"
 }
@@ -124,12 +129,14 @@ method_set_config() {
         did = get_field("device_id")
         rud = get_field("ru_direct")
         mtu = get_field("tun_mtu")
+        ks = get_field("kill_switch")
         gsub(/'\''/, "'\''\\'\'''\''", gw)
         gsub(/'\''/, "'\''\\'\'''\''", pw)
         gsub(/'\''/, "'\''\\'\'''\''", did)
         gsub(/'\''/, "'\''\\'\'''\''", rud)
         gsub(/'\''/, "'\''\\'\'''\''", mtu)
-        printf "NEW_GW='\''%s'\''; NEW_PW='\''%s'\''; NEW_DID='\''%s'\''; NEW_RUD='\''%s'\''; NEW_MTU='\''%s'\'';\n", gw, pw, did, rud, mtu
+        gsub(/'\''/, "'\''\\'\'''\''", ks)
+        printf "NEW_GW='\''%s'\''; NEW_PW='\''%s'\''; NEW_DID='\''%s'\''; NEW_RUD='\''%s'\''; NEW_MTU='\''%s'\''; NEW_KS='\''%s'\'';\n", gw, pw, did, rud, mtu, ks
     }
     ')
 
@@ -180,6 +187,10 @@ method_set_config() {
         NEW_RUD="false"
     fi
 
+    if [ "$NEW_KS" != "true" ] && [ "$NEW_KS" != "false" ]; then
+        NEW_KS="true"
+    fi
+
     mkdir -p "$(dirname "$CONFIG_FILE")"
     if [ -f "$CONFIG_FILE" ]; then
         cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s 2>/dev/null || echo $$)"
@@ -190,7 +201,8 @@ method_set_config() {
         -v new_pw="$NEW_PW" \
         -v new_did="$NEW_DID" \
         -v new_rud="$NEW_RUD" \
-        -v new_mtu="$NEW_MTU" '
+        -v new_mtu="$NEW_MTU" \
+        -v new_ks="$NEW_KS" '
     BEGIN {
         in_top = 1
         seen_gw = 0
@@ -198,6 +210,7 @@ method_set_config() {
         seen_did = 0
         seen_rud = 0
         seen_mtu = 0
+        seen_ks = 0
     }
     /^\[/ {
         if (in_top) {
@@ -206,6 +219,7 @@ method_set_config() {
             if (!seen_did) print "device_id = \"" new_did "\""
             if (!seen_mtu) print "tun_mtu = " new_mtu
             if (!seen_rud) print "ru_direct = " new_rud
+            if (!seen_ks) print "kill_switch = " new_ks
             print ""
             in_top = 0
         }
@@ -235,6 +249,11 @@ method_set_config() {
         seen_rud = 1
         next
     }
+    in_top && /^[ \t]*kill_switch[ \t]*=/ {
+        print "kill_switch = " new_ks
+        seen_ks = 1
+        next
+    }
     { print $0 }
     END {
         if (in_top) {
@@ -243,6 +262,7 @@ method_set_config() {
             if (!seen_did) print "device_id = \"" new_did "\""
             if (!seen_mtu) print "tun_mtu = " new_mtu
             if (!seen_rud) print "ru_direct = " new_rud
+            if (!seen_ks) print "kill_switch = " new_ks
         }
     }
     ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
@@ -631,7 +651,8 @@ case "$1" in
     "password": "str",
     "device_id": "str",
     "ru_direct": "bool",
-    "tun_mtu": "int"
+    "tun_mtu": "int",
+    "kill_switch": "bool"
   },
   "get_split_config": {},
   "set_split_config": {

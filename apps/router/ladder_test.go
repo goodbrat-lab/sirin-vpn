@@ -83,3 +83,36 @@ func TestBuildFromStatic_XHTTP(t *testing.T) {
 		t.Errorf("expected 1 host, got %d", len(hosts))
 	}
 }
+
+func TestBuildLadder_PreferStatic(t *testing.T) {
+	cfg := &Config{
+		Password:           "dummy-key",
+		APIURL:             "http://invalid.local",
+		PreferStaticLadder: true,
+		StaticLadder: []LadderEntry{
+			{
+				Name:      "test-relay",
+				Transport: "vless",
+				Host:      "185.182.65.219",
+				Port:      443,
+				SNI:       "sun8-21.userapi.com",
+				PBK:       "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
+				SID:       "8283f99ec6a0f52e",
+			},
+		},
+	}
+
+	ladder, gw, hosts, err := buildLadder(cfg)
+	if err != nil {
+		t.Fatalf("buildLadder failed: %v", err)
+	}
+	if ladder.Len() != 1 {
+		t.Fatalf("expected 1 candidate from static ladder, got %d", ladder.Len())
+	}
+	if gw != "185.182.65.219" {
+		t.Errorf("expected gw 185.182.65.219, got %s", gw)
+	}
+	if len(hosts) != 1 || hosts[0] != "185.182.65.219" {
+		t.Errorf("expected host 185.182.65.219, got %v", hosts)
+	}
+}

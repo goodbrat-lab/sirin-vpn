@@ -41,10 +41,18 @@ type ParamsEntry struct {
 // Сначала пробует загрузить свежие параметры из /v1/params.
 // При сбое или отсутствии сети переходит на статичный ladder из client.toml.
 func buildLadder(cfg *Config) (*engine.Ladder, string, []string, error) {
+	if cfg.PreferStaticLadder && len(cfg.StaticLadder) > 0 {
+		log.Printf("[ladder] Принудительное использование статичного ladder-конфига (%d узлов)", len(cfg.StaticLadder))
+		return buildFromStatic(cfg.StaticLadder, cfg.Gateway)
+	}
+
 	var resp *ParamsResponse
 	var err error
 
-	if cfg.Password != "" && cfg.APIURL != "" {
+	useAPI := cfg.Password != "" && cfg.APIURL != "" &&
+		cfg.APIURL != "none" && cfg.APIURL != "off" && cfg.APIURL != "disabled"
+
+	if useAPI {
 		log.Printf("[ladder] Запрос конфигурации с API: %s...", cfg.APIURL)
 		resp, err = fetchParams(cfg.APIURL, cfg.Password)
 		if err != nil {

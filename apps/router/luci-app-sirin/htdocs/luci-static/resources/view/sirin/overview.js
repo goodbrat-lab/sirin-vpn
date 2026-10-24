@@ -18,7 +18,7 @@ var callGetConfig = rpc.declare({
 var callSetConfig = rpc.declare({
 	object: 'sirin',
 	method: 'set_config',
-	params: ['gateway', 'password', 'device_id', 'ru_direct', 'tun_mtu'],
+	params: ['gateway', 'password', 'device_id', 'ru_direct', 'tun_mtu', 'kill_switch'],
 	expect: {}
 });
 
@@ -317,6 +317,12 @@ return view.extend({
 			value: config.tun_mtu || 1280
 		});
 
+		var chkKillSwitch = E('input', {
+			class: 'cbi-input-checkbox',
+			type: 'checkbox',
+			checked: (config.kill_switch !== undefined ? !!config.kill_switch : true)
+		});
+
 		var btnSaveConfig = E('button', {
 			class: 'btn cbi-button cbi-button-save',
 			style: 'margin-right: 8px;',
@@ -326,6 +332,7 @@ return view.extend({
 				var did = inDeviceId.value.trim();
 				var mtu = parseInt(inTunMtu.value, 10);
 				var rud = (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true);
+				var ks = chkKillSwitch.checked;
 
 				if (!gw || /[^a-zA-Z0-9.-]/.test(gw)) {
 					ui.addNotification(null, E('p', {}, 'Ошибка в поле «Шлюз»: укажите валидное доменное имя или IP-адрес'), 'error');
@@ -345,7 +352,7 @@ return view.extend({
 				}
 
 				btnSaveConfig.disabled = true;
-				return callSetConfig(gw, pw, did, rud, mtu).then(function(res) {
+				return callSetConfig(gw, pw, did, rud, mtu, ks).then(function(res) {
 					btnSaveConfig.disabled = false;
 					if (res && res.ok) {
 						ui.addNotification(null, E('p', {}, 'Настройки успешно сохранены в /etc/sirin/client.toml'), 'info');
@@ -392,6 +399,7 @@ return view.extend({
 						inPassword.value = cfg.password || '';
 						inDeviceId.value = cfg.device_id || 'router-01';
 						inTunMtu.value = cfg.tun_mtu || 1280;
+						chkKillSwitch.checked = (cfg.kill_switch !== undefined ? !!cfg.kill_switch : true);
 						ui.addNotification(null, E('p', {}, 'Значения сброшены до текущих настроек файла'), 'info');
 					}
 				}).catch(function() {
@@ -663,6 +671,16 @@ return view.extend({
 					E('div', { class: 'cbi-value-field' }, [
 						inTunMtu,
 						E('div', { class: 'cbi-value-description' }, 'Размер MTU виртуального сетевого интерфейса sirin0 (от 576 до 1500, по умолчанию 1280)')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Kill Switch'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkKillSwitch,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Kill Switch (блокировать при обрыве)'))
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Блокировать трафик локальной сети при обрыве туннеля для предотвращения утечек в WAN')
 					])
 				]),
 				E('div', { style: 'margin-top: 16px;' }, [

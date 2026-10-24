@@ -40,11 +40,16 @@ type Config struct {
 	APIURL string `toml:"api_url"` // https://crp.guseynovia.ru
 
 	// Fallback: если API недоступен, использовать статичный ladder
-	StaticLadder []LadderEntry `toml:"ladder"`
+	StaticLadder       []LadderEntry `toml:"ladder"`
+	PreferStaticLadder bool          `toml:"prefer_static_ladder,omitempty"` // принудительно использовать [[ladder]] из конфига вместо API
 
 	// Split tunneling (обратная совместимость с v1.1.2)
 	RuDirect    *bool              `toml:"ru_direct,omitempty"`
 	SplitTunnel *SplitTunnelConfig `toml:"split_tunnel,omitempty"`
+
+	// Kill Switch (блокировка трафика LAN в WAN при обрыве туннеля)
+	KillSwitch           *bool    `toml:"kill_switch,omitempty"`
+	KillSwitchExceptions []string `toml:"kill_switch_exceptions,omitempty"`
 }
 
 type LadderEntry struct {
@@ -167,6 +172,14 @@ func (c *Config) IsRuDirectActive() bool {
 		return *c.SplitTunnel.UseRuDirect
 	}
 	return true
+}
+
+// IsKillSwitchEnabled возвращает true, если Kill Switch активен (по умолчанию true).
+func (c *Config) IsKillSwitchEnabled() bool {
+	if c.KillSwitch == nil {
+		return true // default true
+	}
+	return *c.KillSwitch
 }
 
 func LoadConfig(path string) (*Config, error) {

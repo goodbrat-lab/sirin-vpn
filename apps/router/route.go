@@ -471,6 +471,22 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 		setupIptables(tun.name, lanIface)
 	}
 
+	// 9. Настройка Kill Switch (inet sirin_killswitch)
+	if cfg.IsKillSwitchEnabled() {
+		var allowedDest []string
+		allowedDest = append(allowedDest, serverHosts...)
+		allowedDest = append(allowedDest, cfg.KillSwitchExceptions...)
+		allowedDest = append(allowedDest, getWanHostRoutes(wan.iface)...)
+		if err := applyKillSwitchNftables(lanIface, wan.iface, mode, allowedDest); err != nil {
+			log.Printf("[route] Ошибка настройки Kill Switch: %v", err)
+		} else {
+			log.Printf("[route] Kill Switch активирован (LAN: %s, WAN: %s, исключений: %d)", lanIface, wan.iface, len(mergeCIDRs(allowedDest)))
+		}
+	} else {
+		log.Println("[route] Kill Switch отключен (kill_switch = false)")
+		cleanupKillSwitch()
+	}
+
 	log.Printf("[route] Маршрутизация активирована (режим: %s, split_cidrs: %d)", mode, len(splitCIDRs))
 	return nil
 }
@@ -600,6 +616,93 @@ func cleanupRouting(cfg *Config, tun *tunDevice, serverHosts []string, wan wanIn
 	_ = exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", tun.name, "-j", "MASQUERADE").Run()
 	_ = exec.Command("iptables", "-D", "FORWARD", "-i", lanIface, "-o", tun.name, "-j", "ACCEPT").Run()
 	_ = exec.Command("iptables", "-D", "FORWARD", "-i", tun.name, "-o", lanIface, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT").Run()
+
+	// 7. Удалить nftables таблицу Kill Switch
+	cleanupKillSwitch()
+}
+
+// getWanHostRoutes возвращает список IPv4 хост-маршрутов (/32), привязанных к WAN-интерфейсу.
+func getWanHostRoutes(wanIface string) []string {
+	if wanIface == "" {
+		return nil
+	}
+	out, err := exec.Command("ip", "route", "show", "dev", wanIface).Output()
+	if err != nil {
+		return nil
+	}
+	var hosts []string
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "default") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			target := fields[0]
+			ipStr := strings.TrimSuffix(target, "/32")
+			if ip := net.ParseIP(ipStr); ip != nil && ip.To4() != nil {
+				hosts = append(hosts, ip.To4().String())
+			}
+		}
+	}
+	return hosts
+}
+
+// applyKillSwitchNftables создаёт таблицу inet sirin_killswitch для блокировки утечек в WAN.
+func applyKillSwitchNftables(lanIface, wanIface, mode string, allowedDest []string) error {
+	rules := generateKillSwitchNftablesRules(lanIface, wanIface, mode, allowedDest)
+
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(rules)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("nft apply killswitch: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// cleanupKillSwitch удаляет таблицу inet sirin_killswitch.
+func cleanupKillSwitch() {
+	_ = exec.Command("nft", "delete", "table", "inet", "sirin_killswitch").Run()
+}
+
+// generateKillSwitchNftablesRules генерирует конфигурацию nftables для Kill Switch.
+func generateKillSwitchNftablesRules(lanIface, wanIface, mode string, allowedDest []string) string {
+	if lanIface == "" {
+		lanIface = "br-lan"
+	}
+	if wanIface == "" {
+		wanIface = "pppoe-wan"
+	}
+
+	var b strings.Builder
+	b.WriteString("table inet sirin_killswitch {\n")
+
+	validDest := mergeCIDRs(allowedDest)
+	if len(validDest) > 0 {
+		b.WriteString("    set allowed_dest {\n")
+		b.WriteString("        type ipv4_addr\n")
+		b.WriteString("        flags interval\n")
+		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(validDest, ", ")))
+		b.WriteString("    }\n")
+	}
+
+	b.WriteString("    chain forward {\n")
+	b.WriteString("        type filter hook forward priority 0; policy accept;\n")
+	b.WriteString(fmt.Sprintf("        iifname != \"%s\" accept\n", lanIface))
+	b.WriteString(fmt.Sprintf("        oifname != \"%s\" accept\n", wanIface))
+	if len(validDest) > 0 {
+		b.WriteString("        ip daddr @allowed_dest accept\n")
+	}
+	if mode == "bypass" {
+		b.WriteString("        meta mark 0x00000002 accept\n")
+	}
+	b.WriteString("        meta l4proto tcp reject with tcp reset\n")
+	b.WriteString("        drop\n")
+	b.WriteString("    }\n")
+	b.WriteString("}\n")
+
+	return b.String()
 }
 
 func setupIptables(tunName, lanIface string) {

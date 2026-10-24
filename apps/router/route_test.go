@@ -288,3 +288,75 @@ func TestGenerateNftablesRules(t *testing.T) {
 		t.Fatalf("Only mode: ожидалось направление split_cidrs в VPN (0x1)")
 	}
 }
+
+func TestConfig_KillSwitchDefault(t *testing.T) {
+	cfg := &Config{}
+	if !cfg.IsKillSwitchEnabled() {
+		t.Fatalf("Kill Switch должен быть включен по умолчанию (default true)")
+	}
+
+	f := false
+	cfg.KillSwitch = &f
+	if cfg.IsKillSwitchEnabled() {
+		t.Fatalf("Kill Switch должен быть выключен при kill_switch = false")
+	}
+
+	tr := true
+	cfg.KillSwitch = &tr
+	if !cfg.IsKillSwitchEnabled() {
+		t.Fatalf("Kill Switch должен быть включен при kill_switch = true")
+	}
+}
+
+func TestGenerateKillSwitchNftablesRules(t *testing.T) {
+	lanIface := "br-lan"
+	wanIface := "pppoe-wan"
+	serverHosts := []string{"94.183.159.114", "185.182.65.219"}
+	exceptions := []string{"200.10.40.239/32"}
+	allowed := append(serverHosts, exceptions...)
+
+	// 1. Bypass mode: должен разрешать split traffic по метке 0x2
+	rulesBypass := generateKillSwitchNftablesRules(lanIface, wanIface, "bypass", allowed)
+
+	if !strings.Contains(rulesBypass, "table inet sirin_killswitch {") {
+		t.Fatalf("Ожидалось объявление таблицы inet sirin_killswitch")
+	}
+	if !strings.Contains(rulesBypass, "iifname != \"br-lan\" accept") {
+		t.Fatalf("Ожидалось разрешение не-LAN трафика")
+	}
+	if !strings.Contains(rulesBypass, "oifname != \"pppoe-wan\" accept") {
+		t.Fatalf("Ожидалось разрешение трафика не в WAN (туннель sirin0)")
+	}
+	if !strings.Contains(rulesBypass, "ip daddr @allowed_dest accept") {
+		t.Fatalf("Ожидалось разрешение адресов из @allowed_dest")
+	}
+	if !strings.Contains(rulesBypass, "meta mark 0x00000002 accept") {
+		t.Fatalf("Bypass mode: ожидалось разрешение прямого трафика с маркой 0x2")
+	}
+	if !strings.Contains(rulesBypass, "drop") {
+		t.Fatalf("Ожидалось финальное правило drop")
+	}
+
+	// Проверяем элементы allowed_dest
+	if !strings.Contains(rulesBypass, "200.10.40.239") {
+		t.Fatalf("Ожидалось исключение для прокси 200.10.40.239 в allowed_dest")
+	}
+	if !strings.Contains(rulesBypass, "94.183.159.114") {
+		t.Fatalf("Ожидался сервер 94.183.159.114 в allowed_dest")
+	}
+
+	// 2. Only mode: НЕ должен разрешать метку 0x2
+	rulesOnly := generateKillSwitchNftablesRules(lanIface, wanIface, "only", allowed)
+	if strings.Contains(rulesOnly, "meta mark 0x00000002 accept") {
+		t.Fatalf("Only mode: НЕ должно быть разрешения марки 0x2")
+	}
+
+	// 3. Без исключений (allowed_dest пустой)
+	rulesEmpty := generateKillSwitchNftablesRules("eth0", "eth1", "bypass", nil)
+	if strings.Contains(rulesEmpty, "set allowed_dest") {
+		t.Fatalf("При пустых исключениях не должно генерироваться set allowed_dest")
+	}
+	if !strings.Contains(rulesEmpty, "iifname != \"eth0\" accept") || !strings.Contains(rulesEmpty, "oifname != \"eth1\" accept") {
+		t.Fatalf("Ожидались кастомные интерфейсы eth0 и eth1")
+	}
+}

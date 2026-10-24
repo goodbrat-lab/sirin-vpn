@@ -6,6 +6,11 @@ device_id = "router-01"
 tun_name = "sirin0"
 tun_mtu = 1280
 
+# Kill Switch: блокировать трафик LAN через WAN при обрыве или падении туннеля (по умолчанию true)
+kill_switch = true
+# Исключения для Kill Switch (дополнительные IP или CIDR, разрешенные напрямую через WAN даже при падении)
+# kill_switch_exceptions = ["200.10.40.239/32"]
+
 lan_interface = "br-lan"
 # wan_interface: если пусто, определяется автоматически по маршруту по умолчанию (например, pppoe-wan или eth0)
 wan_interface = ""
