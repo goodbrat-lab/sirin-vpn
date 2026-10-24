@@ -130,8 +130,13 @@ func (s *Storage) Touch(key string, deviceIDs ...string) error {
 	return s.saveLocked()
 }
 
-// Add создаёт нового клиента.
+// Add создаёт нового клиента с relay_id = 0.
 func (s *Storage) Add(name string, daysValid int) (*Client, error) {
+	return s.AddWithRelay(name, daysValid, 0)
+}
+
+// AddWithRelay создаёт нового клиента с указанным relay_id.
+func (s *Storage) AddWithRelay(name string, daysValid int, relayID int) (*Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.loadOrCreate()
@@ -144,6 +149,7 @@ func (s *Storage) Add(name string, daysValid int) (*Client, error) {
 		Name:      name,
 		CreatedAt: now,
 		Revoked:   false,
+		RelayID:   relayID,
 	}
 
 	if daysValid > 0 {
@@ -155,6 +161,26 @@ func (s *Storage) Add(name string, daysValid int) (*Client, error) {
 
 	if err := s.saveLocked(); err != nil {
 		delete(s.data.Clients, newUUID)
+		return nil, err
+	}
+
+	clone := *c
+	return &clone, nil
+}
+
+// SetRelayID изменяет relay_id клиента и сохраняет на диск.
+func (s *Storage) SetRelayID(key string, relayID int) (*Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.loadOrCreate()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return nil, fmt.Errorf("client %s not found", key)
+	}
+
+	c.RelayID = relayID
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 

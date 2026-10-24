@@ -139,9 +139,15 @@ func (m *Manager) ExecuteCreateClientWithRelay(c tele.Context, name string, days
 	m.fsm.Clear(c.Sender().ID)
 	m.bot.LogAdminAction(c.Sender().ID, "create_client", client.UUID, true)
 
-	relayName := "Прямой NL (Нидерланды)"
-	if client.RelayID == 1 {
-		relayName = "Relay 1 (Москва, RU)"
+	relayName := "Direct NL (Нидерланды)"
+	if client.RelayID > 0 {
+		if rs := m.bot.RelaysStorage(); rs != nil {
+			if r, ok := rs.GetByID(client.RelayID); ok {
+				relayName = r.Name
+			} else {
+				relayName = fmt.Sprintf("Релей #%d", client.RelayID)
+			}
+		}
 	}
 
 	text := fmt.Sprintf(

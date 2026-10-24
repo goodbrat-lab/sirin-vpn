@@ -36,6 +36,11 @@ func (c *Client) IsActive() bool {
 	return true
 }
 
+// GetRelayID возвращает relay_id клиента.
+func (c *Client) GetRelayID() int {
+	return c.RelayID
+}
+
 // DaysLeft возвращает количество целых дней до истечения срока (может быть отрицательным, если просрочен).
 // Для бессрочных ключей возвращает (0, false).
 func (c *Client) DaysLeft() (int, bool) {

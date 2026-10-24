@@ -6,16 +6,32 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"sirin/server/internal/relays"
 )
 
 type Server struct {
 	cfg     *Config
 	storage *Storage
+	relays  *relays.Storage
 	http    *http.Server
 }
 
 func New(cfg *Config, storage *Storage) *Server {
-	return &Server{cfg: cfg, storage: storage}
+	var rs *relays.Storage
+	if cfg.RelaysPath != "" {
+		var err error
+		rs, err = relays.NewStorage(cfg.RelaysPath)
+		if err != nil {
+			log.Printf("[SirinAPI] WARN: relays storage init error (%s): %v", cfg.RelaysPath, err)
+		}
+	}
+	return &Server{cfg: cfg, storage: storage, relays: rs}
+}
+
+// SetRelaysStorage переопределяет хранилище релеев (для тестов).
+func (s *Server) SetRelaysStorage(rs *relays.Storage) {
+	s.relays = rs
 }
 
 func (s *Server) Start() error {

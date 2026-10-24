@@ -136,6 +136,20 @@ func (s *Storage) Get(telegramID int64) (*UserKey, bool) {
 	return &clone, true
 }
 
+func (s *Storage) FindByUUID(uuid string) (*UserKey, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.load()
+
+	for _, u := range s.data.Users {
+		if u.UUID == uuid {
+			clone := *u
+			return &clone, true
+		}
+	}
+	return nil, false
+}
+
 func (s *Storage) Set(u UserKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

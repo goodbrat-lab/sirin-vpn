@@ -76,6 +76,22 @@ type Client struct {
 	RelayID   int        `json:"relay_id,omitempty"` // 0 = прямой NL, 1 = Relay 1
 }
 
+// IsActive возвращает true, если клиент не отозван и срок действия не истёк.
+func (c *Client) IsActive() bool {
+	if c.Revoked {
+		return false
+	}
+	if c.ExpiresAt != nil && !c.ExpiresAt.IsZero() && c.ExpiresAt.Before(time.Now()) {
+		return false
+	}
+	return true
+}
+
+// GetRelayID возвращает relay_id клиента.
+func (c *Client) GetRelayID() int {
+	return c.RelayID
+}
+
 // ClientsFile — корневая структура clients.json.
 type ClientsFile struct {
 	Version int                `json:"version,omitempty"`

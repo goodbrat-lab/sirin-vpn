@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+
+	"sirin/server/internal/relays"
 )
 
 func testServer(t *testing.T) (*Server, *Storage) {
@@ -178,5 +180,91 @@ func TestHandleAdminUnauthorized(t *testing.T) {
 	srv.requireAdmin(srv.HandleAdminCreate)(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleParamsWithRelays(t *testing.T) {
+	srv, storage := testServer(t)
+	srv.cfg.VLESSEnabled = true
+	srv.cfg.VLESSHost = "94.183.159.114"
+	srv.cfg.VLESSPort = 443
+
+	relaysDir := t.TempDir()
+	rStorage, err := relays.NewStorage(filepath.Join(relaysDir, "relays.json"))
+	if err != nil {
+		t.Fatalf("NewStorage: %v", err)
+	}
+	_, err = rStorage.Add(relays.Relay{
+		ID:         2,
+		Name:       "Relay 2 (СПб, RU)",
+		Host:       "194.87.1.1",
+		PortVLESS:  443,
+		PortXHTTP:  8443,
+		MaxClients: 10,
+		Enabled:    true,
+	})
+	if err != nil {
+		t.Fatalf("Add relay 2: %v", err)
+	}
+	srv.SetRelaysStorage(rStorage)
+
+	cDirect, _ := storage.AddWithRelay("DirectUser", 0, 0)
+	cRelay1, _ := storage.AddWithRelay("Relay1User", 0, 1)
+	cRelay2, _ := storage.AddWithRelay("Relay2User", 0, 2)
+	cRelayInvalid, _ := storage.AddWithRelay("InvalidRelayUser", 0, 99)
+
+	// 1. DirectUser (relay_id=0) -> host=94.183.159.114
+	req := httptest.NewRequest(http.MethodGet, "/v1/params?key="+cDirect.UUID, nil)
+	w := httptest.NewRecorder()
+	srv.HandleParams(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d", w.Code)
+	}
+	var p0 ParamsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &p0)
+	if p0.Entries[1].Host != "94.183.159.114" {
+		t.Errorf("expected direct NL host 94.183.159.114, got %s", p0.Entries[1].Host)
+	}
+	if w.Header().Get("X-Relay-Load") != "" {
+		t.Errorf("expected no X-Relay-Load for direct NL, got %s", w.Header().Get("X-Relay-Load"))
+	}
+
+	// 2. Relay1User (relay_id=1) -> host=185.182.65.219, load header "1/10"
+	req = httptest.NewRequest(http.MethodGet, "/v1/params?key="+cRelay1.UUID, nil)
+	w = httptest.NewRecorder()
+	srv.HandleParams(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d", w.Code)
+	}
+	var p1 ParamsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &p1)
+	if p1.Entries[1].Host != "185.182.65.219" {
+		t.Errorf("expected Relay 1 host 185.182.65.219, got %s", p1.Entries[1].Host)
+	}
+	if p1.Entries[2].Host != "185.182.65.219" {
+		t.Errorf("expected Relay 1 xhttp host 185.182.65.219, got %s", p1.Entries[2].Host)
+	}
+	if w.Header().Get("X-Relay-Load") != "1/10" {
+		t.Errorf("expected X-Relay-Load=1/10, got %s", w.Header().Get("X-Relay-Load"))
+	}
+
+	// 3. Relay2User (relay_id=2) -> host=194.87.1.1
+	req = httptest.NewRequest(http.MethodGet, "/v1/params?key="+cRelay2.UUID, nil)
+	w = httptest.NewRecorder()
+	srv.HandleParams(w, req)
+	var p2 ParamsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &p2)
+	if p2.Entries[1].Host != "194.87.1.1" {
+		t.Errorf("expected Relay 2 host 194.87.1.1, got %s", p2.Entries[1].Host)
+	}
+
+	// 4. InvalidRelayUser (relay_id=99) -> fallback to 94.183.159.114
+	req = httptest.NewRequest(http.MethodGet, "/v1/params?key="+cRelayInvalid.UUID, nil)
+	w = httptest.NewRecorder()
+	srv.HandleParams(w, req)
+	var p99 ParamsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &p99)
+	if p99.Entries[1].Host != "94.183.159.114" {
+		t.Errorf("expected fallback host 94.183.159.114, got %s", p99.Entries[1].Host)
 	}
 }

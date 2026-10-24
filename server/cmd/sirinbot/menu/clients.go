@@ -160,9 +160,22 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 
 	daysLeftStr := bot.FormatDaysLeft(client.ExpiresAt)
 
-	relayStr := "Прямой NL (Нидерланды)"
-	if client.RelayID == 1 {
-		relayStr = "Relay 1 (Москва, RU)"
+	relayStr := "🌐 Direct NL (Нидерланды)"
+	shortRelayStr := "Direct NL"
+	if client.RelayID > 0 {
+		if rs := m.bot.RelaysStorage(); rs != nil {
+			if r, ok := rs.GetByID(client.RelayID); ok {
+				statusEmoji := "✅"
+				if !r.Enabled {
+					statusEmoji = "⛔"
+				}
+				relayStr = fmt.Sprintf("%s %s", statusEmoji, r.Name)
+				shortRelayStr = r.Name
+			} else {
+				relayStr = fmt.Sprintf("❓ Релей #%d (не найден)", client.RelayID)
+				shortRelayStr = fmt.Sprintf("Релей #%d", client.RelayID)
+			}
+		}
 	}
 
 	text := fmt.Sprintf(
@@ -198,12 +211,7 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 	}
 	btnDelete := markup.Data("🗑 Удалить", "client", "delete", client.UUID)
 
-	var btnRelay tele.Btn
-	if client.RelayID == 1 {
-		btnRelay = markup.Data("🌐 Переключить на NL", "client", "set_relay", client.UUID, "0")
-	} else {
-		btnRelay = markup.Data("📡 Переключить на Relay 1", "client", "set_relay", client.UUID, "1")
-	}
+	btnRelay := markup.Data(fmt.Sprintf("🔄 Узел: %s", shortRelayStr), "client", "choose_relay", client.UUID)
 
 	btnBackList := markup.Data("⬅️ К клиентам", "menu", "clients")
 	btnBackMain := markup.Data("🏠 В меню", "menu", "main")

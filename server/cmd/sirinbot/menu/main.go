@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"sirin/server/internal/bot"
+	"sirin/server/internal/relays"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -88,28 +89,49 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 		}
 	}
 
+	var relaySummary string
+	if rs := m.bot.RelaysStorage(); rs != nil {
+		allRelays := rs.GetAll()
+		activeRelays := 0
+		totalClientsOnRelays := 0
+		totalCapacity := 0
+		for _, r := range allRelays {
+			if r.Enabled {
+				activeRelays++
+				totalCapacity += r.MaxClients
+			}
+			cnt := relays.CountActiveOnRelay(all, r.ID)
+			totalClientsOnRelays += cnt
+		}
+		relaySummary = fmt.Sprintf("\n📡 Релеи: *%d* активны · *%d/%d* занято", activeRelays, totalClientsOnRelays, totalCapacity)
+	}
+
 	text := fmt.Sprintf(
 		"👋 *Sirin Bot — панель управления*\n\n"+
-			"Клиентов: *%d* · Активных: *%d* · Просрочено: *%d*",
+			"Клиентов: *%d* · Активных: *%d* · Просрочено: *%d*%s",
 		len(all),
 		activeCount,
 		expiredCount,
+		relaySummary,
 	)
 
 	markup := &tele.ReplyMarkup{}
 	btnClients := markup.Data("👥 Клиенты", "menu", "clients")
 	btnNew := markup.Data("➕ Новый клиент", "menu", "new")
 
+	btnRelays := markup.Data("📡 Релеи", "menu", "relays")
 	btnStats := markup.Data("📊 Статистика", "menu", "stats")
-	btnSearch := markup.Data("🔍 Поиск", "menu", "search")
 
+	btnSearch := markup.Data("🔍 Поиск", "menu", "search")
 	btnSettings := markup.Data("⚙️ Настройки", "menu", "settings")
+
 	btnHelp := markup.Data("ℹ️ Помощь", "menu", "help")
 
 	markup.Inline(
 		markup.Row(btnClients, btnNew),
-		markup.Row(btnStats, btnSearch),
-		markup.Row(btnSettings, btnHelp),
+		markup.Row(btnRelays, btnStats),
+		markup.Row(btnSearch, btnSettings),
+		markup.Row(btnHelp),
 	)
 
 	if edit {
@@ -121,11 +143,13 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 		replyKb := &tele.ReplyMarkup{ResizeKeyboard: true}
 		r1 := replyKb.Text("👥 Клиенты")
 		r2 := replyKb.Text("➕ Новый")
-		r3 := replyKb.Text("📊 Статистика")
-		r4 := replyKb.Text("🔍 Поиск")
+		r3 := replyKb.Text("📡 Релеи")
+		r4 := replyKb.Text("📊 Статистика")
+		r5 := replyKb.Text("🔍 Поиск")
 		replyKb.Reply(
 			replyKb.Row(r1, r2),
 			replyKb.Row(r3, r4),
+			replyKb.Row(r5),
 		)
 		_ = c.Send("Меню быстрого доступа активировано:", replyKb)
 	}
@@ -225,6 +249,8 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			return m.ShowMainMenu(c, true)
 		case "clients":
 			return m.ShowClientsList(c, 1, "", true)
+		case "relays":
+			return m.ShowRelaysMenu(c, true)
 		case "new":
 			return m.StartNewClientWizard(c, true)
 		case "stats":
@@ -235,6 +261,54 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			return m.ShowSettings(c, true)
 		case "help":
 			return m.ShowHelp(c, true)
+		}
+
+	case "relay":
+		switch action {
+		case "view":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.ShowRelayCard(c, relayID, true)
+			}
+		case "clients":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.ShowRelayClients(c, relayID, true)
+			}
+		case "assign":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.ShowAssignClientToRelay(c, relayID, true)
+			}
+		case "add":
+			return m.StartAddRelayWizard(c, true)
+		case "add_confirm":
+			return m.HandleConfirmAddRelay(c)
+		case "edit_limit":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.StartEditRelayLimit(c, relayID)
+			}
+		case "edit_host":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.StartEditRelayHost(c, relayID)
+			}
+		case "toggle":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.HandleToggleRelay(c, relayID)
+			}
+		case "toggle_confirm":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.HandleToggleConfirm(c, relayID)
+			}
+		case "delete":
+			if len(args) > 0 {
+				relayID, _ := strconv.Atoi(args[0])
+				return m.HandleDeleteRelay(c, relayID)
+			}
 		}
 
 	case "clients":
@@ -312,17 +386,12 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			return m.ShowClientCard(c, cl, true)
 		case "delete":
 			return m.ShowDeleteConfirmation(c, uuid, true)
+		case "choose_relay":
+			return m.ShowChooseRelay(c, uuid, true)
 		case "set_relay":
 			if len(args) >= 2 {
 				relayID, _ := strconv.Atoi(args[1])
-				_, err := m.bot.ClientsStorage().SetRelayID(uuid, relayID)
-				if err != nil {
-					RespondAlert(c, "Ошибка: "+err.Error())
-					return nil
-				}
-				m.bot.LogAdminAction(c.Sender().ID, "set_relay", uuid, true)
-				cl, _ := m.bot.ClientsStorage().Get(uuid)
-				return m.ShowClientCard(c, cl, true)
+				return m.HandleSetRelay(c, uuid, relayID)
 			}
 		case "link":
 			deepLink, webLink := BuildDeepLink(DefaultWebLinkHost, uuid)
@@ -551,6 +620,8 @@ func (m *Manager) handleText(c tele.Context) error {
 		return m.ShowClientsList(c, 1, "", false)
 	case "➕ Новый":
 		return m.StartNewClientWizard(c, false)
+	case "📡 Релеи":
+		return m.ShowRelaysMenu(c, false)
 	case "📊 Статистика":
 		return m.ShowStats(c, false)
 	case "🔍 Поиск":
@@ -567,6 +638,21 @@ func (m *Manager) handleText(c tele.Context) error {
 	}
 
 	switch state.Action {
+	case "relay_add_name":
+		return m.HandleFSMAddRelayName(c, state, text)
+	case "relay_add_host":
+		return m.HandleFSMAddRelayHost(c, state, text)
+	case "relay_add_port_vless":
+		return m.HandleFSMAddRelayPortVLESS(c, state, text)
+	case "relay_add_port_xhttp":
+		return m.HandleFSMAddRelayPortXHTTP(c, state, text)
+	case "relay_add_max_clients":
+		return m.HandleFSMAddRelayMaxClients(c, state, text)
+	case "relay_edit_limit":
+		return m.HandleFSMEditRelayLimit(c, state, text)
+	case "relay_edit_host":
+		return m.HandleFSMEditRelayHost(c, state, text)
+
 	case "new_name", "new_days_custom":
 		return m.HandleFSMNewText(c, state, text)
 
@@ -689,18 +775,18 @@ func (m *Manager) handleNewKeyCommand(c tele.Context) error {
 
 	relayID := 0
 	fields := strings.Fields(raw)
-	// Поддержка флага --relay 1 / --relay=1
+	// Поддержка флага --relay N / --relay=N
 	var filtered []string
 	for i := 0; i < len(fields); i++ {
 		if fields[i] == "--relay" && i+1 < len(fields) {
-			if r, err := strconv.Atoi(fields[i+1]); err == nil && (r == 0 || r == 1) {
+			if r, err := strconv.Atoi(fields[i+1]); err == nil && r >= 0 {
 				relayID = r
 				i++
 				continue
 			}
 		} else if strings.HasPrefix(fields[i], "--relay=") {
 			val := strings.TrimPrefix(fields[i], "--relay=")
-			if r, err := strconv.Atoi(val); err == nil && (r == 0 || r == 1) {
+			if r, err := strconv.Atoi(val); err == nil && r >= 0 {
 				relayID = r
 				continue
 			}
@@ -709,17 +795,36 @@ func (m *Manager) handleNewKeyCommand(c tele.Context) error {
 	}
 	fields = filtered
 	// Поддержка позиционного relay_id в конце: /newkey Имя 30 1
-	if len(fields) >= 3 && (fields[len(fields)-1] == "0" || fields[len(fields)-1] == "1") {
-		if _, errConv := strconv.Atoi(fields[len(fields)-2]); errConv == nil {
-			relayID, _ = strconv.Atoi(fields[len(fields)-1])
-			fields = fields[:len(fields)-1]
+	if len(fields) >= 3 {
+		if r, err := strconv.Atoi(fields[len(fields)-1]); err == nil && r >= 0 {
+			if _, errConv := strconv.Atoi(fields[len(fields)-2]); errConv == nil {
+				relayID = r
+				fields = fields[:len(fields)-1]
+			}
 		}
 	}
 	raw = strings.Join(fields, " ")
 
 	name, days, _, err := bot.ParseNewKeyArgsDetailed(raw)
 	if err != nil {
-		return c.Send("Ошибка: " + err.Error() + "\nПример: `/newkey Марина Иванова 365 [0|1]`")
+		return c.Send("Ошибка: " + err.Error() + "\nПример: `/newkey Марина Иванова 365 [relay_id]`")
+	}
+
+	if relayID > 0 {
+		if rs := m.bot.RelaysStorage(); rs != nil {
+			r, ok := rs.GetByID(relayID)
+			if !ok {
+				return c.Send(fmt.Sprintf("Релей с ID `%d` не найден.", relayID), tele.ModeMarkdown)
+			}
+			if !r.Enabled {
+				return c.Send(fmt.Sprintf("Релей «%s» отключён.", r.Name))
+			}
+			allClients := m.bot.ClientsStorage().List()
+			cnt := relays.CountActiveOnRelay(allClients, relayID)
+			if cnt >= r.MaxClients {
+				return c.Send(fmt.Sprintf("Релей «%s» заполнен (%d/%d).", r.Name, cnt, r.MaxClients))
+			}
+		}
 	}
 
 	return m.ExecuteCreateClientWithRelay(c, name, days, relayID)
@@ -895,12 +1000,12 @@ func (m *Manager) handleSetRelayCommand(c tele.Context) error {
 	m.fsm.Clear(c.Sender().ID)
 	tokens := strings.Fields(strings.TrimSpace(c.Data()))
 	if len(tokens) < 2 {
-		return c.Send("Использование: `/setrelay <имя|uuid> <0|1>`\nПример: `/setrelay Марина 1`", tele.ModeMarkdown)
+		return c.Send("Использование: `/setrelay <имя|uuid> <id>`\nПример: `/setrelay Марина 1` (0 = Direct NL)", tele.ModeMarkdown)
 	}
 	relayStr := tokens[len(tokens)-1]
 	relayID, err := strconv.Atoi(relayStr)
-	if err != nil || (relayID != 0 && relayID != 1) {
-		return c.Send("Номер релея должен быть `0` (NL) или `1` (Relay 1 RU).", tele.ModeMarkdown)
+	if err != nil || relayID < 0 {
+		return c.Send("Номер релея должен быть числом >= 0 (0 = Direct NL).", tele.ModeMarkdown)
 	}
 	target := strings.Join(tokens[:len(tokens)-1], " ")
 
@@ -910,17 +1015,5 @@ func (m *Manager) handleSetRelayCommand(c tele.Context) error {
 		return c.Send(fmt.Sprintf("Клиент «%s» не найден.", target))
 	}
 
-	_, err = m.bot.ClientsStorage().SetRelayID(client.UUID, relayID)
-	if err != nil {
-		return c.Send("Ошибка: " + err.Error())
-	}
-
-	m.bot.LogAdminAction(c.Sender().ID, "set_relay", client.UUID, true)
-	updated, _ := m.bot.ClientsStorage().Get(client.UUID)
-	nodeName := "Прямой NL (Нидерланды)"
-	if relayID == 1 {
-		nodeName = "Relay 1 (Москва, RU)"
-	}
-	_ = c.Send(fmt.Sprintf("✅ Клиент *%s* переключён на: *%s*", updated.Name, nodeName), tele.ModeMarkdown)
-	return m.ShowClientCard(c, updated, false)
+	return m.HandleSetRelay(c, client.UUID, relayID)
 }

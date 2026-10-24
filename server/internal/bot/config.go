@@ -27,6 +27,7 @@ type Config struct {
 	APIAdminToken string        `toml:"api_admin_token"` // Bearer для /v1/admin/*
 	StoragePath   string        `toml:"storage_path"`   // /etc/sirin/bot_users.json
 	ClientsPath   string        `toml:"clients_path"`   // /etc/sirin/clients.json
+	RelaysPath    string        `toml:"relays_path"`    // /etc/sirin/relays.json
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -52,6 +53,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ClientsPath == "" {
 		c.ClientsPath = "/etc/sirin/clients.json"
+	}
+	if c.RelaysPath == "" {
+		c.RelaysPath = "/etc/sirin/relays.json"
 	}
 	if c.Payment.SBPBank == "" {
 		c.Payment.SBPBank = "СБП (любой банк)"

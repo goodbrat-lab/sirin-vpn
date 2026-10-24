@@ -1,0 +1,13 @@
+{
+  "relays": [
+    {
+      "id": 1,
+      "name": "Relay 1 (Москва, RU)",
+      "host": "127.0.0.1",
+      "port_vless": 443,
+      "port_xhttp": 8443,
+      "max_clients": 10,
+      "enabled": true
+    }
+  ]
+}

@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"time"
+
+	"sirin/server/internal/relays"
 )
 
 // HandleKey — GET /v1/key?key=<UUID>
@@ -141,24 +144,51 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 	//   - пустой SNI (крайняя мера, работает всегда)
 	if s.cfg.VLESSEnabled && s.cfg.VLESSHost != "" {
 		vlessHost := s.cfg.VLESSHost
+		vlessPort := s.cfg.VLESSPort
+		if vlessPort == 0 {
+			vlessPort = 443
+		}
+		xhttpPort := 8443
+		var relayLoadHeader string
+
 		if key != "" {
-			if c, ok := s.storage.Get(key); ok && c.RelayID == 1 {
-				if s.cfg.Relay1Host != "" {
-					vlessHost = s.cfg.Relay1Host
-				} else {
-					vlessHost = net.IPv4(185, 182, 65, 219).String()
+			if c, ok := s.storage.Get(key); ok {
+				if c.RelayID == 0 {
+					// Прямой NL выход (по умолчанию)
+				} else if s.relays != nil {
+					if r, found := s.relays.GetByID(c.RelayID); found && r.Enabled {
+						vlessHost = r.Host
+						if r.PortVLESS > 0 {
+							vlessPort = r.PortVLESS
+						}
+						if r.PortXHTTP > 0 {
+							xhttpPort = r.PortXHTTP
+						}
+						activeClients := s.storage.List()
+						activeOnRelay := relays.CountActiveOnRelay(activeClients, r.ID)
+						relayLoadHeader = fmt.Sprintf("%d/%d", activeOnRelay, r.MaxClients)
+					} else {
+						log.Printf("[WARN] /v1/params: client %s has unknown or disabled relay_id=%d, fallback to direct NL", c.UUID, c.RelayID)
+					}
+				} else if c.RelayID == 1 {
+					// Fallback если relays storage не инициализирован
+					if s.cfg.Relay1Host != "" {
+						vlessHost = s.cfg.Relay1Host
+					} else {
+						vlessHost = net.IPv4(185, 182, 65, 219).String()
+					}
 				}
 			}
 		}
 
-		port := s.cfg.VLESSPort
-		if port == 0 {
-			port = 443
+		if relayLoadHeader != "" {
+			w.Header().Set("X-Relay-Load", relayLoadHeader)
 		}
+
 		resp.Entries = append(resp.Entries, ParamsEntry{
 			ID:        s.cfg.ServerID + "-vless",
 			Host:      vlessHost,
-			Port:      port,
+			Port:      vlessPort,
 			DTLS:      false,
 			Transport: "vless",
 			SNI:       "sun8-21.userapi.com",
@@ -174,7 +204,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		resp.Entries = append(resp.Entries, ParamsEntry{
 			ID:        s.cfg.ServerID + "-xhttp",
 			Host:      vlessHost,
-			Port:      8443,
+			Port:      xhttpPort,
 			DTLS:      false,
 			Transport: "xhttp",
 			SNI:       "sun8-21.userapi.com",

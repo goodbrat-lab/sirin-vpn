@@ -17,7 +17,8 @@ type Config struct {
 	VLESSEnabled bool   `toml:"vless_enabled"` // включить ли VLESS entry в /v1/params
 	VLESSHost    string `toml:"vless_host"`    // адрес сервера VLESS (e.g. crp.guseynovia.ru)
 	VLESSPort    int    `toml:"vless_port"`    // 443
-	Relay1Host   string `toml:"relay1_host"`   // адрес Relay 1
+	Relay1Host   string `toml:"relay1_host"`   // адрес Relay 1 (legacy fallback)
+	RelaysPath   string `toml:"relays_path"`   // путь к relays.json
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -36,6 +37,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if c.VLESSPort == 0 {
 		c.VLESSPort = 443
+	}
+	if c.RelaysPath == "" {
+		c.RelaysPath = "/etc/sirin/relays.json"
 	}
 	return &c, nil
 }
