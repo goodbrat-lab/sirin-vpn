@@ -229,7 +229,7 @@ func TestHandleParamsWithRelays(t *testing.T) {
 		t.Errorf("expected no X-Relay-Load for direct NL, got %s", w.Header().Get("X-Relay-Load"))
 	}
 
-	// 2. Relay1User (relay_id=1) -> host=185.182.65.219, load header "1/10"
+	// 2. Relay1User (relay_id=1) -> host=185.182.65.219, load header "1/10", NO direct UDP in entries
 	req = httptest.NewRequest(http.MethodGet, "/v1/params?key="+cRelay1.UUID, nil)
 	w = httptest.NewRecorder()
 	srv.HandleParams(w, req)
@@ -238,11 +238,14 @@ func TestHandleParamsWithRelays(t *testing.T) {
 	}
 	var p1 ParamsResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &p1)
-	if p1.Entries[1].Host != "185.182.65.219" {
-		t.Errorf("expected Relay 1 host 185.182.65.219, got %s", p1.Entries[1].Host)
+	if len(p1.Entries) != 2 {
+		t.Fatalf("expected exactly 2 entries (vless + xhttp) for relay client, got %d", len(p1.Entries))
 	}
-	if p1.Entries[2].Host != "185.182.65.219" {
-		t.Errorf("expected Relay 1 xhttp host 185.182.65.219, got %s", p1.Entries[2].Host)
+	if p1.Entries[0].Transport != "vless" || p1.Entries[0].Host != "185.182.65.219" {
+		t.Errorf("expected Relay 1 vless entry at index 0 (185.182.65.219), got %+v", p1.Entries[0])
+	}
+	if p1.Entries[1].Transport != "xhttp" || p1.Entries[1].Host != "185.182.65.219" {
+		t.Errorf("expected Relay 1 xhttp host at index 1 (185.182.65.219), got %+v", p1.Entries[1])
 	}
 	if w.Header().Get("X-Relay-Load") != "1/10" {
 		t.Errorf("expected X-Relay-Load=1/10, got %s", w.Header().Get("X-Relay-Load"))
@@ -254,16 +257,25 @@ func TestHandleParamsWithRelays(t *testing.T) {
 	srv.HandleParams(w, req)
 	var p2 ParamsResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &p2)
-	if p2.Entries[1].Host != "194.87.1.1" {
-		t.Errorf("expected Relay 2 host 194.87.1.1, got %s", p2.Entries[1].Host)
+	if len(p2.Entries) != 2 {
+		t.Fatalf("expected exactly 2 entries for relay 2 client, got %d", len(p2.Entries))
+	}
+	if p2.Entries[0].Transport != "vless" || p2.Entries[0].Host != "194.87.1.1" {
+		t.Errorf("expected Relay 2 host 194.87.1.1, got %+v", p2.Entries[0])
 	}
 
-	// 4. InvalidRelayUser (relay_id=99) -> fallback to 94.183.159.114
+	// 4. InvalidRelayUser (relay_id=99) -> fallback to direct NL (UDP + VLESS + XHTTP)
 	req = httptest.NewRequest(http.MethodGet, "/v1/params?key="+cRelayInvalid.UUID, nil)
 	w = httptest.NewRecorder()
 	srv.HandleParams(w, req)
 	var p99 ParamsResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &p99)
+	if len(p99.Entries) != 3 {
+		t.Fatalf("expected 3 entries for fallback direct NL, got %d", len(p99.Entries))
+	}
+	if p99.Entries[0].Transport != "udp" {
+		t.Errorf("expected UDP entry at index 0 for fallback, got %s", p99.Entries[0].Transport)
+	}
 	if p99.Entries[1].Host != "94.183.159.114" {
 		t.Errorf("expected fallback host 94.183.159.114, got %s", p99.Entries[1].Host)
 	}
