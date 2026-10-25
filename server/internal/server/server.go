@@ -79,7 +79,7 @@ func New(cfg *config.Config, staticPriv []byte) (*Server, error) {
 	s.clientIPSeq.Store(1) // чтобы первый клиент получил .2 (10.77.77.2)
 
 	if cfg.TunName != "" {
-		dev, err := tun.Open(cfg.TunName, 1400)
+		dev, err := tun.Open(cfg.TunName, 1280)
 		if err != nil {
 			return nil, fmt.Errorf("открытие TUN %s: %w", cfg.TunName, err)
 		}
