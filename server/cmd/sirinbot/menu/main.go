@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"sirin/server/internal/bot"
+	"sirin/server/internal/bot/tickets"
 	"sirin/server/internal/relays"
 	tele "gopkg.in/telebot.v3"
 )
@@ -46,6 +47,9 @@ func (m *Manager) registerRoutes() {
 	})
 	tb.Handle("/mykey", func(c tele.Context) error {
 		return m.ShowClientKey(c, false)
+	})
+	tb.Handle("/diag", func(c tele.Context) error {
+		return m.StartDiagnosticsWizard(c, false)
 	})
 
 	// Старые админ-команды (обратная совместимость)
@@ -106,9 +110,17 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 		relaySummary = fmt.Sprintf("\n📡 Релеи: *%d* активны · *%d/%d* занято", activeRelays, totalClientsOnRelays, totalCapacity)
 	}
 
+	openTicketsCount := 0
+	if ts := m.bot.TicketsStorage(); ts != nil {
+		openTicketsCount = len(ts.GetOpen())
+	}
+	digest := m.GenerateAdminDigest()
+
 	text := fmt.Sprintf(
 		"👋 *Sirin Bot — панель управления*\n\n"+
+			"📊 %s\n\n"+
 			"Клиентов: *%d* · Активных: *%d* · Просрочено: *%d*%s",
+		digest,
 		len(all),
 		activeCount,
 		expiredCount,
@@ -122,16 +134,18 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 	btnRelays := markup.Data("📡 Релеи", "menu", "relays")
 	btnStats := markup.Data("📊 Статистика", "menu", "stats")
 
+	btnTicketsLabel := fmt.Sprintf("🆘 Тикеты (%d)", openTicketsCount)
+	btnTickets := markup.Data(btnTicketsLabel, "ticket", "adm_open")
 	btnSearch := markup.Data("🔍 Поиск", "menu", "search")
-	btnSettings := markup.Data("⚙️ Настройки", "menu", "settings")
 
+	btnSettings := markup.Data("⚙️ Настройки", "menu", "settings")
 	btnHelp := markup.Data("ℹ️ Помощь", "menu", "help")
 
 	markup.Inline(
 		markup.Row(btnClients, btnNew),
 		markup.Row(btnRelays, btnStats),
-		markup.Row(btnSearch, btnSettings),
-		markup.Row(btnHelp),
+		markup.Row(btnTickets, btnSearch),
+		markup.Row(btnSettings, btnHelp),
 	)
 
 	if edit {
@@ -533,7 +547,28 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			return m.ShowClientTrialPrompt(c, true)
 		case "tariffs":
 			return m.ShowClientTariffs(c, true)
+		case "diag":
+			return m.StartDiagnosticsWizard(c, true)
+		case "faq":
+			return m.ShowFAQMenu(c, true)
+		case "tickets":
+			return m.ShowUserTicketsList(c, true)
+		case "add_device":
+			return m.ShowAddDevicePrompt(c, true)
+		case "add_dev_p":
+			if len(args) > 0 {
+				return m.HandleAddDevicePlatformCallback(c, args[0])
+			}
 		}
+
+	case "diag":
+		return m.HandleDiagCallback(c, action, args)
+
+	case "faq":
+		return m.HandleFAQCallback(c, action, args)
+
+	case "ticket":
+		return m.HandleTicketCallback(c, action, args)
 
 	case "trial":
 		if action == "submit" {
@@ -604,10 +639,42 @@ func (m *Manager) handleText(c tele.Context) error {
 		return nil
 	}
 
-	// Проверка наличия активного FSM-состояния у пользователя (включая загрузку чека)
+	// Проверка наличия активного FSM-состояния у пользователя (диагностика, чеки)
 	state, hasState := m.fsm.Get(c.Sender().ID)
-	if hasState && state.Action == "waiting_receipt" {
-		return c.Send("Пожалуйста, отправьте чек об оплате в виде фото или скриншота.")
+	if hasState {
+		switch state.Action {
+		case "diag_step0_key":
+			return m.HandleDiagStep0KeyInput(c, state, text)
+		case "diag_step3_ip":
+			return m.HandleDiagStep3IPInput(c, state, text)
+		case "user_add_device_uuid":
+			return m.HandleAddDeviceUUIDInput(c, state, text)
+		case "user_add_device_label":
+			return m.HandleAddDeviceLabelInput(c, state, text)
+		case "ticket_diag_create":
+			return m.HandleCreateTicketFromDiag(c, text)
+		case "ticket_user_reply":
+			ticketID, _ := strconv.Atoi(state.ClientID)
+			_, err := m.bot.TicketsStorage().AddMessage(ticketID, tickets.SenderUser, text)
+			if err != nil {
+				return c.Send("❌ " + err.Error())
+			}
+			m.fsm.Clear(c.Sender().ID)
+			_ = c.Send("✅ Ваше сообщение отправлено в поддержку!")
+			return m.ShowUserTicketCard(c, ticketID, false)
+		case "ticket_admin_reply":
+			ticketID, _ := strconv.Atoi(state.ClientID)
+			t, err := m.bot.TicketsStorage().AddMessage(ticketID, tickets.SenderAdmin, text)
+			if err != nil {
+				return c.Send("❌ " + err.Error())
+			}
+			m.fsm.Clear(c.Sender().ID)
+			m.notifyUserNewReply(t, text)
+			_ = c.Send("✅ Ответ отправлен клиенту!")
+			return m.ShowAdminTicketCard(c, ticketID, false)
+		case "waiting_receipt":
+			return c.Send("Пожалуйста, отправьте чек об оплате в виде фото или скриншота.")
+		}
 	}
 
 	if !m.bot.IsAdmin(c.Sender().ID) {

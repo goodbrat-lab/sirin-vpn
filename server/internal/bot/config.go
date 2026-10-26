@@ -28,6 +28,7 @@ type Config struct {
 	StoragePath   string        `toml:"storage_path"`   // /etc/sirin/bot_users.json
 	ClientsPath   string        `toml:"clients_path"`   // /etc/sirin/clients.json
 	RelaysPath    string        `toml:"relays_path"`    // /etc/sirin/relays.json
+	TicketsPath   string        `toml:"tickets_path"`   // /etc/sirin/tickets.json
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -56,6 +57,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RelaysPath == "" {
 		c.RelaysPath = "/etc/sirin/relays.json"
+	}
+	if c.TicketsPath == "" {
+		c.TicketsPath = "/etc/sirin/tickets.json"
 	}
 	if c.Payment.SBPBank == "" {
 		c.Payment.SBPBank = "СБП (любой банк)"

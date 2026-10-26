@@ -57,16 +57,31 @@ func (m *Manager) ShowClientHome(c tele.Context, edit bool) error {
 		btnOpen := markup.URL("🕊 Открыть в Сирин", openURL)
 		btnKey := markup.Data("🔑 Мой ключ", "my", "key")
 		btnTariffs := markup.Data("💳 Продлить доступ", "my", "tariffs")
+		btnDiag := markup.Data("🩺 Проверить соединение", "my", "diag")
+		btnTickets := markup.Data("📋 Мои обращения", "ticket", "user_list")
+		btnFAQ := markup.Data("📖 Частые вопросы (FAQ)", "my", "faq")
 		btnApps := markup.Data("📥 Приложения", "my", "apps")
 		btnGuide := markup.Data("📖 Инструкция", "my", "guide")
 		btnSupport := markup.Data("💬 Поддержка", "my", "support")
 
-		markup.Inline(
+		// Проактивный lazy-мониторинг при показе личного кабинета
+		warnText, warnRows := m.CheckUserProactiveWarnings(c.Sender().ID)
+		if warnText != "" {
+			text = warnText + "\n\n" + text
+		}
+
+		var allRows []tele.Row
+		allRows = append(allRows, warnRows...)
+		allRows = append(allRows,
 			markup.Row(btnOpen),
 			markup.Row(btnKey, btnTariffs),
+			markup.Row(btnDiag),
+			markup.Row(btnTickets, btnFAQ),
 			markup.Row(btnApps, btnGuide),
 			markup.Row(btnSupport),
 		)
+
+		markup.Inline(allRows...)
 
 		if edit {
 			return EditOrSend(c, text, markup)
@@ -105,12 +120,15 @@ func (m *Manager) ShowClientHome(c tele.Context, edit bool) error {
 
 	btnTrial := markup.Data("🎁 Бесплатный тест", "my", "trial_prompt")
 	btnTariffs := markup.Data("💳 Тарифы и оплата", "my", "tariffs")
+	btnDiag := markup.Data("🩺 Проверить соединение", "my", "diag")
+	btnFAQ := markup.Data("📖 Частые вопросы (FAQ)", "my", "faq")
 	btnApps := markup.Data("📥 Скачать приложение", "my", "apps")
 	btnAbout := markup.Data("📖 О сервисе", "my", "about")
 	btnSupport := markup.Data("💬 Поддержка", "my", "support")
 
 	markup.Inline(
 		markup.Row(btnTrial, btnTariffs),
+		markup.Row(btnDiag, btnFAQ),
 		markup.Row(btnApps, btnAbout),
 		markup.Row(btnSupport),
 	)
@@ -129,7 +147,47 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 		return m.ShowClientHome(c, edit)
 	}
 
-	client, ok := m.bot.ClientsStorage().Get(uk.UUID)
+	devs := uk.GetDevices()
+	if len(devs) == 0 {
+		RespondAlert(c, "У вас нет активного ключа")
+		return m.ShowClientHome(c, edit)
+	}
+
+	markup := &tele.ReplyMarkup{}
+	var rows []tele.Row
+
+	// Если привязано > 1 устройства
+	if len(devs) > 1 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("🔑 *Ваши устройства и ключи (%d):*\n\n", len(devs)))
+
+		for i, d := range devs {
+			cl, ok := m.bot.ClientsStorage().Get(d.UUID)
+			statusEmoji := "🟢"
+			if !ok || cl == nil || cl.Revoked || !cl.IsActive() {
+				statusEmoji = "🔴"
+			}
+			openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", d.UUID)
+			sb.WriteString(fmt.Sprintf("%s *%d. %s* (%s)\n`%s`\n\n", statusEmoji, i+1, d.Label, d.Platform, d.UUID))
+			btnOpen := markup.URL(fmt.Sprintf("🕊 Открыть %s", d.Label), openURL)
+			rows = append(rows, markup.Row(btnOpen))
+		}
+		sb.WriteString("_(нажмите на ключ, чтобы скопировать)_\n")
+
+		btnAddDev := markup.Data("➕ Добавить устройство", "my", "add_device")
+		btnBack := markup.Data("◀ В меню", "my", "home")
+		rows = append(rows, markup.Row(btnAddDev), markup.Row(btnBack))
+		markup.Inline(rows...)
+
+		if edit {
+			return EditOrSend(c, sb.String(), markup)
+		}
+		return c.Send(sb.String(), markup, tele.ModeMarkdown)
+	}
+
+	// Одно устройство
+	dev := devs[0]
+	client, ok := m.bot.ClientsStorage().Get(dev.UUID)
 	if !ok {
 		RespondAlert(c, "Ключ не найден в базе")
 		return m.ShowClientHome(c, edit)
@@ -138,22 +196,24 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", client.UUID)
 	deepLink := fmt.Sprintf("sirin://key?uuid=%s", client.UUID)
 	text := fmt.Sprintf(
-		"🔑 *Ваш персональный ключ доступа:*\n\n"+
+		"🔑 *Ваш персональный ключ доступа (%s):*\n\n"+
 			"`%s`\n\n"+
 			"_(нажмите на ключ, чтобы скопировать)_\n\n"+
 			"• Для автоматической настройки нажмите кнопку *«🕊 Открыть в Сирин»* ниже.\n"+
 			"• Deep-link: `%s`\n"+
 			"• Либо вставьте скопированный ключ вручную в приложении.",
+		dev.Label,
 		client.UUID,
 		deepLink,
 	)
 
-	markup := &tele.ReplyMarkup{}
 	btnOpen := markup.URL("🕊 Открыть в Сирин", openURL)
+	btnAddDev := markup.Data("➕ Добавить устройство", "my", "add_device")
 	btnBack := markup.Data("◀ В меню", "my", "home")
 
 	markup.Inline(
 		markup.Row(btnOpen),
+		markup.Row(btnAddDev),
 		markup.Row(btnBack),
 	)
 
@@ -161,6 +221,117 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
+}
+
+// ShowAddDevicePrompt шаг 1 добавления устройства: ввод UUID.
+func (m *Manager) ShowAddDevicePrompt(c tele.Context, edit bool) error {
+	m.fsm.Set(c.Sender().ID, "user_add_device_uuid", "", 0, nil)
+
+	text := "➕ *Добавление нового устройства*\n\n" +
+		"Отправьте ключ (UUID) для нового устройства в этот чат:\n\n" +
+		"`30e382b8-a8e0-4640-bd8e-68313636bb89`"
+
+	markup := &tele.ReplyMarkup{}
+	btnCancel := markup.Data("◀ Отмена", "my", "home")
+	markup.Inline(markup.Row(btnCancel))
+
+	if edit {
+		return EditOrSend(c, text, markup)
+	}
+	return c.Send(text, markup, tele.ModeMarkdown)
+}
+
+// HandleAddDeviceUUIDInput обрабатывает ввод UUID при добавлении устройства.
+func (m *Manager) HandleAddDeviceUUIDInput(c tele.Context, state *State, input string) error {
+	uuid := strings.TrimSpace(input)
+	if strings.Contains(uuid, "uuid=") {
+		parts := strings.Split(uuid, "uuid=")
+		if len(parts) > 1 {
+			uuid = strings.Split(parts[1], "&")[0]
+		}
+	}
+
+	client, ok := m.bot.ClientsStorage().Get(uuid)
+	if !ok || client == nil {
+		markup := &tele.ReplyMarkup{}
+		btnCancel := markup.Data("◀ Отмена", "my", "home")
+		markup.Inline(markup.Row(btnCancel))
+		return c.Send("❌ *Ключ не найден в базе данных сервера.*\nПроверьте правильность UUID или обратитесь к администратору.", markup, tele.ModeMarkdown)
+	}
+
+	m.fsm.Set(c.Sender().ID, "user_add_device_label", uuid, 0, map[string]string{
+		"uuid": uuid,
+		"name": client.Name,
+	})
+
+	return c.Send(fmt.Sprintf("🔑 Ключ найден (*%s*).\n\nВведите название устройства (например: `Телефон`, `Роутер Keenetic`, `Ноутбук`):", client.Name), tele.ModeMarkdown)
+}
+
+// HandleAddDeviceLabelInput обрабатывает ввод названия устройства.
+func (m *Manager) HandleAddDeviceLabelInput(c tele.Context, state *State, label string) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "Устройство"
+	}
+
+	uuid := state.Data["uuid"]
+	m.fsm.Set(c.Sender().ID, "user_add_device_platform", uuid, 0, map[string]string{
+		"uuid":  uuid,
+		"label": label,
+	})
+
+	markup := &tele.ReplyMarkup{}
+	btnAndroid := markup.Data("📱 Android", "my", "add_dev_p", "android")
+	btnWindows := markup.Data("💻 Windows", "my", "add_dev_p", "windows")
+	btnRouter := markup.Data("🌐 Роутер", "my", "add_dev_p", "router")
+	btnOther := markup.Data("❓ Другое", "my", "add_dev_p", "other")
+	btnCancel := markup.Data("◀ Отмена", "my", "home")
+
+	markup.Inline(
+		markup.Row(btnAndroid, btnWindows),
+		markup.Row(btnRouter, btnOther),
+		markup.Row(btnCancel),
+	)
+
+	return c.Send(fmt.Sprintf("📱 Устройство: *%s*\n\nВыберите платформу устройства:", label), markup, tele.ModeMarkdown)
+}
+
+// HandleAddDevicePlatformCallback сохраняет новое устройство.
+func (m *Manager) HandleAddDevicePlatformCallback(c tele.Context, platform string) error {
+	RespondSafe(c)
+	state, ok := m.fsm.Get(c.Sender().ID)
+	if !ok || state.Data["uuid"] == "" {
+		RespondAlert(c, "Сессия истекла")
+		return m.ShowClientHome(c, true)
+	}
+
+	dev := bot.Device{
+		UUID:      state.Data["uuid"],
+		Label:     state.Data["label"],
+		Platform:  platform,
+		Transport: "unknown",
+		AddedAt:   time.Now().Unix(),
+	}
+
+	if err := m.bot.Storage().AddDevice(c.Sender().ID, dev); err != nil {
+		RespondAlert(c, "Ошибка добавления устройства: "+err.Error())
+		return m.ShowClientHome(c, true)
+	}
+
+	m.fsm.Clear(c.Sender().ID)
+	text := fmt.Sprintf("✅ *Устройство «%s» успешно добавлено!*\n\nТеперь вы можете проводить раздельную диагностику и просматривать ключи всех ваших устройств.", dev.Label)
+
+	markup := &tele.ReplyMarkup{}
+	btnKeys := markup.Data("🔑 Мои ключи", "my", "key")
+	btnDiag := markup.Data("🩺 Проверить соединение", "my", "diag")
+	btnMenu := markup.Data("◀ В меню", "my", "home")
+
+	markup.Inline(
+		markup.Row(btnKeys, btnDiag),
+		markup.Row(btnMenu),
+	)
+
+	return EditOrSend(c, text, markup)
 }
 
 // ShowClientApps выводит ссылки на загрузку клиентских приложений.

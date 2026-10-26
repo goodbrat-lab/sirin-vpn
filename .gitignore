@@ -100,6 +100,8 @@ server/sirind*
 server/sirinapi*
 server/sirinbot*
 *clients.json*
+*tickets.json*
+*bot_users.json*
 
 # === Тестовые бинарники Reality ===
 core/engine/reality-test*

@@ -9,6 +9,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"sirin/server/internal/relays"
+	"sirin/server/internal/bot/tickets"
 )
 
 type pendingDelete struct {
@@ -22,6 +23,7 @@ type Bot struct {
 	storage        *Storage        // bot_users.json (telegram_id -> UserKey)
 	clientsStorage *ClientsStorage // clients.json
 	relaysStorage  *relays.Storage // relays.json
+	ticketsStorage *tickets.Storage // tickets.json
 	api            *APIClient
 	pendingDeletes map[string]pendingDelete
 	pendingDelMu   sync.Mutex
@@ -51,12 +53,22 @@ func New(cfg *Config, storage *Storage) (*Bot, error) {
 		}
 	}
 
+	var ticketsStorage *tickets.Storage
+	if cfg.TicketsPath != "" {
+		var err error
+		ticketsStorage, err = tickets.LoadTickets(cfg.TicketsPath)
+		if err != nil {
+			log.Printf("[SirinBot] tickets storage init error (%s): %v", cfg.TicketsPath, err)
+		}
+	}
+
 	b := &Bot{
 		cfg:            cfg,
 		bot:            tb,
 		storage:        storage,
 		clientsStorage: clientsStorage,
 		relaysStorage:  relaysStorage,
+		ticketsStorage: ticketsStorage,
 		api:            NewAPIClient(cfg.APIURL, cfg.APIAdminToken),
 		pendingDeletes: make(map[string]pendingDelete),
 	}
@@ -77,6 +89,8 @@ func (b *Bot) TeleBot() *tele.Bot { return b.bot }
 func (b *Bot) ClientsStorage() *ClientsStorage { return b.clientsStorage }
 func (b *Bot) RelaysStorage() *relays.Storage { return b.relaysStorage }
 func (b *Bot) SetRelaysStorage(rs *relays.Storage) { b.relaysStorage = rs }
+func (b *Bot) TicketsStorage() *tickets.Storage { return b.ticketsStorage }
+func (b *Bot) SetTicketsStorage(ts *tickets.Storage) { b.ticketsStorage = ts }
 func (b *Bot) Storage() *Storage { return b.storage }
 func (b *Bot) Config() *Config { return b.cfg }
 func (b *Bot) IsAdmin(id int64) bool { return b.isAdmin(id) }
