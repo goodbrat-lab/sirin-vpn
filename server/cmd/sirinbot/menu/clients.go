@@ -178,6 +178,32 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 		}
 	}
 
+	var devSummary string
+	if uk, found := m.bot.Storage().FindByUUID(client.UUID); found && uk != nil {
+		devs := uk.GetDevices()
+		if len(devs) > 1 {
+			devSummary = fmt.Sprintf("\n\n📱 *Устройства пользователя (%d):*", len(devs))
+			for i, d := range devs {
+				marker := ""
+				if d.UUID == client.UUID {
+					marker = " ⭐ (текущий)"
+				}
+				lastDiag := "не проводилась"
+				if d.LastDiagAt > 0 {
+					lastDiag = time.Unix(d.LastDiagAt, 0).Format("02.01 15:04")
+				}
+				devSummary += fmt.Sprintf("\n  %d. *%s* [%s] — diag: %s%s", i+1, d.Label, d.Platform, lastDiag, marker)
+			}
+		} else if len(devs) == 1 {
+			d := devs[0]
+			lastDiag := "не проводилась"
+			if d.LastDiagAt > 0 {
+				lastDiag = time.Unix(d.LastDiagAt, 0).Format("02.01 15:04")
+			}
+			devSummary = fmt.Sprintf("\n\n📱 *Устройство:* %s [%s] (diag: %s)", d.Label, d.Platform, lastDiag)
+		}
+	}
+
 	text := fmt.Sprintf(
 		"👤 *%s*\n"+
 			"🆔 `%s`\n"+
@@ -185,7 +211,7 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 			"⏱ Срок: %s\n"+
 			"📊 Осталось: %s\n"+
 			"📡 Узел: %s\n"+
-			"%s Статус: %s",
+			"%s Статус: %s%s",
 		client.Name,
 		masked,
 		createdStr,
@@ -194,6 +220,7 @@ func (m *Manager) ShowClientCard(c tele.Context, client *bot.Client, edit bool) 
 		relayStr,
 		emoji,
 		statusLabel,
+		devSummary,
 	)
 
 	markup := &tele.ReplyMarkup{}

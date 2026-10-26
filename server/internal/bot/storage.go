@@ -9,11 +9,59 @@ import (
 	"time"
 )
 
+type Device struct {
+	UUID        string `json:"uuid"`
+	Label       string `json:"label"`        // "Телефон", "Роутер", "Ноутбук"
+	Platform    string `json:"platform"`     // "android", "windows", "router", "other"
+	Transport   string `json:"transport"`    // "vless", "xhttp", "udp", "unknown"
+	AppVersion  string `json:"app_version"`  // "1.3.5", etc.
+	AddedAt     int64  `json:"added_at"`     // unix timestamp
+	LastDiagAt  int64  `json:"last_diag_at"` // unix timestamp
+}
+
 type UserKey struct {
-	TelegramID int64  `json:"telegram_id"`
-	UUID       string `json:"uuid"`
-	Name       string `json:"name"`
-	CreatedAt  int64  `json:"created_at"`
+	TelegramID int64    `json:"telegram_id"`
+	UUID       string   `json:"uuid,omitempty"` // legacy single UUID for backward compatibility
+	Name       string   `json:"name"`
+	CreatedAt  int64    `json:"created_at"`
+	Devices    []Device `json:"devices,omitempty"`
+}
+
+// GetDevices возвращает список всех устройств пользователя с автоматической миграцией одиночного UUID.
+func (u *UserKey) GetDevices() []Device {
+	if len(u.Devices) == 0 && u.UUID != "" {
+		return []Device{
+			{
+				UUID:       u.UUID,
+				Label:      "Устройство 1",
+				Platform:   "android",
+				Transport:  "unknown",
+				AddedAt:    u.CreatedAt,
+			},
+		}
+	}
+	return u.Devices
+}
+
+// GetDevice ищет устройство по UUID.
+func (u *UserKey) GetDevice(uuid string) (*Device, bool) {
+	for _, d := range u.GetDevices() {
+		if d.UUID == uuid {
+			clone := d
+			return &clone, true
+		}
+	}
+	return nil, false
+}
+
+// PrimaryDevice возвращает первое (основное) устройство.
+func (u *UserKey) PrimaryDevice() *Device {
+	devs := u.GetDevices()
+	if len(devs) > 0 {
+		clone := devs[0]
+		return &clone
+	}
+	return nil
 }
 
 type TrialRequest struct {
@@ -97,6 +145,23 @@ func (s *Storage) load() error {
 	if file.Users == nil {
 		file.Users = make(map[int64]*UserKey)
 	}
+	// Автоматическая миграция legacy записей (uuid -> devices[])
+	for _, u := range file.Users {
+		if u == nil {
+			continue
+		}
+		if len(u.Devices) == 0 && u.UUID != "" {
+			u.Devices = []Device{
+				{
+					UUID:       u.UUID,
+					Label:      "Устройство 1",
+					Platform:   "android",
+					Transport:  "unknown",
+					AddedAt:    u.CreatedAt,
+				},
+			}
+		}
+	}
 	if file.TrialRequests == nil {
 		file.TrialRequests = make(map[string]*TrialRequest)
 	}
@@ -133,6 +198,7 @@ func (s *Storage) Get(telegramID int64) (*UserKey, bool) {
 		return nil, false
 	}
 	clone := *u
+	clone.Devices = u.GetDevices()
 	return &clone, true
 }
 
@@ -142,9 +208,20 @@ func (s *Storage) FindByUUID(uuid string) (*UserKey, bool) {
 	_ = s.load()
 
 	for _, u := range s.data.Users {
+		if u == nil {
+			continue
+		}
 		if u.UUID == uuid {
 			clone := *u
+			clone.Devices = u.GetDevices()
 			return &clone, true
+		}
+		for _, d := range u.GetDevices() {
+			if d.UUID == uuid {
+				clone := *u
+				clone.Devices = u.GetDevices()
+				return &clone, true
+			}
 		}
 	}
 	return nil, false
@@ -155,7 +232,117 @@ func (s *Storage) Set(u UserKey) error {
 	defer s.mu.Unlock()
 	_ = s.load()
 
+	if len(u.Devices) == 0 && u.UUID != "" {
+		u.Devices = []Device{
+			{
+				UUID:       u.UUID,
+				Label:      "Устройство 1",
+				Platform:   "android",
+				Transport:  "unknown",
+				AddedAt:    u.CreatedAt,
+			},
+		}
+	}
+	if u.UUID == "" && len(u.Devices) > 0 {
+		u.UUID = u.Devices[0].UUID
+	}
+
 	s.data.Users[u.TelegramID] = &u
+	return s.saveLocked()
+}
+
+// AddDevice добавляет или обновляет устройство пользователя.
+func (s *Storage) AddDevice(telegramID int64, dev Device) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.load()
+
+	u, ok := s.data.Users[telegramID]
+	if !ok || u == nil {
+		u = &UserKey{
+			TelegramID: telegramID,
+			CreatedAt:  time.Now().Unix(),
+		}
+	}
+
+	if dev.AddedAt == 0 {
+		dev.AddedAt = time.Now().Unix()
+	}
+	if dev.Label == "" {
+		dev.Label = fmt.Sprintf("Устройство %d", len(u.GetDevices())+1)
+	}
+
+	found := false
+	devs := u.GetDevices()
+	for i, d := range devs {
+		if d.UUID == dev.UUID {
+			devs[i] = dev
+			found = true
+			break
+		}
+	}
+	if !found {
+		devs = append(devs, dev)
+	}
+	u.Devices = devs
+
+	if u.UUID == "" {
+		u.UUID = dev.UUID
+	}
+
+	s.data.Users[telegramID] = u
+	return s.saveLocked()
+}
+
+// UpdateDeviceDiag обновляет время последней диагностики устройства.
+func (s *Storage) UpdateDeviceDiag(telegramID int64, uuid string, diagTime time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.load()
+
+	u, ok := s.data.Users[telegramID]
+	if !ok || u == nil {
+		return nil
+	}
+
+	devs := u.GetDevices()
+	for i, d := range devs {
+		if d.UUID == uuid {
+			devs[i].LastDiagAt = diagTime.Unix()
+			u.Devices = devs
+			s.data.Users[telegramID] = u
+			return s.saveLocked()
+		}
+	}
+	return nil
+}
+
+// RemoveDevice удаляет устройство у пользователя.
+func (s *Storage) RemoveDevice(telegramID int64, uuid string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.load()
+
+	u, ok := s.data.Users[telegramID]
+	if !ok || u == nil {
+		return nil
+	}
+
+	var newDevs []Device
+	for _, d := range u.GetDevices() {
+		if d.UUID != uuid {
+			newDevs = append(newDevs, d)
+		}
+	}
+	u.Devices = newDevs
+	if u.UUID == uuid {
+		if len(newDevs) > 0 {
+			u.UUID = newDevs[0].UUID
+		} else {
+			u.UUID = ""
+		}
+	}
+	s.data.Users[telegramID] = u
 	return s.saveLocked()
 }
 

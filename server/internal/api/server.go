@@ -41,10 +41,15 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/v1/key", s.HandleKey)
 	mux.HandleFunc("/v1/params", s.HandleParams)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		egressIP := s.cfg.ServerHost
+		if egressIP == "" {
+			egressIP = s.cfg.VLESSHost
+		}
 		writeJSON(w, 200, map[string]interface{}{
-			"status":  "ok",
-			"clients": s.storage.Count(),
-			"time":    time.Now().Unix(),
+			"status":    "ok",
+			"clients":   s.storage.Count(),
+			"time":      time.Now().Unix(),
+			"egress_ip": egressIP,
 		})
 	})
 
