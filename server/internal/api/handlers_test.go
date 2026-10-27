@@ -329,6 +329,23 @@ func TestMonitorEndpoint(t *testing.T) {
 	if !srv.IsRelayDegraded(1) {
 		t.Fatal("expected relay 1 to be degraded")
 	}
+
+	// 4. Тест гистерезиса: 1-й и 2-й 'ok' после degraded не должны сразу снимать флаг
+	srv.RecordNodeReport(MonitorRequest{Node: "moscow", RTTMs: 40.0, LossPct: 0.0, Status: "ok"})
+	if !srv.IsNodeDegraded("moscow") {
+		t.Fatal("expected moscow to still be degraded after 1st OK (hysteresis)")
+	}
+
+	srv.RecordNodeReport(MonitorRequest{Node: "moscow", RTTMs: 42.0, LossPct: 0.0, Status: "ok"})
+	if !srv.IsNodeDegraded("moscow") {
+		t.Fatal("expected moscow to still be degraded after 2nd OK (hysteresis)")
+	}
+
+	// 3-й 'ok' подряд — стабилизация подтверждена, статус становится ok
+	srv.RecordNodeReport(MonitorRequest{Node: "moscow", RTTMs: 39.0, LossPct: 0.0, Status: "ok"})
+	if srv.IsNodeDegraded("moscow") {
+		t.Fatal("expected moscow to recover after 3 consecutive OKs")
+	}
 }
 
 func TestHandleParamsDegradedFallback(t *testing.T) {

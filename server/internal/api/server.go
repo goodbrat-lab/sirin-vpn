@@ -14,13 +14,14 @@ import (
 )
 
 type Server struct {
-	cfg        *Config
-	storage    *Storage
-	relays     *relays.Storage
-	http       *http.Server
-	monitorMu  sync.RWMutex
-	nodeStatus map[string]NodeReport
-	lastAlert  map[string]string
+	cfg           *Config
+	storage       *Storage
+	relays        *relays.Storage
+	http          *http.Server
+	monitorMu     sync.RWMutex
+	nodeStatus    map[string]NodeReport
+	consecutiveOk map[string]int
+	lastAlert     map[string]string
 }
 
 func New(cfg *Config, storage *Storage) *Server {
@@ -33,11 +34,12 @@ func New(cfg *Config, storage *Storage) *Server {
 		}
 	}
 	return &Server{
-		cfg:        cfg,
-		storage:    storage,
-		relays:     rs,
-		nodeStatus: make(map[string]NodeReport),
-		lastAlert:  make(map[string]string),
+		cfg:           cfg,
+		storage:       storage,
+		relays:        rs,
+		nodeStatus:    make(map[string]NodeReport),
+		consecutiveOk: make(map[string]int),
+		lastAlert:     make(map[string]string),
 	}
 }
 
@@ -125,6 +127,7 @@ func logMiddleware(next http.Handler) http.Handler {
 }
 
 // RecordNodeReport записывает телеметрию узла и отправляет Telegram-алерт при смене статуса.
+// Применяется гистерезис: выход из состояния degraded требует 3 успешных отчёта подряд.
 func (s *Server) RecordNodeReport(req MonitorRequest) NodeReport {
 	s.monitorMu.Lock()
 	defer s.monitorMu.Unlock()
@@ -138,25 +141,48 @@ func (s *Server) RecordNodeReport(req MonitorRequest) NodeReport {
 		}
 	}
 
+	effectiveStatus := status
+	currentRep, hasCurrent := s.nodeStatus[req.Node]
+	isCurrentlyDegraded := hasCurrent && currentRep.Status == "degraded"
+
+	if status == "degraded" {
+		s.consecutiveOk[req.Node] = 0
+		effectiveStatus = "degraded"
+	} else if status == "ok" {
+		if isCurrentlyDegraded {
+			s.consecutiveOk[req.Node]++
+			if s.consecutiveOk[req.Node] < 3 {
+				// Остаёмся degraded до набора 3 успешных циклов подряд (защита от флаппинга)
+				effectiveStatus = "degraded"
+				log.Printf("[SirinAPI] Node %s reported OK (%d/3 cycles to recover)", req.Node, s.consecutiveOk[req.Node])
+			} else {
+				effectiveStatus = "ok"
+			}
+		} else {
+			s.consecutiveOk[req.Node] = 3
+			effectiveStatus = "ok"
+		}
+	}
+
 	rep := NodeReport{
 		Node:      req.Node,
 		RTTMs:     req.RTTMs,
 		LossPct:   req.LossPct,
-		Status:    status,
+		Status:    effectiveStatus,
 		UpdatedAt: time.Now(),
 	}
 	s.nodeStatus[req.Node] = rep
 
-	// Проверка перехода статуса
+	// Проверка перехода эффективного статуса для алертов
 	last, exists := s.lastAlert[req.Node]
-	if !exists || last != status {
-		s.lastAlert[req.Node] = status
-		if status == "degraded" {
+	if !exists || last != effectiveStatus {
+		s.lastAlert[req.Node] = effectiveStatus
+		if effectiveStatus == "degraded" {
 			msg := fmt.Sprintf("⚠️ [Sirin Monitor] Узел %s перешёл в состояние DEGRADED!\nRTT: %.1f ms, Потери: %.1f%%\nАвтоматический fallback активирован в /v1/params.",
 				req.Node, req.RTTMs, req.LossPct)
 			s.sendAlert(msg)
-		} else if status == "ok" && exists && last == "degraded" {
-			msg := fmt.Sprintf("✅ [Sirin Monitor] Узел %s восстановился (OK).\nRTT: %.1f ms, Потери: %.1f%%.",
+		} else if effectiveStatus == "ok" && exists && last == "degraded" {
+			msg := fmt.Sprintf("✅ [Sirin Monitor] Узел %s стабильно восстановился (OK, 3 цикла подряд).\nRTT: %.1f ms, Потери: %.1f%%.",
 				req.Node, req.RTTMs, req.LossPct)
 			s.sendAlert(msg)
 		}
