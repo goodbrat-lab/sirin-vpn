@@ -96,6 +96,7 @@ apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
 apps/android/app/src/debug/java/ru/guseynovia/sirin/DebugHashes.kt
 
 # === Скомпилированные бинарники сервера ===
+server/bin/
 server/sirind*
 server/sirinapi*
 server/sirinbot*

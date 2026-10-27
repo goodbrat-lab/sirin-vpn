@@ -280,3 +280,146 @@ func TestHandleParamsWithRelays(t *testing.T) {
 		t.Errorf("expected fallback host 94.183.159.114, got %s", p99.Entries[1].Host)
 	}
 }
+
+func TestMonitorEndpoint(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// 1. POST /v1/admin/monitor with valid body
+	body := []byte(`{"node":"germany","rtt_ms":16.5,"loss_pct":0.0,"status":"ok"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/monitor", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-admin-token")
+	w := httptest.NewRecorder()
+	srv.HandleAdminMonitorPost(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	// 2. GET /v1/admin/monitor
+	reqGet := httptest.NewRequest(http.MethodGet, "/v1/admin/monitor", nil)
+	reqGet.Header.Set("Authorization", "Bearer test-admin-token")
+	wGet := httptest.NewRecorder()
+	srv.HandleAdminMonitorGet(wGet, reqGet)
+
+	if wGet.Code != http.StatusOK {
+		t.Fatalf("code = %d", wGet.Code)
+	}
+	var resp map[string]interface{}
+	_ = json.Unmarshal(wGet.Body.Bytes(), &resp)
+	reports, ok := resp["reports"].(map[string]interface{})
+	if !ok || len(reports) != 1 {
+		t.Fatalf("expected 1 report, got %v", reports)
+	}
+	if !srv.IsNodeDegraded("germany") == false {
+		t.Fatal("expected germany not degraded")
+	}
+
+	// 3. POST /v1/admin/monitor degraded
+	bodyDegraded := []byte(`{"node":"moscow","rtt_ms":180.0,"loss_pct":10.0}`)
+	reqDegraded := httptest.NewRequest(http.MethodPost, "/v1/admin/monitor", bytes.NewReader(bodyDegraded))
+	wDegraded := httptest.NewRecorder()
+	srv.HandleAdminMonitorPost(wDegraded, reqDegraded)
+
+	if wDegraded.Code != http.StatusOK {
+		t.Fatalf("code = %d", wDegraded.Code)
+	}
+	if !srv.IsNodeDegraded("moscow") {
+		t.Fatal("expected moscow to be degraded")
+	}
+	if !srv.IsRelayDegraded(1) {
+		t.Fatal("expected relay 1 to be degraded")
+	}
+}
+
+func TestHandleParamsDegradedFallback(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewStorage(filepath.Join(dir, "clients.json"))
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	cfg := &Config{
+		ListenAddr:   ":0",
+		StoragePath:  filepath.Join(dir, "clients.json"),
+		AdminToken:   "test-token",
+		ServerHost:   "94.183.159.114",
+		ServerPort:   56005,
+		ServerID:     "sirin-main",
+		Generation:   1,
+		VLESSEnabled: true,
+		VLESSHost:    "94.183.159.114",
+		VLESSPort:    443,
+	}
+	srv := New(cfg, storage)
+
+	rStorage, err := relays.NewStorage(filepath.Join(dir, "relays.json"))
+	if err != nil {
+		t.Fatalf("relays storage: %v", err)
+	}
+	_, _ = rStorage.Add(relays.Relay{
+		ID:         2,
+		Name:       "Германия (45.38.228.142)",
+		Host:       "45.38.228.142",
+		PortVLESS:  9443,
+		PortXHTTP:  9444,
+		MaxClients: 10,
+		Enabled:    true,
+	})
+	srv.SetRelaysStorage(rStorage)
+
+	cRelay1, _ := storage.AddWithRelay("UserRelay1", 0, 1)
+	cDirect, _ := storage.AddWithRelay("UserDirect", 0, 0)
+
+	// Сценарий 1: Москва (Relay 1) деградирована -> клиент с relay_id=1 получает Direct NL
+	srv.SetNodeStatusForTest("moscow", "degraded", 190.0, 15.0)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/params?key="+cRelay1.UUID, nil)
+	w := httptest.NewRecorder()
+	srv.HandleParams(w, req)
+
+	if w.Header().Get("X-Fallback-Active") != "true" {
+		t.Errorf("expected X-Fallback-Active=true, got %s", w.Header().Get("X-Fallback-Active"))
+	}
+	if w.Header().Get("X-Effective-Relay") != "0" {
+		t.Errorf("expected X-Effective-Relay=0, got %s", w.Header().Get("X-Effective-Relay"))
+	}
+
+	var p1 ParamsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &p1)
+	if len(p1.Entries) != 3 {
+		t.Fatalf("expected 3 entries for direct NL fallback, got %d", len(p1.Entries))
+	}
+	if p1.Entries[0].Transport != "udp" || p1.Entries[1].Host != "94.183.159.114" {
+		t.Errorf("expected Direct NL fallback, got %+v", p1.Entries[0])
+	}
+
+	// Проверяем, что в clients.json relay_id НЕ изменился!
+	cCheck, _ := storage.Get(cRelay1.UUID)
+	if cCheck.RelayID != 1 {
+		t.Fatalf("client relay_id in storage changed to %d, must stay 1", cCheck.RelayID)
+	}
+
+	// Сценарий 2: Direct NL деградирован -> клиент с relay_id=0 получает Relay 2 (Германия)
+	srv.SetNodeStatusForTest("nl", "degraded", 210.0, 20.0)
+	srv.SetNodeStatusForTest("germany", "ok", 16.0, 0.0)
+
+	reqDirect := httptest.NewRequest(http.MethodGet, "/v1/params?key="+cDirect.UUID, nil)
+	wDirect := httptest.NewRecorder()
+	srv.HandleParams(wDirect, reqDirect)
+
+	if wDirect.Header().Get("X-Fallback-Active") != "true" {
+		t.Errorf("expected X-Fallback-Active=true, got %s", wDirect.Header().Get("X-Fallback-Active"))
+	}
+	if wDirect.Header().Get("X-Effective-Relay") != "2" {
+		t.Errorf("expected X-Effective-Relay=2, got %s", wDirect.Header().Get("X-Effective-Relay"))
+	}
+
+	var pDirect ParamsResponse
+	_ = json.Unmarshal(wDirect.Body.Bytes(), &pDirect)
+	if len(pDirect.Entries) != 2 {
+		t.Fatalf("expected 2 entries for Relay 2 fallback, got %d", len(pDirect.Entries))
+	}
+	if pDirect.Entries[0].Host != "45.38.228.142" || pDirect.Entries[0].Port != 9443 {
+		t.Errorf("expected Germany host 45.38.228.142:9443, got %+v", pDirect.Entries[0])
+	}
+}
+

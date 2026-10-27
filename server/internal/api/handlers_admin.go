@@ -86,3 +86,38 @@ func (s *Server) HandleAdminRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok", "message": "revoked"})
 }
+
+// HandleAdminMonitorPost — POST /v1/admin/monitor
+func (s *Server) HandleAdminMonitorPost(w http.ResponseWriter, r *http.Request) {
+	var req MonitorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, ErrorResponse{
+			Contract: "v1", Status: "error",
+			Error: "invalid json: " + err.Error(),
+		})
+		return
+	}
+	if req.Node == "" {
+		writeJSON(w, 400, ErrorResponse{
+			Contract: "v1", Status: "error",
+			Error: "node обязателен",
+		})
+		return
+	}
+	rep := s.RecordNodeReport(req)
+	writeJSON(w, 200, map[string]interface{}{
+		"contract": "v1",
+		"status":   "ok",
+		"report":   rep,
+	})
+}
+
+// HandleAdminMonitorGet — GET /v1/admin/monitor
+func (s *Server) HandleAdminMonitorGet(w http.ResponseWriter, r *http.Request) {
+	reports := s.GetNodeReports()
+	writeJSON(w, 200, map[string]interface{}{
+		"contract": "v1",
+		"status":   "answered",
+		"reports":  reports,
+	})
+}

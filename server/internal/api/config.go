@@ -19,6 +19,8 @@ type Config struct {
 	VLESSPort    int    `toml:"vless_port"`    // 443
 	Relay1Host   string `toml:"relay1_host"`   // адрес Relay 1 (legacy fallback)
 	RelaysPath   string `toml:"relays_path"`   // путь к relays.json
+	BotToken     string `toml:"bot_token"`     // токен Telegram-бота для алертов
+	AdminID      int64  `toml:"admin_id"`      // chat_id админа для алертов
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -118,3 +118,21 @@ type ErrorResponse struct {
 	Error    string `json:"error,omitempty"`
 	Message  string `json:"message,omitempty"`
 }
+
+// NodeReport — отчёт телеметрии узла от watchdog.
+type NodeReport struct {
+	Node      string    `json:"node"`
+	RTTMs     float64   `json:"rtt_ms"`
+	LossPct   float64   `json:"loss_pct"`
+	Status    string    `json:"status"` // "ok" | "degraded"
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// MonitorRequest — входящий JSON в POST /v1/admin/monitor.
+type MonitorRequest struct {
+	Node    string  `json:"node"`
+	RTTMs   float64 `json:"rtt_ms"`
+	LossPct float64 `json:"loss_pct"`
+	Status  string  `json:"status,omitempty"`
+}
+

@@ -141,12 +141,39 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 	xhttpPort := 8443
 	var relayLoadHeader string
 
+	effectiveRelayID := 0
+	isFallbackActive := false
+
 	if key != "" {
 		if c, ok := s.storage.Get(key); ok {
-			if c.RelayID == 0 {
-				// Прямой NL выход (по умолчанию)
+			effectiveRelayID = c.RelayID
+
+			// Проверяем, деградирован ли назначенный маршрут
+			if effectiveRelayID > 0 && s.IsRelayDegraded(effectiveRelayID) {
+				log.Printf("[WARN] /v1/params: client %s assigned relay_id=%d is DEGRADED! Finding healthy fallback", c.UUID, effectiveRelayID)
+				isFallbackActive = true
+				if !s.IsRelayDegraded(0) {
+					effectiveRelayID = 0
+				} else if effectiveRelayID != 2 && s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
+					effectiveRelayID = 2
+				} else if effectiveRelayID != 1 && s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
+					effectiveRelayID = 1
+				}
+			} else if effectiveRelayID == 0 && s.IsRelayDegraded(0) {
+				log.Printf("[WARN] /v1/params: client %s Direct NL is DEGRADED! Finding healthy relay fallback", c.UUID)
+				isFallbackActive = true
+				if s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
+					effectiveRelayID = 2
+				} else if s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
+					effectiveRelayID = 1
+				}
+			}
+
+			if effectiveRelayID == 0 {
+				// Прямой NL выход (по умолчанию или fallback)
+				isRelayClient = false
 			} else if s.relays != nil {
-				if r, found := s.relays.GetByID(c.RelayID); found && r.Enabled {
+				if r, found := s.relays.GetByID(effectiveRelayID); found && r.Enabled {
 					vlessHost = r.Host
 					if r.PortVLESS > 0 {
 						vlessPort = r.PortVLESS
@@ -159,9 +186,10 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 					relayLoadHeader = fmt.Sprintf("%d/%d", activeOnRelay, r.MaxClients)
 					isRelayClient = true
 				} else {
-					log.Printf("[WARN] /v1/params: client %s has unknown or disabled relay_id=%d, fallback to direct NL", c.UUID, c.RelayID)
+					log.Printf("[WARN] /v1/params: client %s has unknown or disabled relay_id=%d, fallback to direct NL", c.UUID, effectiveRelayID)
+					isRelayClient = false
 				}
-			} else if c.RelayID == 1 {
+			} else if effectiveRelayID == 1 {
 				// Fallback если relays storage не инициализирован
 				if s.cfg.Relay1Host != "" {
 					vlessHost = s.cfg.Relay1Host
@@ -171,6 +199,11 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 				isRelayClient = true
 			}
 		}
+	}
+
+	if isFallbackActive {
+		w.Header().Set("X-Fallback-Active", "true")
+		w.Header().Set("X-Effective-Relay", fmt.Sprintf("%d", effectiveRelayID))
 	}
 
 	if relayLoadHeader != "" {

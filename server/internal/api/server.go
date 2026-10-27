@@ -1,20 +1,26 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"sirin/server/internal/relays"
 )
 
 type Server struct {
-	cfg     *Config
-	storage *Storage
-	relays  *relays.Storage
-	http    *http.Server
+	cfg        *Config
+	storage    *Storage
+	relays     *relays.Storage
+	http       *http.Server
+	monitorMu  sync.RWMutex
+	nodeStatus map[string]NodeReport
+	lastAlert  map[string]string
 }
 
 func New(cfg *Config, storage *Storage) *Server {
@@ -26,7 +32,13 @@ func New(cfg *Config, storage *Storage) *Server {
 			log.Printf("[SirinAPI] WARN: relays storage init error (%s): %v", cfg.RelaysPath, err)
 		}
 	}
-	return &Server{cfg: cfg, storage: storage, relays: rs}
+	return &Server{
+		cfg:        cfg,
+		storage:    storage,
+		relays:     rs,
+		nodeStatus: make(map[string]NodeReport),
+		lastAlert:  make(map[string]string),
+	}
 }
 
 // SetRelaysStorage переопределяет хранилище релеев (для тестов).
@@ -66,6 +78,16 @@ func (s *Server) Start() error {
 	}))
 	mux.HandleFunc("/v1/admin/delete", s.requireAdmin(s.HandleAdminDelete))
 	mux.HandleFunc("/v1/admin/revoke", s.requireAdmin(s.HandleAdminRevoke))
+	mux.HandleFunc("/v1/admin/monitor", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			s.HandleAdminMonitorPost(w, r)
+		case http.MethodGet:
+			s.HandleAdminMonitorGet(w, r)
+		default:
+			writeJSON(w, 405, ErrorResponse{Contract: "v1", Status: "error", Error: "method not allowed"})
+		}
+	}))
 
 	handler := logMiddleware(mux)
 
@@ -100,4 +122,128 @@ func logMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("[SirinAPI] %s %s %s (%v)", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start))
 	})
+}
+
+// RecordNodeReport записывает телеметрию узла и отправляет Telegram-алерт при смене статуса.
+func (s *Server) RecordNodeReport(req MonitorRequest) NodeReport {
+	s.monitorMu.Lock()
+	defer s.monitorMu.Unlock()
+
+	status := req.Status
+	if status == "" {
+		if req.RTTMs > 150 || req.LossPct > 5 {
+			status = "degraded"
+		} else {
+			status = "ok"
+		}
+	}
+
+	rep := NodeReport{
+		Node:      req.Node,
+		RTTMs:     req.RTTMs,
+		LossPct:   req.LossPct,
+		Status:    status,
+		UpdatedAt: time.Now(),
+	}
+	s.nodeStatus[req.Node] = rep
+
+	// Проверка перехода статуса
+	last, exists := s.lastAlert[req.Node]
+	if !exists || last != status {
+		s.lastAlert[req.Node] = status
+		if status == "degraded" {
+			msg := fmt.Sprintf("⚠️ [Sirin Monitor] Узел %s перешёл в состояние DEGRADED!\nRTT: %.1f ms, Потери: %.1f%%\nАвтоматический fallback активирован в /v1/params.",
+				req.Node, req.RTTMs, req.LossPct)
+			s.sendAlert(msg)
+		} else if status == "ok" && exists && last == "degraded" {
+			msg := fmt.Sprintf("✅ [Sirin Monitor] Узел %s восстановился (OK).\nRTT: %.1f ms, Потери: %.1f%%.",
+				req.Node, req.RTTMs, req.LossPct)
+			s.sendAlert(msg)
+		}
+	}
+
+	return rep
+}
+
+// GetNodeReports возвращает копию текущих отчётов мониторинга.
+func (s *Server) GetNodeReports() map[string]NodeReport {
+	s.monitorMu.RLock()
+	defer s.monitorMu.RUnlock()
+
+	res := make(map[string]NodeReport, len(s.nodeStatus))
+	for k, v := range s.nodeStatus {
+		res[k] = v
+	}
+	return res
+}
+
+// IsNodeDegraded проверяет, помечен ли узел как degraded (с TTL 3 минуты).
+func (s *Server) IsNodeDegraded(node string) bool {
+	s.monitorMu.RLock()
+	defer s.monitorMu.RUnlock()
+
+	rep, ok := s.nodeStatus[node]
+	if !ok {
+		return false
+	}
+	// Если отчёт старше 3 минут — считаем неактуальным
+	if time.Since(rep.UpdatedAt) > 3*time.Minute {
+		return false
+	}
+	return rep.Status == "degraded"
+}
+
+// IsRelayDegraded проверяет состояние релея по его ID.
+func (s *Server) IsRelayDegraded(relayID int) bool {
+	switch relayID {
+	case 1:
+		return s.IsNodeDegraded("moscow")
+	case 2:
+		return s.IsNodeDegraded("germany")
+	case 0:
+		return s.IsNodeDegraded("nl")
+	default:
+		return false
+	}
+}
+
+// SetNodeStatusForTest устанавливает статус узла для тестов.
+func (s *Server) SetNodeStatusForTest(node string, status string, rtt float64, loss float64) {
+	s.monitorMu.Lock()
+	defer s.monitorMu.Unlock()
+	s.nodeStatus[node] = NodeReport{
+		Node:      node,
+		RTTMs:     rtt,
+		LossPct:   loss,
+		Status:    status,
+		UpdatedAt: time.Now(),
+	}
+}
+
+func (s *Server) isRelayAvailable(id int) bool {
+	if s.relays == nil {
+		return false
+	}
+	r, found := s.relays.GetByID(id)
+	return found && r.Enabled
+}
+
+func (s *Server) sendAlert(text string) {
+	if s.cfg == nil || s.cfg.BotToken == "" || s.cfg.AdminID == 0 {
+		return
+	}
+	go func(botToken string, adminID int64, msg string) {
+		endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+		payload, _ := json.Marshal(map[string]interface{}{
+			"chat_id": adminID,
+			"text":    msg,
+		})
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Post(endpoint, "application/json", bytes.NewReader(payload))
+		if err != nil {
+			log.Printf("[SirinAPI] Telegram alert error: %v", err)
+			return
+		}
+		_ = resp.Body.Close()
+	}(s.cfg.BotToken, s.cfg.AdminID, text)
 }
