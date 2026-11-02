@@ -403,4 +403,9 @@ object PathMemory {
         val text = masked.joinToString(".") { (it.toInt() and 0xFF).toString() }
         return "$text/$prefix"
     }
+
+    /** Полная очистка всей памяти маршрутов для всех сетей. */
+    fun clearAll(ctx: Context) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    }
 }

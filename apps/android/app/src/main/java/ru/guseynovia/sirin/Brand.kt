@@ -355,3 +355,18 @@ fun ShieldIcon(modifier: Modifier = Modifier, tint: Color? = null) {
     }
 }
 
+/**
+ * Стрелка обновления / циркуляция: значок починки подключения.
+ */
+@Composable
+fun RepairIcon(modifier: Modifier = Modifier, tint: Color? = null) {
+    IconBtn(modifier = modifier, tint = tint) { brush, r ->
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val w = 1.8f.dp.toPx()
+        val rect = androidx.compose.ui.geometry.Rect(c.x - r * 0.65f, c.y - r * 0.65f, c.x + r * 0.65f, c.y + r * 0.65f)
+        drawArc(brush = brush, startAngle = 40f, sweepAngle = 280f, useCenter = false, topLeft = rect.topLeft, size = rect.size, style = Stroke(width = w, cap = StrokeCap.Round))
+        val tip = Offset(c.x + r * 0.65f * kotlin.math.cos(Math.toRadians(40.0)).toFloat(), c.y + r * 0.65f * kotlin.math.sin(Math.toRadians(40.0)).toFloat())
+        drawLine(brush, tip, Offset(tip.x - r * 0.25f, tip.y - r * 0.05f), strokeWidth = w, cap = StrokeCap.Round)
+        drawLine(brush, tip, Offset(tip.x + r * 0.05f, tip.y - r * 0.25f), strokeWidth = w, cap = StrokeCap.Round)
+    }
+}

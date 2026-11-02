@@ -54,6 +54,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var showChangeKeyDialog by remember { mutableStateOf(false) }
+    var isRepairing by remember { mutableStateOf(false) }
 
     Column(
         // ПРОКРУТКА (03.10): отладочные строки вытеснили строку версии за
@@ -97,6 +98,39 @@ fun SettingsScreen(
             hint = "ввести новый UUID",
             icon = { KeyIcon() },
             onClick = { showChangeKeyDialog = true },
+        )
+        Entry(
+            title = "Починить подключение",
+            hint = if (isRepairing) "обновляю маршруты..." else "сбросить кэш и подобрать быстрый маршрут",
+            icon = { RepairIcon() },
+            onClick = {
+                if (!isRepairing) {
+                    isRepairing = true
+                    kotlin.concurrent.thread(name = "sirin-repair") {
+                        try {
+                            TunnelLog.add("ручная починка подключения: сброс памяти путей и запрос параметров")
+                            PathMemory.clearAll(context)
+                            Params.forceRefresh("ручная починка")
+                            val wasConnected = TunnelState.connected.value || TunnelState.busy.value
+                            if (wasConnected) {
+                                context.startService(
+                                    Intent(context, SirinVpnService::class.java)
+                                        .setAction(SirinVpnService.ACTION_RECONNECT)
+                                )
+                            }
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                isRepairing = false
+                                android.widget.Toast.makeText(context, "Настройки обновлены! Маршрут подобран заново.", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Throwable) {
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                isRepairing = false
+                                android.widget.Toast.makeText(context, "Ошибка при обновлении: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            },
         )
         Entry(
             title = "Обход белых списков",

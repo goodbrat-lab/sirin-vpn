@@ -148,6 +148,13 @@ object Params {
     }
 
     /** Повод 1: вышел срок. */
+    /** Принудительный сброс срока и запроса свежих параметров. */
+    fun forceRefresh(why: String = "починка подключения") {
+        val ctx = appCtx ?: return
+        prefs(ctx).edit().putLong(K_GOT_AT, 0L).putLong(K_ASKED_AT, 0L).apply()
+        fetch(why)
+    }
+
     fun refreshIfDue() {
         if (!timeToRefresh()) return
         fetch("вышел срок")
