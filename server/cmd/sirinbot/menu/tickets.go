@@ -596,3 +596,127 @@ func truncateMsg(s string, maxLen int) string {
 	}
 	return string([]rune(s)[:maxLen]) + "..."
 }
+
+
+func (m *Manager) notifyAdminsTicketReply(t *tickets.Ticket, replyText string) {
+	adminIDs := m.bot.Config().AdminIDs()
+	if len(adminIDs) == 0 {
+		return
+	}
+
+	userDisplayName := t.Username
+	if userDisplayName == "" {
+		userDisplayName = fmt.Sprintf("ID %d", t.TelegramID)
+	} else if !strings.HasPrefix(userDisplayName, "@") {
+		userDisplayName = "@" + userDisplayName
+	}
+
+	text := fmt.Sprintf("📨 *Новое сообщение в тикете #%d*\n\n"+
+		"👤 Клиент: %s (%d)\n"+
+		"📱 Устройство: *%s*\n"+
+		"💬 Сообщение:\n_%s_",
+		t.ID, userDisplayName, t.TelegramID, t.DeviceLabel, truncateMsg(replyText, 300))
+
+	markup := &tele.ReplyMarkup{}
+	btnOpen := markup.Data("🔍 Открыть тикет", "ticket", "adm_view", strconv.Itoa(t.ID))
+	btnReply := markup.Data("✍️ Ответить", "ticket", "adm_reply", strconv.Itoa(t.ID))
+	markup.Inline(markup.Row(btnOpen, btnReply))
+
+	tb := m.bot.TeleBot()
+	for _, adminID := range adminIDs {
+		_, _ = tb.Send(&tele.User{ID: adminID}, text, markup, tele.ModeMarkdown)
+	}
+}
+
+// HandleUserIncomingMessage обрабатывает входящее текстовое сообщение от клиента (авто-тикет / ответ в открытый тикет).
+func (m *Manager) HandleUserIncomingMessage(c tele.Context, text string) error {
+	userID := c.Sender().ID
+	ts := m.bot.TicketsStorage()
+	if ts == nil {
+		supportUser := m.bot.Config().Payment.SupportUsername
+		if supportUser == "" {
+			supportUser = "giabrat"
+		}
+		return c.Send(fmt.Sprintf("Служба поддержки временно недоступна. Пожалуйста, напишите администратору напрямую: @%s", supportUser))
+	}
+
+	// 1. Проверяем, есть ли уже открытый тикет у пользователя
+	openTickets := ts.GetByUser(userID)
+	var activeTicket *tickets.Ticket
+	for i := range openTickets {
+		if openTickets[i].Status == tickets.StatusOpen || openTickets[i].Status == tickets.StatusInProgress {
+			activeTicket = &openTickets[i]
+			break
+		}
+	}
+
+	if activeTicket != nil {
+		t, err := ts.AddMessage(activeTicket.ID, tickets.SenderUser, text)
+		if err != nil {
+			return c.Send("❌ " + err.Error())
+		}
+		m.notifyAdminsTicketReply(t, text)
+
+		markup := &tele.ReplyMarkup{}
+		btnView := markup.Data("📋 Моё обращение", "ticket", "user_view", strconv.Itoa(t.ID))
+		markup.Inline(markup.Row(btnView))
+
+		return c.Send(fmt.Sprintf("📨 *Ваше сообщение добавлено к обращению #%d!*\n\nАдминистратор уже получил уведомление и скоро ответит вам прямо в этом чате.", t.ID), markup, tele.ModeMarkdown)
+	}
+
+	// 2. Открытого тикета нет — автоматически создаём новое обращение
+	var devCtx tickets.DeviceContext
+	if uk, ok := m.bot.Storage().Get(userID); ok {
+		devs := uk.GetDevices()
+		if len(devs) > 0 {
+			devCtx.UUID = devs[0].UUID
+			devCtx.Label = devs[0].Label
+			devCtx.Platform = devs[0].Platform
+			devCtx.AppVersion = devs[0].AppVersion
+		} else if uk.UUID != "" {
+			devCtx.UUID = uk.UUID
+			devCtx.Label = "Основное устройство"
+			devCtx.Platform = "android"
+		}
+	}
+
+	username := c.Sender().Username
+	if username == "" {
+		username = strings.TrimSpace(c.Sender().FirstName + " " + c.Sender().LastName)
+		if username == "" {
+			username = fmt.Sprintf("User_%d", userID)
+		}
+	}
+
+	t, err := ts.CreateTicket(userID, username, devCtx, "other", "Обращение в чате", text, nil)
+	if err != nil {
+		return c.Send("❌ Не удалось создать обращение: " + err.Error())
+	}
+
+	m.notifyAdminsNewTicket(t)
+
+	markup := &tele.ReplyMarkup{}
+	btnView := markup.Data("📋 Посмотреть обращение", "ticket", "user_view", strconv.Itoa(t.ID))
+	markup.Inline(markup.Row(btnView))
+
+	return c.Send(fmt.Sprintf("📨 *Ваше обращение принято в поддержку (тикет #%d)*\n\n"+
+		"Администратор уже получил ваше сообщение и скоро ответит вам прямо в этом чате.", t.ID), markup, tele.ModeMarkdown)
+}
+
+// HandleUserAttachment обрабатывает присланные клиентом скриншоты и документы для поддержки.
+func (m *Manager) HandleUserAttachment(c tele.Context) error {
+	caption := strings.TrimSpace(c.Message().Caption)
+	if caption == "" {
+		caption = "[Клиент прикрепил скриншот / файл к обращению]"
+	}
+
+	_ = m.HandleUserIncomingMessage(c, caption)
+
+	adminIDs := m.bot.Config().AdminIDs()
+	tb := m.bot.TeleBot()
+	for _, adminID := range adminIDs {
+		_, _ = tb.Forward(&tele.User{ID: adminID}, c.Message())
+	}
+
+	return nil
+}

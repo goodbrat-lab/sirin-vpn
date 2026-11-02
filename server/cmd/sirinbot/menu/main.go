@@ -678,7 +678,7 @@ func (m *Manager) handleText(c tele.Context) error {
 	}
 
 	if !m.bot.IsAdmin(c.Sender().ID) {
-		return nil
+		return m.HandleUserIncomingMessage(c, text)
 	}
 
 	// Обработка кнопок нижней клавиатуры (ReplyKeyboard)

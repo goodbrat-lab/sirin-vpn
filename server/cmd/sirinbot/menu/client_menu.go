@@ -415,24 +415,26 @@ func (m *Manager) ShowClientAbout(c tele.Context, edit bool) error {
 func (m *Manager) ShowClientSupport(c tele.Context, edit bool) error {
 	supportUser := m.bot.Config().Payment.SupportUsername
 	if supportUser == "" {
-		supportUser = "admin"
+		supportUser = "giabrat"
 	}
 	supportUser = strings.TrimPrefix(supportUser, "@")
 
 	text := fmt.Sprintf(
 		"💬 *Служба поддержки*\n\n"+
-			"Если у вас возникли вопросы по настройке, оплате или работе VPN:\n\n"+
-			"Напишите администратору: @%s\n\n"+
-			"Мы всегда рады помочь!",
+			"Если у вас возникли любые сложности, вопросы или что-то не работает:\n\n"+
+			"✏️ *Просто напишите сообщение прямо в этот чат* — бот автоматически создаст обращение и передаст его администратору.\n\n"+
+			"Также можно написать администратору напрямую: @%s",
 		supportUser,
 	)
 
 	markup := &tele.ReplyMarkup{}
-	btnContact := markup.URL("💬 Написать в поддержку", fmt.Sprintf("https://t.me/%s", supportUser))
+	btnContact := markup.URL("💬 Написать напрямую", fmt.Sprintf("https://t.me/%s", supportUser))
+	btnTickets := markup.Data("📋 Мои обращения", "my", "tickets")
 	btnBack := markup.Data("◀ В меню", "my", "home")
 
 	markup.Inline(
 		markup.Row(btnContact),
+		markup.Row(btnTickets),
 		markup.Row(btnBack),
 	)
 
@@ -889,7 +891,7 @@ func (m *Manager) CancelOrder(c tele.Context, orderID string) error {
 func (m *Manager) HandleReceiptUploaded(c tele.Context) error {
 	state, ok := m.fsm.Get(c.Sender().ID)
 	if !ok || state.Action != "waiting_receipt" {
-		return nil
+		return m.HandleUserAttachment(c)
 	}
 
 	orderID := state.Data["order_id"]
