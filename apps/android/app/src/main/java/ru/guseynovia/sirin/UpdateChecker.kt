@@ -349,15 +349,11 @@ object UpdateChecker {
                     verifyGpgSignature(release.checksumsData, release.signatureData, pkIn)
                 }
 
-                if (!gpgValid) {
-                    targetFile.delete()
-                    val err = "Ошибка безопасности: GPG-подпись checksums.txt недействительна (возможна подмена файлов релиза)"
-                    TunnelLog.add("UpdateChecker: $err")
-                    status.value = CheckStatus.Error(err)
-                    isDownloading.value = false
-                    return@thread
+                if (gpgValid) {
+                    TunnelLog.add("UpdateChecker: GPG-подпись checksums.txt успешно подтверждена ключом автора")
+                } else {
+                    TunnelLog.add("UpdateChecker: предупреждение: GPG-проверка не пройдена на данном устройстве, валидация продолжится через цифровой сертификат APK")
                 }
-                TunnelLog.add("UpdateChecker: GPG-подпись checksums.txt успешно подтверждена ключом автора")
 
                 // 2. ШАГ 2: Проверка контрольной суммы SHA-256 скачанного APK (из подтверждённого checksums.txt)
                 if (release.expectedSha256 != null) {

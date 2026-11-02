@@ -79,3 +79,10 @@
 # которую мы кладём в CrashLog, превращается в набор букв.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+
+# ----------------------------------------------------------------------
+# Bouncy Castle
+# ----------------------------------------------------------------------
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
