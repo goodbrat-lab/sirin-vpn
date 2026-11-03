@@ -395,6 +395,21 @@ func (s *Storage) GetPendingTrialRequest(telegramID int64) (*TrialRequest, bool)
 	return nil, false
 }
 
+func (s *Storage) ListPendingTrialRequests() []*TrialRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.load()
+
+	var list []*TrialRequest
+	for _, req := range s.data.TrialRequests {
+		if req.Status == "pending" {
+			clone := *req
+			list = append(list, &clone)
+		}
+	}
+	return list
+}
+
 func (s *Storage) UpdateTrialRequest(req *TrialRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

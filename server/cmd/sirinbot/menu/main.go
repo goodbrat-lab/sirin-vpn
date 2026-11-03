@@ -31,6 +31,7 @@ func Register(b *bot.Bot) *Manager {
 	}
 
 	m.registerRoutes()
+	m.StartDailyReportScheduler()
 	return m
 }
 
@@ -64,6 +65,7 @@ func (m *Manager) registerRoutes() {
 	tb.Handle("/delete", m.bot.AdminOnly(m.handleDeleteCommand))
 	tb.Handle("/find", m.bot.AdminOnly(m.handleFindCommand))
 	tb.Handle("/status", m.bot.AdminOnly(m.handleStatusCommand))
+	tb.Handle("/report", m.bot.AdminOnly(m.handleReportCommand))
 	tb.Handle("/setrelay", m.bot.AdminOnly(m.handleSetRelayCommand))
 
 	// Перехват текстовых сообщений для FSM и ReplyKeyboard
@@ -128,6 +130,7 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 	)
 
 	markup := &tele.ReplyMarkup{}
+	btnDailyReport := markup.Data("📋 Ежедневный отчёт", "menu", "daily_report")
 	btnClients := markup.Data("👥 Клиенты", "menu", "clients")
 	btnNew := markup.Data("➕ Новый клиент", "menu", "new")
 
@@ -142,6 +145,7 @@ func (m *Manager) ShowMainMenu(c tele.Context, edit bool) error {
 	btnHelp := markup.Data("ℹ️ Помощь", "menu", "help")
 
 	markup.Inline(
+		markup.Row(btnDailyReport),
 		markup.Row(btnClients, btnNew),
 		markup.Row(btnRelays, btnStats),
 		markup.Row(btnTickets, btnSearch),
@@ -261,6 +265,8 @@ func (m *Manager) handleCallback(c tele.Context) error {
 		switch action {
 		case "main":
 			return m.ShowMainMenu(c, true)
+		case "daily_report":
+			return m.ShowDailyReport(c, true)
 		case "clients":
 			return m.ShowClientsList(c, 1, "", true)
 		case "relays":
@@ -681,6 +687,17 @@ func (m *Manager) handleText(c tele.Context) error {
 		return m.HandleUserIncomingMessage(c, text)
 	}
 
+	// Обработка текстовых команд отчёта и статуса
+	lowerText := strings.ToLower(strings.TrimSpace(text))
+	switch lowerText {
+	case "отчет", "отчёт", "report", "/report", "статус", "status", "/status", "сводка":
+		return m.ShowDailyReport(c, false)
+	case "/start":
+		return m.ShowMainMenu(c, false)
+	case "помощь", "help", "/help":
+		return m.handleHelp(c)
+	}
+
 	// Обработка кнопок нижней клавиатуры (ReplyKeyboard)
 	switch text {
 	case "👥 Клиенты":
@@ -693,15 +710,23 @@ func (m *Manager) handleText(c tele.Context) error {
 		return m.ShowStats(c, false)
 	case "🔍 Поиск":
 		return m.ShowSearchPrompt(c, false)
+	case "📋 Отчёт", "📋 Отчет":
+		return m.ShowDailyReport(c, false)
 	}
 
 	// Проверка наличия активного FSM-состояния
 	if !hasState {
-		// Состояния нет — подскажем админу
 		markup := &tele.ReplyMarkup{}
+		btnReport := markup.Data("📋 Ежедневный отчёт", "menu", "daily_report")
+		btnClients := markup.Data("👥 Клиенты", "menu", "clients")
+		btnTickets := markup.Data("🆘 Тикеты", "ticket", "adm_open")
 		btnMain := markup.Data("🏠 Главное меню", "menu", "main")
-		markup.Inline(markup.Row(btnMain))
-		return c.Send("Используйте кнопки меню для управления:", markup)
+		markup.Inline(
+			markup.Row(btnReport),
+			markup.Row(btnClients, btnTickets),
+			markup.Row(btnMain),
+		)
+		return c.Send("👋 *Sirin Bot — Панель администратора*\n\nВыберите действие или нажмите кнопку ниже:", markup, tele.ModeMarkdown)
 	}
 
 	switch state.Action {
@@ -1060,7 +1085,12 @@ func (m *Manager) handleFindCommand(c tele.Context) error {
 
 func (m *Manager) handleStatusCommand(c tele.Context) error {
 	m.fsm.Clear(c.Sender().ID)
-	return m.ShowStats(c, false)
+	return m.ShowDailyReport(c, false)
+}
+
+func (m *Manager) handleReportCommand(c tele.Context) error {
+	m.fsm.Clear(c.Sender().ID)
+	return m.ShowDailyReport(c, false)
 }
 
 func (m *Manager) handleSetRelayCommand(c tele.Context) error {

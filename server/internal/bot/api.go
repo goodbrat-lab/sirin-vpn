@@ -68,3 +68,42 @@ func (c *APIClient) Health() (map[string]interface{}, error) {
 	}
 	return out, nil
 }
+
+type MonitorReportItem struct {
+	Node      string    `json:"node"`
+	RTTMs     float64   `json:"rtt_ms"`
+	LossPct   float64   `json:"loss_pct"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type AdminMonitorResponse struct {
+	Contract string                       `json:"contract"`
+	Status   string                       `json:"status"`
+	Reports  map[string]MonitorReportItem `json:"reports"`
+}
+
+func (c *APIClient) GetMonitorReports() (map[string]MonitorReportItem, error) {
+	if c == nil || c.baseURL == "" {
+		return nil, fmt.Errorf("api client unconfigured")
+	}
+	req, err := http.NewRequest("GET", c.baseURL+"/v1/admin/monitor", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.adminToken)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned %d", resp.StatusCode)
+	}
+	var out AdminMonitorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Reports, nil
+}
+

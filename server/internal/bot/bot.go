@@ -92,6 +92,7 @@ func (b *Bot) SetRelaysStorage(rs *relays.Storage) { b.relaysStorage = rs }
 func (b *Bot) TicketsStorage() *tickets.Storage { return b.ticketsStorage }
 func (b *Bot) SetTicketsStorage(ts *tickets.Storage) { b.ticketsStorage = ts }
 func (b *Bot) Storage() *Storage { return b.storage }
+func (b *Bot) API() *APIClient { return b.api }
 func (b *Bot) Config() *Config { return b.cfg }
 func (b *Bot) IsAdmin(id int64) bool { return b.isAdmin(id) }
 func (b *Bot) AdminOnly(next tele.HandlerFunc) tele.HandlerFunc { return b.adminOnly(next) }
