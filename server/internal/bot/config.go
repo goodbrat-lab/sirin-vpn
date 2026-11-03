@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/BurntSushi/toml"
 )
@@ -23,6 +24,7 @@ type Config struct {
 	AdminID       int64         `toml:"admin_id"`       // legacy single ID
 	Admin         AdminConfig   `toml:"admin"`          // [admin] telegram_ids = [...]
 	Payment       PaymentConfig `toml:"payment"`        // [payment]
+	GeminiAPIKey  string        `toml:"gemini_api_key"` // Google Gemini API Key
 	APIURL        string        `toml:"api_url"`         // http://127.0.0.1:8080
 	APIAdminToken string        `toml:"api_admin_token"` // Bearer для /v1/admin/*
 	StoragePath   string        `toml:"storage_path"`   // /etc/sirin/bot_users.json
@@ -66,6 +68,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Payment.SupportUsername == "" {
 		c.Payment.SupportUsername = "admin"
+	}
+	if c.GeminiAPIKey == "" {
+		c.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
 	}
 	return nil
 }

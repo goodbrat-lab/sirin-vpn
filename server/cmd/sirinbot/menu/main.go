@@ -52,6 +52,8 @@ func (m *Manager) registerRoutes() {
 	tb.Handle("/diag", func(c tele.Context) error {
 		return m.StartDiagnosticsWizard(c, false)
 	})
+	tb.Handle("/ai", m.handleAICommand)
+	tb.Handle("/forget", m.handleForgetCommand)
 
 	// Старые админ-команды (обратная совместимость)
 	tb.Handle("/list", m.bot.AdminOnly(m.handleListCommand))
@@ -240,9 +242,10 @@ func (m *Manager) handleCallback(c tele.Context) error {
 
 	// Разграничение доступа: категории личного кабинета доступны всем, остальное — только админам
 	clientCategories := map[string]bool{
-		"my":    true,
-		"trial": true,
-		"order": true,
+		"my":     true,
+		"trial":  true,
+		"order":  true,
+		"ticket": true,
 	}
 	if !clientCategories[category] && !m.bot.IsAdmin(c.Sender().ID) {
 		log.Printf("[CALLBACK DENY] user %d is not admin (cat=%q)", c.Sender().ID, category)
@@ -683,35 +686,75 @@ func (m *Manager) handleText(c tele.Context) error {
 		}
 	}
 
+	lowerText := strings.ToLower(strings.TrimSpace(text))
+
+	// 1. Команды сброса памяти диалога ИИ
+	if lowerText == "/forget" || lowerText == "забудь" || lowerText == "/reset_ai" || lowerText == "сброс диалога" {
+		if m.bot.AI() != nil {
+			m.bot.AI().Reset(c.Sender().ID)
+		}
+		return c.Send("🧹 *Память диалога очищена.*\nМы можем начать новую беседу с чистого листа!", tele.ModeMarkdown)
+	}
+
+	// 2. Обработка команд администратора
+	if m.bot.IsAdmin(c.Sender().ID) {
+		switch lowerText {
+		case "отчет", "отчёт", "report", "/report", "статус", "status", "/status", "сводка":
+			return m.ShowDailyReport(c, false)
+		case "/start":
+			return m.ShowMainMenu(c, false)
+		case "помощь", "help", "/help":
+			return m.handleHelp(c)
+		}
+
+		// Обработка кнопок нижней клавиатуры (ReplyKeyboard)
+		switch text {
+		case "👥 Клиенты":
+			return m.ShowClientsList(c, 1, "", false)
+		case "➕ Новый":
+			return m.StartNewClientWizard(c, false)
+		case "📡 Релеи":
+			return m.ShowRelaysMenu(c, false)
+		case "📊 Статистика":
+			return m.ShowStats(c, false)
+		case "🔍 Поиск":
+			return m.ShowSearchPrompt(c, false)
+		case "📋 Отчёт", "📋 Отчет":
+			return m.ShowDailyReport(c, false)
+		}
+	} else {
+		// Команды обычного пользователя
+		if lowerText == "/start" {
+			return m.handleStart(c)
+		}
+	}
+
+	// 3. Если подключен Gemini AI — ведём естественный диалог с пользователем!
+	if m.bot.AI() != nil && m.bot.AI().IsEnabled() {
+		_ = c.Notify(tele.Typing)
+		answer, err := m.bot.AI().Ask(c.Sender().ID, text)
+		if err == nil && strings.TrimSpace(answer) != "" {
+			markup := &tele.ReplyMarkup{}
+			if m.bot.IsAdmin(c.Sender().ID) {
+				btnReport := markup.Data("📋 Ежедневный отчёт", "menu", "daily_report")
+				btnMain := markup.Data("🏠 Меню", "menu", "main")
+				markup.Inline(markup.Row(btnReport, btnMain))
+			} else {
+				btnHuman := markup.Data("🆘 Позвать человека (Администратора)", "ticket", "create_from_ai")
+				btnHome := markup.Data("🏠 Мой кабинет", "my", "home")
+				markup.Inline(
+					markup.Row(btnHuman),
+					markup.Row(btnHome),
+				)
+			}
+			return c.Send(answer, markup, tele.ModeMarkdown)
+		}
+		log.Printf("[SirinBot] Gemini AI ask error for user %d: %v", c.Sender().ID, err)
+	}
+
+	// 4. Fallback если Gemini недоступен или отключен
 	if !m.bot.IsAdmin(c.Sender().ID) {
 		return m.HandleUserIncomingMessage(c, text)
-	}
-
-	// Обработка текстовых команд отчёта и статуса
-	lowerText := strings.ToLower(strings.TrimSpace(text))
-	switch lowerText {
-	case "отчет", "отчёт", "report", "/report", "статус", "status", "/status", "сводка":
-		return m.ShowDailyReport(c, false)
-	case "/start":
-		return m.ShowMainMenu(c, false)
-	case "помощь", "help", "/help":
-		return m.handleHelp(c)
-	}
-
-	// Обработка кнопок нижней клавиатуры (ReplyKeyboard)
-	switch text {
-	case "👥 Клиенты":
-		return m.ShowClientsList(c, 1, "", false)
-	case "➕ Новый":
-		return m.StartNewClientWizard(c, false)
-	case "📡 Релеи":
-		return m.ShowRelaysMenu(c, false)
-	case "📊 Статистика":
-		return m.ShowStats(c, false)
-	case "🔍 Поиск":
-		return m.ShowSearchPrompt(c, false)
-	case "📋 Отчёт", "📋 Отчет":
-		return m.ShowDailyReport(c, false)
 	}
 
 	// Проверка наличия активного FSM-состояния
@@ -1113,4 +1156,27 @@ func (m *Manager) handleSetRelayCommand(c tele.Context) error {
 	}
 
 	return m.HandleSetRelay(c, client.UUID, relayID)
+}
+
+func (m *Manager) handleForgetCommand(c tele.Context) error {
+	if m.bot.AI() != nil {
+		m.bot.AI().Reset(c.Sender().ID)
+	}
+	return c.Send("🧹 *Память диалога очищена.*\nМы можем начать новую беседу с чистого листа!", tele.ModeMarkdown)
+}
+
+func (m *Manager) handleAICommand(c tele.Context) error {
+	query := strings.TrimSpace(c.Data())
+	if query == "" {
+		return c.Send("Использование: `/ai <ваш вопрос или сообщение>`\nПример: `/ai Что такое VLESS?`\nЛибо просто напишите ваш вопрос прямо в чат без всяких команд!", tele.ModeMarkdown)
+	}
+	if m.bot.AI() == nil || !m.bot.AI().IsEnabled() {
+		return c.Send("⚠️ ИИ-ассистент временно не настроен (отсутствует API-ключ Gemini). Вы можете задать вопрос службе поддержки!")
+	}
+	_ = c.Notify(tele.Typing)
+	answer, err := m.bot.AI().Ask(c.Sender().ID, query)
+	if err != nil {
+		return c.Send("❌ Ошибка при обращении к Gemini: " + err.Error())
+	}
+	return c.Send(answer, tele.ModeMarkdown)
 }

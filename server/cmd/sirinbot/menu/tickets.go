@@ -498,6 +498,10 @@ func (m *Manager) HandleTicketCallback(c tele.Context, action string, args []str
 			return m.ShowUserTicketCard(c, id, true)
 		}
 
+	case "create_from_ai":
+		RespondAlert(c, "Обращение передано администратору")
+		return m.HandleUserIncomingMessage(c, "[Клиент запросил помощь администратора]")
+
 	case "adm_open":
 		return m.ShowAdminTicketsList(c, true, true)
 

@@ -9,6 +9,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"sirin/server/internal/relays"
+	"sirin/server/internal/bot/ai"
 	"sirin/server/internal/bot/tickets"
 )
 
@@ -25,6 +26,7 @@ type Bot struct {
 	relaysStorage  *relays.Storage // relays.json
 	ticketsStorage *tickets.Storage // tickets.json
 	api            *APIClient
+	aiClient       *ai.Client
 	pendingDeletes map[string]pendingDelete
 	pendingDelMu   sync.Mutex
 }
@@ -70,6 +72,7 @@ func New(cfg *Config, storage *Storage) (*Bot, error) {
 		relaysStorage:  relaysStorage,
 		ticketsStorage: ticketsStorage,
 		api:            NewAPIClient(cfg.APIURL, cfg.APIAdminToken),
+		aiClient:       ai.NewClient(cfg.GeminiAPIKey),
 		pendingDeletes: make(map[string]pendingDelete),
 	}
 	b.registerHandlers()
@@ -93,6 +96,7 @@ func (b *Bot) TicketsStorage() *tickets.Storage { return b.ticketsStorage }
 func (b *Bot) SetTicketsStorage(ts *tickets.Storage) { b.ticketsStorage = ts }
 func (b *Bot) Storage() *Storage { return b.storage }
 func (b *Bot) API() *APIClient { return b.api }
+func (b *Bot) AI() *ai.Client { return b.aiClient }
 func (b *Bot) Config() *Config { return b.cfg }
 func (b *Bot) IsAdmin(id int64) bool { return b.isAdmin(id) }
 func (b *Bot) AdminOnly(next tele.HandlerFunc) tele.HandlerFunc { return b.adminOnly(next) }
