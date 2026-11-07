@@ -461,14 +461,26 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 	}
 
 	mode := "bypass"
-	if cfg.SplitTunnel != nil && cfg.SplitTunnel.Mode != "" {
-		mode = cfg.SplitTunnel.Mode
+	var tcpPorts, udpPorts []string
+	portMode := ""
+	if cfg.SplitTunnel != nil {
+		if cfg.SplitTunnel.Mode != "" {
+			mode = cfg.SplitTunnel.Mode
+		}
+		tcpPorts, udpPorts = cfg.SplitTunnel.GetSplitPorts()
+		portMode = cfg.SplitTunnel.PortMode
+	}
+
+	opsec := cfg.GetOpSecOptions()
+	antidpi := cfg.GetAntiDPIConfig()
+	if !cfg.IsAntiDPIEnabled() {
+		antidpi.Enabled = false
 	}
 
 	// 8. Настройка nftables правил маркировки и NAT
-	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs); err != nil {
+	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, opsec, antidpi); err != nil {
 		log.Printf("[route] nftables ошибка: %v. Пробуем iptables fallback...", err)
-		setupIptables(tun.name, lanIface)
+		setupIptables(tun.name, lanIface, opsec)
 	}
 
 	// 9. Настройка Kill Switch (inet sirin_killswitch)
@@ -487,14 +499,16 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 		cleanupKillSwitch()
 	}
 
-	log.Printf("[route] Маршрутизация активирована (режим: %s, split_cidrs: %d)", mode, len(splitCIDRs))
+	log.Printf("[route] Маршрутизация активирована (режим: %s, split_cidrs: %d, port_mode: %s, ports_tcp: %d, ports_udp: %d)",
+		mode, len(splitCIDRs), portMode, len(tcpPorts), len(udpPorts))
 	return nil
 }
 
-// applySplitTunnelNftables создаёт таблицу ip sirin с наборами local_cidrs и split_cidrs,
-// цепочками маркировки prerouting (для LAN) и output (для роутера), а также NAT/Forward.
-func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string) error {
-	rules := generateNftablesRules(tunName, lanIface, mode, localCIDRs, splitCIDRs)
+// applySplitTunnelNftables создаёт таблицу ip sirin с наборами local_cidrs, split_cidrs, antidpi_cidrs,
+// split_ports_tcp/udp (при наличии), цепочками маркировки prerouting (для LAN) и output (для роутера),
+// а также цепочками NAT, Forward, Anti-DPI и OpSec-маскировки (нормализация TTL, перехват DNS).
+func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string, portMode string, tcpPorts, udpPorts []string, options ...interface{}) error {
+	rules := generateNftablesRules(tunName, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, options...)
 
 	cmd := exec.Command("nft", "-f", "-")
 	cmd.Stdin = strings.NewReader(rules)
@@ -504,8 +518,29 @@ func applySplitTunnelNftables(tunName, lanIface, mode string, localCIDRs, splitC
 	return nil
 }
 
-// generateNftablesRules генерирует конфигурацию nftables для split tunneling.
-func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string) string {
+// generateNftablesRules генерирует конфигурацию nftables для split tunneling по IP и портам,
+// а также правила Anti-DPI (YouTube/Discord) и OpSec (нормализация TTL, TCP MSS clamping, перехват DNS, блокировка DoT).
+func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDRs []string, portMode string, tcpPorts, udpPorts []string, options ...interface{}) string {
+	opsecOpts := DefaultOpSecOptions()
+	antidpiOpts := DefaultAntiDPIConfig()
+
+	for _, opt := range options {
+		switch v := opt.(type) {
+		case OpSecOptions:
+			opsecOpts = v
+		case []OpSecOptions:
+			if len(v) > 0 {
+				opsecOpts = v[0]
+			}
+		case AntiDPIConfig:
+			antidpiOpts = v
+		case []AntiDPIConfig:
+			if len(v) > 0 {
+				antidpiOpts = v[0]
+			}
+		}
+	}
+
 	var b strings.Builder
 
 	b.WriteString("table ip sirin {\n")
@@ -528,16 +563,47 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	}
 	b.WriteString("    }\n")
 
-	// Mode rules
-	var modeRules string
-	if mode == "only" {
-		// Only mode: только split_cidrs идут в VPN (0x1), всё остальное — напрямую в WAN (0x2)
-		modeRules = "        ip daddr @split_cidrs meta mark set 0x00000001 return\n" +
-			"        meta mark set 0x00000002\n"
-	} else {
-		// Bypass mode: всё в VPN (0x1), кроме split_cidrs (они идут в WAN 0x2)
-		modeRules = "        ip daddr @split_cidrs meta mark set 0x00000002 return\n" +
-			"        meta mark set 0x00000001\n"
+	// Set antidpi_cidrs (для автоматического наполнения через dnsmasq nftset)
+	if antidpiOpts.Enabled {
+		b.WriteString("    set antidpi_cidrs {\n")
+		b.WriteString("        type ipv4_addr\n")
+		b.WriteString("        flags interval, timeout\n")
+		b.WriteString("    }\n")
+	}
+
+	// Set split_ports_tcp (если заданы TCP порты)
+	if len(tcpPorts) > 0 {
+		b.WriteString("    set split_ports_tcp {\n")
+		b.WriteString("        type inet_service\n")
+		b.WriteString("        flags interval\n")
+		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(tcpPorts, ", ")))
+		b.WriteString("    }\n")
+	}
+
+	// Set split_ports_udp (если заданы UDP порты)
+	if len(udpPorts) > 0 {
+		b.WriteString("    set split_ports_udp {\n")
+		b.WriteString("        type inet_service\n")
+		b.WriteString("        flags interval\n")
+		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(udpPorts, ", ")))
+		b.WriteString("    }\n")
+	}
+
+	modeRules := generateNftablesModeRules(mode, portMode, tcpPorts, udpPorts)
+
+	// Chain dstnat (Anti-DNS-Leak и Anti-DPI Transparent Proxy)
+	hasDstnat := opsecOpts.InterceptDNS || antidpiOpts.Enabled
+	if hasDstnat {
+		b.WriteString("    chain dstnat {\n")
+		b.WriteString("        type nat hook prerouting priority dstnat; policy accept;\n")
+		if antidpiOpts.Enabled {
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @antidpi_cidrs tcp dport { 80, 443 } redirect to :%d\n", lanIface, antidpiOpts.Port))
+		}
+		if opsecOpts.InterceptDNS {
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" udp dport 53 redirect to :53\n", lanIface))
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" tcp dport 53 redirect to :53\n", lanIface))
+		}
+		b.WriteString("    }\n")
 	}
 
 	// Chain prerouting (только для клиентов локальной сети lanIface!)
@@ -547,6 +613,9 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString("        type filter hook prerouting priority mangle; policy accept;\n")
 	b.WriteString(fmt.Sprintf("        iifname != \"%s\" return\n", lanIface))
 	b.WriteString("        ip daddr @local_cidrs return\n")
+	if antidpiOpts.Enabled {
+		b.WriteString("        ip daddr @antidpi_cidrs meta mark set 0x00000002 return\n")
+	}
 	b.WriteString(modeRules)
 	b.WriteString("    }\n")
 
@@ -555,8 +624,24 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString("        type route hook output priority mangle; policy accept;\n")
 	b.WriteString("        meta mark 0x00000002 return\n") // Protector VPN-сокета уже имеет mark 0x2
 	b.WriteString("        ip daddr @local_cidrs return\n")
+	if antidpiOpts.Enabled {
+		b.WriteString("        ip daddr @antidpi_cidrs meta mark set 0x00000002 return\n")
+	}
 	b.WriteString(modeRules)
 	b.WriteString("    }\n")
+
+	// Chain postrouting_mangle (OpSec по Vektor T13: нормализация TTL и TCP MSS clamping на выходе из туннеля)
+	if opsecOpts.NormalizeTTL {
+		targetTTL := opsecOpts.TargetTTL
+		if targetTTL <= 0 || targetTTL > 255 {
+			targetTTL = 64
+		}
+		b.WriteString("    chain postrouting_mangle {\n")
+		b.WriteString("        type filter hook postrouting priority mangle; policy accept;\n")
+		b.WriteString(fmt.Sprintf("        oifname \"%s\" ip ttl set %d\n", tunName, targetTTL))
+		b.WriteString(fmt.Sprintf("        oifname \"%s\" tcp flags syn tcp option maxseg size set rt mtu\n", tunName))
+		b.WriteString("    }\n")
+	}
 
 	// Chain postrouting (NAT masquerade на tun0)
 	b.WriteString("    chain postrouting {\n")
@@ -564,14 +649,88 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString(fmt.Sprintf("        oifname \"%s\" masquerade\n", tunName))
 	b.WriteString("    }\n")
 
-	// Chain forward (фильтрация LAN -> TUN)
+	// Chain forward (фильтрация LAN -> TUN + блокировка DoT + блокировка QUIC для YouTube)
 	b.WriteString("    chain forward {\n")
 	b.WriteString("        type filter hook forward priority 0; policy accept;\n")
+	if antidpiOpts.Enabled && antidpiOpts.QUICReject {
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @antidpi_cidrs udp dport 443 reject\n", lanIface))
+	}
+	if opsecOpts.BlockDoT {
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" tcp dport 853 reject\n", lanIface))
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" udp dport 853 reject\n", lanIface))
+	}
 	b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" accept\n", lanIface, tunName))
 	b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" ct state established,related accept\n", tunName, lanIface))
 	b.WriteString("    }\n")
 
 	b.WriteString("}\n")
+	return b.String()
+}
+
+// generateNftablesModeRules формирует правила маркировки с учетом IP split tunneling и портов.
+func generateNftablesModeRules(mode, portMode string, tcpPorts, udpPorts []string) string {
+	hasPorts := len(tcpPorts) > 0 || len(udpPorts) > 0
+	hasTCP := len(tcpPorts) > 0
+	hasUDP := len(udpPorts) > 0
+
+	var b strings.Builder
+
+	if !hasPorts {
+		// Классический режим только по IP (обратная совместимость)
+		if mode == "only" {
+			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000001 return\n")
+			b.WriteString("        meta mark set 0x00000002\n")
+		} else {
+			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000002 return\n")
+			b.WriteString("        meta mark set 0x00000001\n")
+		}
+		return b.String()
+	}
+
+	// Разделение по портам активно
+	if portMode == "bypass" {
+		// Режим исключения портов из VPN (например, Gaming Bypass):
+		// 1. Указанные порты направляются напрямую в WAN (0x2)
+		if hasTCP {
+			b.WriteString("        tcp dport @split_ports_tcp meta mark set 0x00000002 return\n")
+		}
+		if hasUDP {
+			b.WriteString("        udp dport @split_ports_udp meta mark set 0x00000002 return\n")
+		}
+		// 2. Для остальных портов применяются правила IP-режима:
+		if mode == "only" {
+			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000001 return\n")
+			b.WriteString("        meta mark set 0x00000002\n")
+		} else {
+			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000002 return\n")
+			b.WriteString("        meta mark set 0x00000001\n")
+		}
+	} else {
+		// Режим "only": только указанные порты могут направляться в VPN,
+		// всё остальное (другие порты, не-TCP/UDP) идёт напрямую в WAN (0x2).
+		if mode == "only" {
+			// В режиме only: трафик должен соответствовать split_cidrs И split_ports
+			if hasTCP {
+				b.WriteString("        ip daddr @split_cidrs tcp dport @split_ports_tcp meta mark set 0x00000001 return\n")
+			}
+			if hasUDP {
+				b.WriteString("        ip daddr @split_cidrs udp dport @split_ports_udp meta mark set 0x00000001 return\n")
+			}
+			b.WriteString("        meta mark set 0x00000002\n")
+		} else {
+			// В режиме bypass: RuDirect/split_cidrs идут в WAN (0x2),
+			// а для не-RuDirect адресов в VPN идут ТОЛЬКО указанные порты
+			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000002 return\n")
+			if hasTCP {
+				b.WriteString("        tcp dport @split_ports_tcp meta mark set 0x00000001 return\n")
+			}
+			if hasUDP {
+				b.WriteString("        udp dport @split_ports_udp meta mark set 0x00000001 return\n")
+			}
+			b.WriteString("        meta mark set 0x00000002\n")
+		}
+	}
+
 	return b.String()
 }
 
@@ -616,6 +775,12 @@ func cleanupRouting(cfg *Config, tun *tunDevice, serverHosts []string, wan wanIn
 	_ = exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", tun.name, "-j", "MASQUERADE").Run()
 	_ = exec.Command("iptables", "-D", "FORWARD", "-i", lanIface, "-o", tun.name, "-j", "ACCEPT").Run()
 	_ = exec.Command("iptables", "-D", "FORWARD", "-i", tun.name, "-o", lanIface, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT").Run()
+	_ = exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-i", lanIface, "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "53").Run()
+	_ = exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-i", lanIface, "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "53").Run()
+	_ = exec.Command("iptables", "-D", "FORWARD", "-i", lanIface, "-p", "tcp", "--dport", "853", "-j", "REJECT").Run()
+	_ = exec.Command("iptables", "-D", "FORWARD", "-i", lanIface, "-p", "udp", "--dport", "853", "-j", "REJECT").Run()
+	_ = exec.Command("iptables", "-t", "mangle", "-D", "POSTROUTING", "-o", tun.name, "-j", "TTL", "--ttl-set", "64").Run()
+	_ = exec.Command("iptables", "-t", "mangle", "-D", "POSTROUTING", "-o", tun.name, "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu").Run()
 
 	// 7. Удалить nftables таблицу Kill Switch
 	cleanupKillSwitch()
@@ -694,9 +859,9 @@ func generateKillSwitchNftablesRules(lanIface, wanIface, mode string, allowedDes
 	if len(validDest) > 0 {
 		b.WriteString("        ip daddr @allowed_dest accept\n")
 	}
-	if mode == "bypass" {
-		b.WriteString("        meta mark 0x00000002 accept\n")
-	}
+	// Трафик, явно направленный в обход VPN через таблицу 200 (марка 0x2), разрешён в WAN:
+	// в режиме bypass это RuDirect/исключения, в режиме only — весь трафик вне split-списка
+	b.WriteString("        meta mark 0x00000002 accept\n")
 	b.WriteString("        meta l4proto tcp reject with tcp reset\n")
 	b.WriteString("        drop\n")
 	b.WriteString("    }\n")
@@ -705,10 +870,38 @@ func generateKillSwitchNftablesRules(lanIface, wanIface, mode string, allowedDes
 	return b.String()
 }
 
-func setupIptables(tunName, lanIface string) {
+func setupIptables(tunName, lanIface string, opsec ...OpSecOptions) {
+	opts := DefaultOpSecOptions()
+	if len(opsec) > 0 {
+		opts = opsec[0]
+	}
+
+	// NAT Masquerade
 	runCmd("iptables", "-t", "nat", "-I", "POSTROUTING", "1", "-o", tunName, "-j", "MASQUERADE")
 	runCmd("iptables", "-I", "FORWARD", "1", "-i", lanIface, "-o", tunName, "-j", "ACCEPT")
 	runCmd("iptables", "-I", "FORWARD", "2", "-i", tunName, "-o", lanIface, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT")
+
+	// OpSec: Anti-DNS-Leak
+	if opts.InterceptDNS {
+		runCmd("iptables", "-t", "nat", "-I", "PREROUTING", "1", "-i", lanIface, "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "53")
+		runCmd("iptables", "-t", "nat", "-I", "PREROUTING", "2", "-i", lanIface, "-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "53")
+	}
+
+	// OpSec: DoT Block
+	if opts.BlockDoT {
+		runCmd("iptables", "-I", "FORWARD", "1", "-i", lanIface, "-p", "tcp", "--dport", "853", "-j", "REJECT")
+		runCmd("iptables", "-I", "FORWARD", "2", "-i", lanIface, "-p", "udp", "--dport", "853", "-j", "REJECT")
+	}
+
+	// OpSec: TTL Normalization & TCP MSS Clamping
+	if opts.NormalizeTTL {
+		targetTTL := opts.TargetTTL
+		if targetTTL <= 0 || targetTTL > 255 {
+			targetTTL = 64
+		}
+		runCmd("iptables", "-t", "mangle", "-I", "POSTROUTING", "1", "-o", tunName, "-j", "TTL", "--ttl-set", strconv.Itoa(targetTTL))
+		runCmd("iptables", "-t", "mangle", "-I", "POSTROUTING", "2", "-o", tunName, "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu")
+	}
 }
 
 func runCmd(name string, args ...string) {

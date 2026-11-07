@@ -83,11 +83,36 @@ async function refreshStatus() {
 }
 
 // Настройки
-function openSettings() {
+async function openSettings() {
     const dialog = document.getElementById('settings-dialog') as HTMLDialogElement;
-    App.GetKey().then(key => {
+    
+    try {
+        const key = await App.GetKey();
         (document.getElementById('key-input') as HTMLInputElement).value = key || '';
-    });
+    } catch (e) {
+        console.error('GetKey error:', e);
+    }
+
+    try {
+        const cfg: any = await App.GetRoutingConfig();
+        if (cfg) {
+            const ruToggle = document.getElementById('rudirect-toggle') as HTMLInputElement;
+            if (ruToggle) ruToggle.checked = cfg.ru_direct !== false;
+
+            const mode = cfg.split_mode || 'bypass';
+            const radio = document.querySelector(`input[name="split-mode"][value="${mode}"]`) as HTMLInputElement;
+            if (radio) radio.checked = true;
+
+            const domainsInput = document.getElementById('domains-input') as HTMLTextAreaElement;
+            if (domainsInput) domainsInput.value = (cfg.split_domains || []).join('\n');
+
+            const cidrsInput = document.getElementById('cidrs-input') as HTMLTextAreaElement;
+            if (cidrsInput) cidrsInput.value = (cfg.split_cidrs || []).join('\n');
+        }
+    } catch (e) {
+        console.error('GetRoutingConfig error:', e);
+    }
+
     dialog.showModal();
 }
 
@@ -95,13 +120,31 @@ document.getElementById('settings-btn')!.addEventListener('click', openSettings)
 document.getElementById('close-settings')!.addEventListener('click', () => {
     (document.getElementById('settings-dialog') as HTMLDialogElement).close();
 });
+
 document.getElementById('save-settings')!.addEventListener('click', async () => {
     const key = (document.getElementById('key-input') as HTMLInputElement).value.trim();
-    if (key.length !== 36) {
-        alert('UUID должен быть 36 символов');
+    if (key.length > 0 && key.length !== 36) {
+        alert('UUID должен быть 36 символов (или оставьте пустым)');
         return;
     }
-    await App.SaveKey(key);
+
+    const ruToggle = document.getElementById('rudirect-toggle') as HTMLInputElement;
+    const ruDirect = ruToggle ? ruToggle.checked : true;
+
+    const selectedRadio = document.querySelector('input[name="split-mode"]:checked') as HTMLInputElement;
+    const splitMode = selectedRadio ? selectedRadio.value : 'bypass';
+
+    const domainsText = (document.getElementById('domains-input') as HTMLTextAreaElement).value;
+    const domains = domainsText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+    const cidrsText = (document.getElementById('cidrs-input') as HTMLTextAreaElement).value;
+    const cidrs = cidrsText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+    if (key) {
+        await App.SaveKey(key);
+    }
+    await App.SaveRoutingConfig(ruDirect, splitMode, cidrs, domains);
+
     (document.getElementById('settings-dialog') as HTMLDialogElement).close();
-    statusLabel.textContent = 'Ключ сохранён';
+    statusLabel.textContent = 'Настройки сохранены';
 });

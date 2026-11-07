@@ -212,9 +212,60 @@ object Params {
             is ApiClient.Result.Incompatible ->
                 TunnelLog.add("параметры: договор ${r.theirs} мне незнаком — работаю по сохранённым")
 
-            is ApiClient.Result.Unavailable ->
-                TunnelLog.add("параметры: не дозвонился (${r.why}) — работаю по сохранённым")
+            is ApiClient.Result.Unavailable -> {
+                val dd = fetchDeadDrop()
+                if (dd != null) {
+                    accept(ctx, dd, "Dead Drop ($why)")
+                } else {
+                    TunnelLog.add("параметры: не дозвонился (${r.why}) — работаю по сохранённым")
+                }
+            }
         }
+    }
+
+    /**
+     * Резервный канал Dead Drop: опрашивает публичные ссылки Яндекс Диска или S3,
+     * если основной API заблокирован или недоступен.
+     */
+    private fun fetchDeadDrop(): JSONObject? {
+        val urls = Config.DEAD_DROP_URLS
+        if (urls.isEmpty()) return null
+        for (u in urls) {
+            try {
+                var targetUrl = u
+                if (u.contains("disk.yandex.ru") || u.contains("yadi.sk")) {
+                    val apiUrl = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=" +
+                            java.net.URLEncoder.encode(u, "UTF-8")
+                    val conn = (java.net.URL(apiUrl).openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 3000
+                        readTimeout = 3000
+                    }
+                    if (conn.responseCode == 200) {
+                        val text = conn.inputStream.bufferedReader().use { it.readText() }
+                        val linkObj = JSONObject(text)
+                        targetUrl = linkObj.optString("href", "")
+                        if (targetUrl.isEmpty()) continue
+                    } else {
+                        continue
+                    }
+                }
+                val directConn = (java.net.URL(targetUrl).openConnection() as java.net.HttpURLConnection).apply {
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+                if (directConn.responseCode == 200) {
+                    val bodyStr = directConn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(bodyStr)
+                    if (hasNodes(json)) {
+                        TunnelLog.add("параметры: получены через Dead Drop ($u)")
+                        return json
+                    }
+                }
+            } catch (e: Exception) {
+                // Игнорируем и пробуем следующий источник
+            }
+        }
+        return null
     }
 
     /**

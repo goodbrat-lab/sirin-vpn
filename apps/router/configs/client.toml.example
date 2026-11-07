@@ -11,11 +11,71 @@ kill_switch = true
 # Исключения для Kill Switch (дополнительные IP или CIDR, разрешенные напрямую через WAN даже при падении)
 # kill_switch_exceptions = ["200.10.40.239/32"]
 
+# OpSec & Network Stack Hardening (по методике Vektor T13)
+# Нормализация TTL пакетов на выходе из VPN туннеля (маскировка роутера и раздачи интернета)
+normalize_ttl = true
+# Целевое значение TTL (по умолчанию 64 для Linux/Android/iOS/macOS; 128 для Windows)
+target_ttl = 64
+# Anti-DNS-Leak: перехват всех DNS-запросов (порт 53) клиентов LAN на локальный dnsmasq роутера
+intercept_dns = true
+# Блокировка DNS-over-TLS (порт 853) в LAN для предотвращения обхода локального DNS встроенными сервисами Android/DoT
+block_dot = true
+
 lan_interface = "br-lan"
 # wan_interface: если пусто, определяется автоматически по маршруту по умолчанию (например, pppoe-wan или eth0)
 wan_interface = ""
 
 api_url = "https://crp.guseynovia.ru"
+
+# Резервный канал Dead Drop: получение актуальных узлов ladder через незаблокированные
+# хранилища (Яндекс Диск или VK Cloud / Yandex Cloud S3), если основной API api_url заблокирован ТСПУ.
+# Поддерживаются публичные ссылки Яндекс Диска (https://disk.yandex.ru/d/...) и прямые S3 URL.
+# dead_drop_urls = [
+#     "https://disk.yandex.ru/d/exampleDeadDropKey",
+#     "https://my-backup-bucket.storage.yandexcloud.net/ladder.json"
+# ]
+
+# Anti-DPI: прямой доступ к YouTube и Discord без использования VPN
+# Трафик YouTube (GoogleVideo) и Discord направляется напрямую через вашего интернет-провайдера
+# на максимальной скорости домашнего канала (100–500+ Мбит/с) без задержек и расхода VPN-трафика.
+# Обход блокировок ТСПУ осуществляется локальным transparent proxy за счёт фрагментации TLS ClientHello и отклонения QUIC.
+[antidpi]
+enabled = true
+port = 56100
+split_pos = 2        # разбиение TLS ClientHello (2 байта — оптимально против ТСПУ)
+quic_reject = true   # блокировка QUIC (UDP 443), заставляет браузер мгновенно перейти на TCP/HTTP2
+youtube = true       # прямой доступ к YouTube / GoogleVideo
+discord = true       # прямой доступ к Discord (веб, шлюз, голосовые CDN)
+# custom_domains = ["example.org"]
+
+# Whitelist Fallback: аварийный резервный канал через разрешённые отечественные сервисы
+# (WebRTC TURN VK Calls / DION Video Calls) при жестких блокировках и белых списках.
+# Трафик туннелируется через серверы VK (api.vk.me, calls.okcdn.ru) или DION (api.dion.vc),
+# находящиеся в официальных национальных белых списках РФ.
+[whitelist_fallback]
+enabled = true
+# mode:
+#   "auto"   — автоматический fallback: включается последней ступенью лестницы при отказе direct/stream
+#   "always" — принудительный режим «Белый список»: подключение только через WebRTC TURN релеи
+mode = "auto"
+gateway_port = 56005
+use_dtls = false
+turn_backup = "193.203.43.1:19302"
+turn_realm = "vkcalls"
+# relay_target = "200.10.40.239"
+
+# Ссылки или хеши VK Calls (https://vk.com/call/join/... или хеши)
+# Из них роутер на лету анонимно получает свежие TURN-токены
+# vk_hashes = [
+#     "https://vk.com/call/join/exampleJoinHash123",
+#     "https://vk.com/call/join/exampleJoinHash456"
+# ]
+
+# Комнаты видеоконференций DION (dion.vc/event/... или slug)
+# Запасной отечественный источник WebRTC TURN после VK
+# dion_slugs = [
+#     "https://dion.vc/event/exampleRoomSlug"
+# ]
 
 # Раздельное туннелирование (Split Tunneling)
 [split_tunnel]
@@ -40,6 +100,21 @@ domains = [
     # "rutracker.org",
     # "kinopoisk.ru"
 ]
+
+# Раздельное туннелирование по портам (опционально)
+# Поддерживаются одиночные порты ("80", 443), диапазоны ("8080-8090", "27000-27050")
+# и протоколы ("tcp:80", "udp:53", "udp:27000-27050"). Без префикса tcp/udp правило применяется к обоим протоколам.
+# ports = [
+#     80,
+#     443,
+#     # "tcp:8080",
+#     # "udp:27000-27050"
+# ]
+
+# port_mode:
+#   "only"   — только трафик на указанные порты направляется через VPN, всё остальное (игры, торренты, прочие порты) идёт напрямую через WAN (по умолчанию при наличии ports).
+#   "bypass" — указанные порты направляются напрямую через WAN в обход VPN (Gaming Bypass для онлайн-игр), а остальные порты обрабатываются стандартно.
+# port_mode = "only"
 
 # Fallback: если API недоступен, использовать статический пул узлов
 [[ladder]]

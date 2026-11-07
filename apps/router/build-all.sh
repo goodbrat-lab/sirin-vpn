@@ -7,7 +7,7 @@ ROOT_DIR="$(pwd)"
 OUT=dist
 mkdir -p "$OUT"
 
-VERSION=${VERSION:-1.3.2}
+VERSION=${VERSION:-1.4.0}
 LDFLAGS="-s -w -X main.Version=$VERSION"
 
 echo "Building sirin-client v$VERSION for 5 architectures..."
@@ -34,13 +34,13 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 echo ""
 echo "Sizes:"
-ls -lh "$OUT"/sirin-client-* | grep -v '\.tar\.gz' | awk '{print $9, $5}'
+ls -lh "$OUT"/sirin-client-* | grep -vE '\.tar\.gz|\.ipk|\.apk' | awk '{print $9, $5}'
 
 # Упаковать в tar.gz (включаем client.toml.example как в корне архива, так и в configs/)
 for bin in "$OUT"/sirin-client-*; do
     [ -f "$bin" ] || continue
     case "$bin" in
-        *.tar.gz) continue ;;
+        *.tar.gz|*.ipk|*.apk) continue ;;
     esac
     arch=$(basename "$bin" | sed 's/sirin-client-//')
     tar -czf "$OUT/sirin-client-$VERSION-$arch.tar.gz" \
@@ -54,3 +54,11 @@ done
 echo ""
 echo "Archives:"
 ls -lh "$OUT"/*.tar.gz
+
+echo ""
+echo "Building OpenWrt packages (.ipk and .apk)..."
+go run packager/main.go -version "$VERSION" -dist "$OUT"
+
+echo ""
+echo "OpenWrt packages created successfully in $OUT/:"
+ls -lh "$OUT"/*.ipk "$OUT"/*.apk

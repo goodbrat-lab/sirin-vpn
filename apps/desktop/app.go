@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -53,8 +54,14 @@ type ParamsResponse struct {
 }
 
 type ParamsRelay struct {
-	Enabled bool   `json:"enabled"`
-	Target  string `json:"target"`
+	Enabled    bool     `json:"enabled"`
+	Port       int      `json:"port"`
+	DTLS       bool     `json:"dtls"`
+	TURNBackup string   `json:"turn_backup"`
+	TURNRealm  string   `json:"turn_realm"`
+	Target     string   `json:"target"`
+	VKHashes   []string `json:"vk_hashes"`
+	DionSlugs  []string `json:"dion_slugs"`
 }
 
 type ParamsLadder struct {
@@ -65,15 +72,21 @@ type ParamsLadder struct {
 }
 
 type ParamsEntry struct {
-	ID        string   `json:"id"`
-	Host      string   `json:"host"`
-	Port      int      `json:"port"`
-	DTLS      bool     `json:"dtls"`
-	Transport string   `json:"transport"`
-	SNI       string   `json:"sni"`
-	SNIs      []string `json:"snis"`
-	PBK       string   `json:"pbk"`
-	SID       string   `json:"sid"`
+	ID         string   `json:"id"`
+	Host       string   `json:"host"`
+	Port       int      `json:"port"`
+	DTLS       bool     `json:"dtls"`
+	Transport  string   `json:"transport"`
+	SNI        string   `json:"sni"`
+	SNIs       []string `json:"snis"`
+	PBK        string   `json:"pbk"`
+	SID        string   `json:"sid"`
+	Path       string   `json:"path,omitempty"`
+	Mode       string   `json:"mode,omitempty"`
+	TurnBackup string   `json:"turn_backup,omitempty"`
+	TurnRealm  string   `json:"turn_realm,omitempty"`
+	VKHashes   []string `json:"vk_hashes,omitempty"`
+	DionSlugs  []string `json:"dion_slugs,omitempty"`
 }
 
 // Connect инициирует подключение
@@ -106,17 +119,31 @@ func (a *App) Connect(key string) error {
 
 	a.emitLog("Запрос параметров подключения...", "info")
 
-	params, err := fetchParams(key)
+	localCfg, _ := LoadConfig()
+	var deadDropURLs []string
+	if localCfg != nil {
+		deadDropURLs = localCfg.DeadDropURLs
+	}
+
+	params, source, err := fetchParams(key, deadDropURLs, a.emitLog)
 	if err != nil {
 		a.mu.Lock()
 		a.state = "error"
 		a.mu.Unlock()
 		a.emitState("error", fmt.Sprintf("Ошибка получения параметров: %v", err))
-		a.emitLog(fmt.Sprintf("Ошибка /v1/params: %v", err), "error")
+		a.emitLog(fmt.Sprintf("Ошибка получения параметров (API, Dead Drop, кеш недоступны): %v", err), "error")
 		return err
 	}
+	if source != "api" {
+		a.emitLog(fmt.Sprintf("Параметры успешно получены из резервного источника [%s]", source), "info")
+	}
 
-	ladder, gateway, err := buildLadder(params, key)
+	var wlCfg *WhitelistFallbackConfig
+	if localCfg != nil {
+		wlCfg = localCfg.WhitelistFallback
+	}
+
+	ladder, gateway, err := buildLadder(params, key, wlCfg)
 	if err != nil {
 		a.mu.Lock()
 		a.state = "error"
@@ -198,11 +225,28 @@ func (a *App) Connect(key string) error {
 		a.emitLog(fmt.Sprintf("WARN: configureTunAddress: %v", err), "error")
 	}
 
-	// Включить full tunnel (route add)
-	if err := route.Setup(info.Gateway, ifIndex); err != nil {
+	// Загружаем локальную конфигурацию маршрутизации
+	localCfg, _ = LoadConfig()
+	if localCfg == nil {
+		localCfg = &LocalConfig{RuDirect: true, SplitMode: "bypass"}
+	}
+
+	// Настройка маршрутизации (Full tunnel / RuDirect / Split tunneling)
+	routeCfg := route.Config{
+		Gateway:       info.Gateway,
+		IfIndex:       ifIndex,
+		RuDirect:      localCfg.RuDirect,
+		Mode:          localCfg.SplitMode,
+		CustomCIDRs:   localCfg.SplitCIDRs,
+		CustomDomains: localCfg.SplitDomains,
+	}
+
+	if err := route.Setup(routeCfg); err != nil {
 		a.emitLog(fmt.Sprintf("WARN: route.Setup: %v", err), "error")
 	} else {
-		a.emitLog("Full tunnel enabled (route /1)", "info")
+		cnt := route.ActiveRouteCount()
+		a.emitLog(fmt.Sprintf("Маршрутизация применена: режим=%s, RuDirect=%v, активных маршрутов=%d",
+			routeCfg.Mode, routeCfg.RuDirect, cnt), "info")
 	}
 
 	// Настроить DNS
@@ -292,6 +336,70 @@ func (a *App) SaveKey(key string) error {
 	return SaveConfig(cfg)
 }
 
+// GetRoutingConfig возвращает настройки раздельного туннелирования
+func (a *App) GetRoutingConfig() map[string]interface{} {
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = &LocalConfig{RuDirect: true, SplitMode: "bypass"}
+	}
+	res := map[string]interface{}{
+		"ru_direct":      cfg.RuDirect,
+		"split_mode":     cfg.SplitMode,
+		"split_cidrs":    cfg.SplitCIDRs,
+		"split_domains":  cfg.SplitDomains,
+		"dead_drop_urls": cfg.DeadDropURLs,
+	}
+	if cfg.WhitelistFallback != nil {
+		res["whitelist_enabled"] = cfg.WhitelistFallback.Enabled
+		res["whitelist_mode"] = cfg.WhitelistFallback.Mode
+		res["vk_hashes"] = cfg.WhitelistFallback.VKHashes
+		res["dion_slugs"] = cfg.WhitelistFallback.DionSlugs
+	}
+	return res
+}
+
+// SaveRoutingConfig сохраняет настройки раздельного туннелирования
+func (a *App) SaveRoutingConfig(ruDirect bool, mode string, cidrs []string, domains []string) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = &LocalConfig{}
+	}
+	cfg.RuDirect = ruDirect
+	if mode == "only" {
+		cfg.SplitMode = "only"
+	} else {
+		cfg.SplitMode = "bypass"
+	}
+	cfg.SplitCIDRs = cidrs
+	cfg.SplitDomains = domains
+	return SaveConfig(cfg)
+}
+
+// SaveAdvancedConfig сохраняет настройки Dead Drop и Whitelist Fallback
+func (a *App) SaveAdvancedConfig(deadDropURLs []string, wlEnabled bool, wlMode string, vkHashes []string, dionSlugs []string) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = &LocalConfig{}
+	}
+	cfg.DeadDropURLs = deadDropURLs
+	if cfg.WhitelistFallback == nil {
+		cfg.WhitelistFallback = &WhitelistFallbackConfig{
+			GatewayPort: 56005,
+			TurnBackup:  "193.203.43.1:19302",
+			TurnRealm:   "vkcalls",
+		}
+	}
+	cfg.WhitelistFallback.Enabled = wlEnabled
+	if wlMode == "always" {
+		cfg.WhitelistFallback.Mode = "always"
+	} else {
+		cfg.WhitelistFallback.Mode = "auto"
+	}
+	cfg.WhitelistFallback.VKHashes = vkHashes
+	cfg.WhitelistFallback.DionSlugs = dionSlugs
+	return SaveConfig(cfg)
+}
+
 // GetLogs возвращает накопленный журнал сообщений
 func (a *App) GetLogs() []string {
 	a.mu.Lock()
@@ -359,10 +467,13 @@ func (a *App) emitLog(msg string, level string) {
 	}
 }
 
-func fetchParams(key string) (*ParamsResponse, error) {
+func fetchParams(key string, deadDropURLs []string, logFn func(string, string)) (*ParamsResponse, string, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
+
+	cachePath := filepath.Join(filepath.Dir(configPath), "params_cache.json")
+	fetcher := NewDeadDropFetcher(cachePath)
 
 	urls := []string{
 		fmt.Sprintf("https://crp.guseynovia.ru/v1/params?key=%s", url.QueryEscape(key)),
@@ -395,18 +506,117 @@ func fetchParams(key string) (*ParamsResponse, error) {
 			continue
 		}
 
-		if paramsResp.Status != "answered" {
+		if paramsResp.Status != "answered" && len(paramsResp.Entries) == 0 {
 			lastErr = fmt.Errorf("сервер вернул статус: %s", paramsResp.Status)
 			continue
 		}
 
-		return &paramsResp, nil
+		_ = fetcher.SaveCache(&paramsResp)
+		return &paramsResp, "api", nil
 	}
 
-	return nil, fmt.Errorf("не удалось получить параметры: %w", lastErr)
+	// 2. Резервный канал Dead Drop (Яндекс Диск / VK Cloud / S3)
+	if len(deadDropURLs) > 0 {
+		if logFn != nil {
+			logFn(fmt.Sprintf("Основной API недоступен (%v), опрос Dead Drop (%d адресов)...", lastErr, len(deadDropURLs)), "warning")
+		}
+		ddResp, ddSource, ddErr := fetcher.Fetch(context.Background(), deadDropURLs)
+		if ddErr == nil && ddResp != nil && len(ddResp.Entries) > 0 {
+			_ = fetcher.SaveCache(ddResp)
+			return ddResp, "deaddrop:" + ddSource, nil
+		}
+		if logFn != nil {
+			logFn(fmt.Sprintf("Dead Drop не ответил: %v", ddErr), "warning")
+		}
+	}
+
+	// 3. Локальный кеш предыдущей успешной сессии
+	if cachedResp, cacheErr := fetcher.LoadCache(); cacheErr == nil && cachedResp != nil && len(cachedResp.Entries) > 0 {
+		if logFn != nil {
+			logFn("Использование параметров из сохранённого локального кеша", "warning")
+		}
+		return cachedResp, "cache", nil
+	}
+
+	return nil, "", fmt.Errorf("не удалось получить параметры (API: %v)", lastErr)
 }
 
-func buildLadder(resp *ParamsResponse, key string) (*engine.Ladder, string, error) {
+func cleanVKHash(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	low := strings.ToLower(s)
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		const marker = "/call/join/"
+		at := strings.Index(low, marker)
+		if at < 0 {
+			return ""
+		}
+		s = s[at+len(marker):]
+	}
+	for _, stop := range []string{"?", "#", "/"} {
+		if at := strings.Index(s, stop); at >= 0 {
+			s = s[:at]
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func cleanDionSlug(raw string) string {
+	s := strings.TrimSpace(raw)
+	for _, p := range []string{"https://dion.vc/event/", "http://dion.vc/event/", "dion.vc/event/"} {
+		s = strings.TrimPrefix(s, p)
+	}
+	if i := strings.IndexAny(s, "?#/"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+func buildLadder(resp *ParamsResponse, key string, wlCfg *WhitelistFallbackConfig) (*engine.Ladder, string, error) {
+	if wlCfg != nil && wlCfg.Enabled && strings.ToLower(wlCfg.Mode) == "always" {
+		ladder := engine.NewLadder()
+		ladder.SetSecondRoundMs(3000)
+		turn := wlCfg.TurnBackup
+		if turn == "" {
+			turn = "193.203.43.1:19302"
+		}
+		realm := wlCfg.TurnRealm
+		if realm == "" {
+			realm = "vkcalls"
+		}
+		port := int32(wlCfg.GatewayPort)
+		if port <= 0 {
+			port = 56005
+		}
+		ladder.AddRelay("R_WHITELIST", turn, realm, port, wlCfg.UseDTLS)
+		hasCreds := false
+		for _, h := range wlCfg.VKHashes {
+			if ch := cleanVKHash(h); ch != "" {
+				ladder.AddRelayHash(ch)
+				hasCreds = true
+			}
+		}
+		for _, s := range wlCfg.DionSlugs {
+			if cs := cleanDionSlug(s); cs != "" {
+				ladder.AddRelayDion(cs)
+				hasCreds = true
+			}
+		}
+		if wlCfg.RelayTarget != "" {
+			ladder.SetRelayTarget(wlCfg.RelayTarget)
+		}
+		if !hasCreds {
+			return nil, "", fmt.Errorf("whitelist fallback режим active='always', но не указаны ссылки/хеши VK Calls или DION")
+		}
+		gw := "crp.guseynovia.ru"
+		if len(resp.Entries) > 0 && resp.Entries[0].Host != "" {
+			gw = resp.Entries[0].Host
+		}
+		return ladder, gw, nil
+	}
+
 	ladder := engine.NewLadder()
 	if resp.Ladder.SecondRoundMs > 0 {
 		ladder.SetSecondRoundMs(int32(resp.Ladder.SecondRoundMs))
@@ -452,7 +662,123 @@ func buildLadder(resp *ParamsResponse, key string) (*engine.Ladder, string, erro
 				return nil, "", fmt.Errorf("AddVLESS %s: %w", entry.ID, err)
 			}
 			hasEntries = true
+		case "xhttp":
+			sniCSV := strings.Join(entry.SNIs, ",")
+			if sniCSV == "" {
+				sniCSV = entry.SNI
+			}
+			target := "127.0.0.1:56006"
+			path := entry.Path
+			if path == "" {
+				path = "/s1r1nxhttp2026k"
+			}
+			mode := entry.Mode
+			if mode == "" {
+				mode = "stream-one"
+			}
+			err := ladder.AddXHTTP(
+				entry.ID,
+				entry.Host,
+				int32(entry.Port),
+				vlessUUID,
+				entry.PBK,
+				entry.SID,
+				entry.SNI,
+				target,
+				sniCSV,
+				path,
+				mode,
+			)
+			if err != nil {
+				return nil, "", fmt.Errorf("AddXHTTP %s: %w", entry.ID, err)
+			}
+			hasEntries = true
+		case "relay":
+			turn := entry.TurnBackup
+			realm := entry.TurnRealm
+			port := int32(entry.Port)
+			if wlCfg != nil {
+				if turn == "" {
+					turn = wlCfg.TurnBackup
+				}
+				if realm == "" {
+					realm = wlCfg.TurnRealm
+				}
+				if port <= 0 {
+					port = int32(wlCfg.GatewayPort)
+				}
+			}
+			if port <= 0 {
+				port = 56005
+			}
+			ladder.AddRelay(entry.ID, turn, realm, port, entry.DTLS)
+			for _, h := range entry.VKHashes {
+				if ch := cleanVKHash(h); ch != "" {
+					ladder.AddRelayHash(ch)
+				}
+			}
+			for _, s := range entry.DionSlugs {
+				if cs := cleanDionSlug(s); cs != "" {
+					ladder.AddRelayDion(cs)
+				}
+			}
+			hasEntries = true
 		}
+	}
+
+	// Если настроен Whitelist Fallback, добавляем аварийный релей в конец
+	if wlCfg != nil && wlCfg.Enabled && (len(wlCfg.VKHashes) > 0 || len(wlCfg.DionSlugs) > 0 || resp.Relay.Enabled) {
+		turn := wlCfg.TurnBackup
+		if turn == "" {
+			turn = resp.Relay.TURNBackup
+		}
+		if turn == "" {
+			turn = "193.203.43.1:19302"
+		}
+		realm := wlCfg.TurnRealm
+		if realm == "" {
+			realm = resp.Relay.TURNRealm
+		}
+		if realm == "" {
+			realm = "vkcalls"
+		}
+		port := int32(wlCfg.GatewayPort)
+		if port <= 0 {
+			port = int32(resp.Relay.Port)
+		}
+		if port <= 0 {
+			port = 56005
+		}
+		dtls := wlCfg.UseDTLS || resp.Relay.DTLS
+
+		ladder.AddRelay("R_WHITELIST", turn, realm, port, dtls)
+		for _, h := range wlCfg.VKHashes {
+			if ch := cleanVKHash(h); ch != "" {
+				ladder.AddRelayHash(ch)
+			}
+		}
+		for _, s := range wlCfg.DionSlugs {
+			if cs := cleanDionSlug(s); cs != "" {
+				ladder.AddRelayDion(cs)
+			}
+		}
+		for _, h := range resp.Relay.VKHashes {
+			if ch := cleanVKHash(h); ch != "" {
+				ladder.AddRelayHash(ch)
+			}
+		}
+		for _, s := range resp.Relay.DionSlugs {
+			if cs := cleanDionSlug(s); cs != "" {
+				ladder.AddRelayDion(cs)
+			}
+		}
+		if resp.Relay.Target != "" {
+			ladder.SetRelayTarget(resp.Relay.Target)
+		}
+		if wlCfg.RelayTarget != "" {
+			ladder.SetRelayTarget(wlCfg.RelayTarget)
+		}
+		hasEntries = true
 	}
 
 	if !hasEntries {

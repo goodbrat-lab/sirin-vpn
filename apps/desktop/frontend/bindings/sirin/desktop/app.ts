@@ -8,7 +8,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 /**
  * Connect инициирует подключение
@@ -34,15 +34,28 @@ export function GetKey(): $CancellablePromise<string> {
 /**
  * GetLogs возвращает накопленный журнал сообщений
  */
-export function GetLogs(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(1743981476);
+export function GetLogs(): $CancellablePromise<string[]> {
+    return $Call.ByID(1743981476).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * GetRoutingConfig возвращает настройки раздельного туннелирования
+ */
+export function GetRoutingConfig(): $CancellablePromise<{ [_ in string]?: any }> {
+    return $Call.ByID(1598044837).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 /**
  * GetStatus возвращает текущий статус туннеля
  */
-export function GetStatus(): $CancellablePromise<{ [_ in string]?: any } | null> {
-    return $Call.ByID(1043986649);
+export function GetStatus(): $CancellablePromise<{ [_ in string]?: any }> {
+    return $Call.ByID(1043986649).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 /**
@@ -51,3 +64,14 @@ export function GetStatus(): $CancellablePromise<{ [_ in string]?: any } | null>
 export function SaveKey(key: string): $CancellablePromise<void> {
     return $Call.ByID(130824463, key);
 }
+
+/**
+ * SaveRoutingConfig сохраняет настройки раздельного туннелирования
+ */
+export function SaveRoutingConfig(ruDirect: boolean, mode: string, cidrs: string[], domains: string[]): $CancellablePromise<void> {
+    return $Call.ByID(1938470448, ruDirect, mode, cidrs, domains);
+}
+
+// Private type creation functions
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = $Create.Map($Create.Any, $Create.Any);

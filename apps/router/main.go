@@ -100,6 +100,15 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	doneCh := make(chan struct{})
+	var antiDPIServer *AntiDPIServer
+
+	stopAntiDPI := func() {
+		if antiDPIServer != nil {
+			antiDPIServer.Stop()
+			CleanupDnsmasqAntiDPI()
+			antiDPIServer = nil
+		}
+	}
 
 	go func() {
 		for ev := range events {
@@ -109,12 +118,22 @@ func main() {
 				if err := setupRouting(cfg, tun, handle.Info(), serverHosts, wan); err != nil {
 					log.Printf("[route] Ошибка настройки маршрутов: %v", err)
 				}
+				if cfg.IsAntiDPIEnabled() {
+					adCfg := cfg.GetAntiDPIConfig()
+					antiDPIServer = NewAntiDPIServer(adCfg)
+					if err := antiDPIServer.Start(ctx); err != nil {
+						log.Printf("[antidpi] Внимание: не удалось запустить Anti-DPI сервер: %v", err)
+					} else {
+						_ = SetupDnsmasqAntiDPI(adCfg.GetTargetDomains())
+					}
+				}
 			case "log":
 				// Логи выводятся в реальном времени через desktopCfg.LogFunc
 			case "stopping":
 				log.Printf("[engine] Остановка: %s", ev.Reason)
 			case "stopped":
 				log.Printf("[engine] Завершено: %s", ev.Reason)
+				stopAntiDPI()
 				cleanupRouting(cfg, tun, serverHosts, wan)
 				close(doneCh)
 				return
@@ -125,6 +144,7 @@ func main() {
 	select {
 	case sig := <-sigCh:
 		log.Printf("Получен сигнал %s, завершение работы...", sig)
+		stopAntiDPI()
 		cleanupRouting(cfg, tun, serverHosts, wan)
 		handle.Stop()
 		cancel()

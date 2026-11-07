@@ -8,7 +8,7 @@ if (!(Test-Path $OUT)) {
     New-Item -ItemType Directory -Force -Path $OUT | Out-Null
 }
 
-$VERSION = if ($env:VERSION) { $env:VERSION } else { "1.2.0" }
+$VERSION = if ($env:VERSION) { $env:VERSION } else { "1.4.0" }
 $LDFLAGS = "-s -w -X main.Version=$VERSION"
 
 Write-Host "Building sirin-client v$VERSION for 5 architectures..." -ForegroundColor Cyan
@@ -39,7 +39,7 @@ $env:CGO_ENABLED = "0"; $env:GOOS = "linux"; $env:GOARCH = "amd64"
 go build -ldflags="$LDFLAGS" -o "$OUT/sirin-client-x86_64" .
 
 Write-Host "`nSizes:" -ForegroundColor Green
-Get-ChildItem -Path "$OUT/sirin-client-*" -Exclude "*.tar.gz" | Select-Object Name, Length
+Get-ChildItem -Path "$OUT/sirin-client-*" -Exclude "*.tar.gz","*.ipk","*.apk" | Select-Object Name, Length
 
 # Packaging into .tar.gz
 Write-Host "`nPackaging into tar.gz..." -ForegroundColor Cyan
@@ -51,3 +51,10 @@ foreach ($arch in $archs) {
 
 Write-Host "`nArchives:" -ForegroundColor Green
 Get-ChildItem -Path "$OUT/*.tar.gz" | Select-Object Name, Length
+
+# Packaging into .ipk (opkg) and .apk (OpenWrt 25.x)
+Write-Host "`nBuilding OpenWrt packages (.ipk and .apk)..." -ForegroundColor Cyan
+go run packager/main.go -version $VERSION -dist $OUT
+
+Write-Host "`nOpenWrt packages created successfully in $OUT/:" -ForegroundColor Green
+Get-ChildItem -Path "$OUT/*" -Include *.ipk,*.apk | Select-Object Name, Length

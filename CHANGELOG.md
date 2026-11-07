@@ -1,5 +1,117 @@
 # Changelog
 
+## [router-v1.6.0] - 2026-11-07
+
+### Added
+- **Аварийный резервный канал Whitelist Fallback (WebRTC TURN VK Calls / DION / S3)**:
+  - **Обход тотальных блокировок и изоляции внешнего интернета (Чебурнет / Белые списки)**:
+    - При блокировке всех зарубежных IP и протоколов (UDP Noise, VLESS, XHTTP) клиент автоматически переключается на последнюю ступень лестницы — отечественные WebRTC TURN серверы (VKontakte / Mail.ru / Odnoklassniki / DION).
+    - Трафик туннеля маскируется под легитимный медиа-поток отечественных видеозвонков и направляется на доверенные российские IP-адреса из официального белого списка (Минцифры / Роскомнадзор).
+  - **Анонимная добыча WebRTC TURN токенов (Zero-Account Harvesting)**:
+    - Клиент на лету анонимно обменивает ссылки или хеши групповых звонков VK (`vk.com/call/join/...`) на одноразовые TURN-токены через цепочку API VK Calls (`api.vk.me`, `calls.okcdn.ru`) без авторизации в учетной записи.
+    - Поддержка комнат корпоративных видеоконференций DION (`dion.vc/event/...` / ВТБ) с удержанием WebSocket heartbeat в качестве второго независимого источника TURN-релеев.
+  - **Режимы работы лестницы**:
+    - `auto` (по умолчанию): автоматический fallback — ступень WebRTC релея добавляется в конец списка ступеней и активируется только при отказе прямого UDP/VLESS/XHTTP.
+    - `always`: принудительный режим работы исключительно через разрешенные отечественные WebRTC релеи для тестирования и работы в изолированных сетях.
+  - **Интеграция в LuCI Web UI (`luci-app-sirin`) и RPC (`rpcd/sirin`)**:
+    - Новый раздел «5. Аварийный обход (Whitelist Fallback: WebRTC TURN VK / DION)»: переключатели активации, выбора режима Auto/Always, ввод ссылок/хешей VK Calls и комнат DION, настройка резервного TURN-сервера.
+    - RPC методы `get_whitelist_config` и `set_whitelist_config`.
+  - **Интеграция в Windows Desktop Client (`apps/desktop`)**:
+    - Поддержка `WhitelistFallback` в локальной конфигурации `%APPDATA%/Sirin/config.json` и в `buildLadder`.
+  - **Тесты**:
+    - `TestCleanVKHash`, `TestCleanDionSlug`, `TestBuildFromParams_WhitelistAuto`, `TestBuildFromParams_WhitelistAlways`, `TestBuildFromStatic_RelayEntry`, `TestDesktop_BuildLadder_WhitelistFallback`.
+- **Встроенный модуль Anti-DPI (обход замедления YouTube и Discord без VPN)**:
+  - **Прямой просмотр YouTube 4K/8K и Discord Voice/Gateway на скорости WAN**:
+    - Трафик целевых CDN-нод (`*.googlevideo.com`, `*.ytimg.com`, `discord.com`, `*.discord.gg`) не заворачивается в заграничный VPN-туннель, а идет напрямую через провайдера с минимальным пингом и 0 расходом серверного трафика.
+  - **Прозрачный локальный прокси с фрагментацией TLS ClientHello**:
+    - Встроенный чистый Go-сервер (`apps/router/antidpi.go`), слушающий на порту `127.0.0.1:56100` через nftables `redirect`.
+    - Парсер ClientHello по спецификациям TLS 1.2/1.3 (RFC 5246 / RFC 8446) с извлечением Server Name Indication (SNI).
+    - Фрагментация первого пакета TLS ClientHello на два TCP-сегмента (по умолчанию на позиции byte 2) с включенным `TCP_NODELAY` и микрозадержкой между сегментами, что разрушает сигнатуру в фильтрах ТСПУ/DPI без возможности потоковой склейки на лету.
+    - Определение оригинального адреса назначения через `getsockopt(SO_ORIGINAL_DST)` (`linux`), с архитектурной изоляцией других ОС через build tags.
+  - **Принудительный откат с QUIC на TCP (QUIC Reject)**:
+    - Блокировка пакетов UDP 443 для доменов YouTube (`ip daddr @antidpi_cidrs udp dport 443 reject`), что мгновенно форсирует переключение браузеров и мобильных устройств на защищаемый TCP HTTP/2 в течение 5-10 мс.
+  - **Интеграция с dnsmasq и динамическими nftables ipsets**:
+    - Автоматическая генерация `/tmp/dnsmasq.d/sirin-antidpi.conf` с директивами `nftset=/domain/4#sirin#antidpi_cidrs`.
+    - По мере DNS-резолвинга IP-адреса YouTube и Discord автоматически попадают в ядерный сет `antidpi_cidrs` с таймаутом жизни.
+  - **Интеграция в LuCI Web UI (`luci-app-sirin`) и RPC (`rpcd/sirin`)**:
+    - Новый раздел «4. Обход замедления без VPN (Anti-DPI: YouTube / Discord)»: чекбоксы YouTube/Discord/QUIC Reject, настройка позиции сплита, пользовательские домены, локальный порт прокси.
+    - RPC методы `get_antidpi_config` и `set_antidpi_config`.
+  - **Тесты**:
+    - `TestExtractSNI`, `TestExtractSNI_InvalidData`, `TestAntiDPIConfig_GetTargetDomains`, `TestFragmentAndSend`, `TestGenerateNftablesRules_AntiDPI`, `TestConfig_AntiDPIToml`.
+- **Резервный канал Dead Drop (Яндекс Диск / S3-совместимые хранилища)**:
+  - **Обход блокировок центрального API**:
+    - При недоступности основного сервера конфигурации (`/v1/params`) или блокировке его домена/IP по ТСПУ клиент автоматически опрашивает резервные источники Dead Drop (`dead_drop_urls`).
+    - Полная поддержка публичных ссылок Яндекс Диска (`https://disk.yandex.ru/d/...`, `https://yadi.sk/d/...`): автоматический двухшаговый резолвинг прямой ссылки через официальный открытый REST API `cloud-api.yandex.net` без авторизации.
+    - Поддержка прямых ссылок на S3-совместимые хранилища (VK Cloud Object Storage, Yandex Cloud Object Storage, Hotbox).
+  - **Локальное энергонезависимое кеширование (Zero-Downtime Resilience)**:
+    - При любом успешном получении конфигурации (от API или Dead Drop) актуальный список узлов сохраняется в локальный кеш (`/tmp/sirin_params_cache.json` в ramfs на роутере; `%APPDATA%/Sirin/params_cache.json` на Windows Desktop).
+    - При повторных перезагрузках или полном отключении интернета клиент способен мгновенно подняться из кеша до попытки статического fallback.
+  - **Интеграция в LuCI Web UI и RPC**:
+    - Новое многострочное поле ввода резервных ссылок Dead Drop в веб-интерфейсе LuCI (`overview.js`), валидация и сохранение в `/etc/sirin/client.toml` через `rpcd/sirin`.
+  - **Тесты**:
+    - Модульные тесты `TestIsYandexDiskLink`, `TestFetchDeadDrop_DirectS3`, `TestFetchDeadDrop_CachePersistence`, `TestBuildLadder_DeadDropFallback`.
+- **OpSec & Network Stack Hardening (по методике Vektor T13)**:
+  - **Нормализация TTL (TTL Normalization)**:
+    - Маскировка маршрутизатора и раздачи интернета клиентами LAN. Для всех исходящих пакетов через туннель `sirin0` в цепочке `postrouting_mangle` устанавливается фиксированный TTL (по умолчанию 64 для Linux/Android/iOS/macOS; 128 для Windows).
+    - Предотвращает обнаружение промежуточных транзитных хопов и анализ p0f/OS fingerprinting на стороне ТСПУ и целевых серверов.
+  - **TCP MSS Clamping (выравнивание MTU/MSS)**:
+    - Автоматическая подгонка MSS под MTU туннеля (`tcp flags syn tcp option maxseg size set rt mtu` в nftables и `--clamp-mss-to-pmtu` в iptables). Исключает фрагментацию и застревание пакетов ("черные дыры" MTU).
+  - **Anti-DNS-Leak (принудительный перехват DNS на роутере)**:
+    - Цепочка `chain dstnat` перехватывает все клиентские DNS-запросы на порту 53 UDP/TCP (`iifname "br-lan" redirect to :53`) и направляет их в локальный защищенный dnsmasq, блокируя нежелательные прямые запросы к 8.8.8.8, 1.1.1.1 и умным IoT-устройствам.
+  - **Блокировка DNS-over-TLS (DoT Port 853)**:
+    - Запрет трафика на порт 853 (`reject`) в цепочке `forward`, предотвращающий скрытый обход локального DNS мобильными ОС (Android Private DNS / DoT).
+  - **Поддержка iptables fallback**:
+    - Зеркальная поддержка OpSec-правил при fallback на устаревшие прошивки без nftables.
+  - **Интеграция в LuCI Web UI (`luci-app-sirin`)**:
+    - Переключатели нормализации TTL, целевого TTL, перехвата DNS и блокировки DoT в секции настроек с валидацией, сохранением и перезапуском через `rpcd/sirin`.
+  - **Тесты**:
+    - `TestConfig_OpSecDefaults`, `TestConfig_OpSecToml`, `TestGenerateNftablesRules_OpSec`.
+
+## [desktop-v1.1.0] - 2026-11-06
+
+### Added
+- **RuDirect (8641 CIDR из реестра RIPE NCC)**:
+  - Прямой доступ к российским сайтам и сервисам (Госуслуги, банковские приложения, сервисы Яндекса, VK) на максимальной скорости домашнего провайдера без VPN-задержек и блокировок по геолокации.
+  - Высокопроизводительная установка маршрутов через Win32 IP Helper API (`CreateIpForwardEntry2` / `DeleteIpForwardEntry2` из `iphlpapi.dll`) за < 150 мс для всех 8641 диапазонов вместо минутного перебора через `route.exe`.
+  - База подсетей `ru-ranges.txt` встроена непосредственно в исполняемый файл через `//go:embed`.
+- **Раздельное туннелирование по доменам и IP-диапазонам (Split Tunneling)**:
+  - Режим `Bypass` (по умолчанию): весь трафик защищен Wintun VPN, а трафик RuDirect и указанные пользователем домены и CIDR идут напрямую через физический шлюз.
+  - Режим `Only`: в VPN-туннель направляются исключительно указанные домены и IP-диапазоны, остальной трафик не затрагивается.
+  - Резолвинг доменов в IPv4-адреса и динамическая установка `/32` маршрутов.
+  - Автоопределение физического интерфейса и шлюза по умолчанию (`GetPhysicalDefaultGateway`).
+  - Чистый откат и удаление установленных маршрутов при отключении туннеля (`route.Cleanup()`).
+- **Интерфейс настроек Desktop (Wails v3 UI)**:
+  - Переключатель RuDirect с пояснением.
+  - Выбор режима туннелирования (`Bypass` vs `Only`).
+  - Многострочные поля ввода пользовательских доменов и CIDR с валидацией.
+  - Интеграция с локальной конфигурацией `%APPDATA%/Sirin/config.json` и Wails v3 API (`GetRoutingConfig`, `SaveRoutingConfig`).
+- **Тесты**:
+  - Модульные тесты `TestParseCIDR`, `TestGetRuCIDRs`, `TestResolveDomains`, `TestFindPhysicalGateway`.
+
+
+## [router-v1.5.0] - 2026-11-06
+
+### Added
+- **Сборка и упаковка в форматы OpenWrt `.ipk` (opkg) и `.apk` (OpenWrt 25.x)**:
+  - Автономный сборщик пакетов на чистом Go (`apps/router/packager/main.go`), не требующий установки OpenWrt SDK: генерирует валидные архивы со строгими правами файлов (0755/0644) и владельцем `root:root`.
+  - Отдельные пакеты `sirin-client` и универсальный архитектурно-независимый пакет `luci-app-sirin` (`all`/`noarch`).
+  - Комплексные All-in-one пакеты `sirin-full` (демон + LuCI в одном файле), устанавливаемые одной командой `opkg install` или `apk add`.
+  - Пакеты собраны под все 5 поддерживаемых процессорных архитектур роутеров: `mips`, `mipsle`, `armv7`, `arm64`, `x86_64`.
+  - Добавлены Makefiles для сборки через официальный OpenWrt SDK (`openwrt/sirin-client/Makefile` и `openwrt/luci-app-sirin/Makefile`).
+  - Добавлена подробная документация [`docs/OPENWRT_PACKAGES.md`](docs/OPENWRT_PACKAGES.md) с пошаговыми инструкциями для OpenWrt 21–24.x (`opkg`) и OpenWrt 25.x (`apk`).
+  - Unit-тесты верификации целостности архивов `TestVerifyIPK` и `TestVerifyAPK`.
+
+## [router-v1.4.0] - 2026-11-05
+
+### Added
+- **Раздельное туннелирование по портам (Port-Based Split Tunneling)**:
+  - Поддержка одиночных портов (`80`, `443`), диапазонов (`8080-8090`, `27000-27050`) и явного указания протокола (`tcp:80`, `udp:53`, `udp:27000-27050`).
+  - Режим `port_mode = "only"`: через VPN направляется только трафик на указанные порты (например, веб-порты 80 и 443), а все остальные порты (игры, торренты) направляются напрямую в WAN через физический шлюз провайдера.
+  - Режим `port_mode = "bypass"` (Gaming Bypass): указанные порты (например, порты Steam, Valorant, Riot, EA) принудительно направляются напрямую в WAN с минимальным нативным пингом, а весь остальной трафик идет через защищенный туннель.
+  - Атомарная генерация наборов nftables (`set split_ports_tcp` и `set split_ports_udp` с типом `inet_service` и флагом `interval`).
+  - Полная поддержка в веб-интерфейсе LuCI (`luci-app-sirin`): радиокнопки режима, многострочный ввод портов с клиентской валидацией, сохранение и перезапуск демона через `rpcd/sirin`.
+  - Модульные тесты `TestValidatePort`, `TestNormalizePortMode`, `TestGetSplitPorts`, `TestGenerateNftablesRules_WithPorts_WebOnly`, `TestGenerateNftablesRules_WithPorts_GamingBypass`, `TestSplitTunnelConfig_PortsFromTOML`.
+
 ## [server-v1.5.0] - 2026-10-27
 
 ### Added

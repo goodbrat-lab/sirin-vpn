@@ -18,7 +18,7 @@ var callGetConfig = rpc.declare({
 var callSetConfig = rpc.declare({
 	object: 'sirin',
 	method: 'set_config',
-	params: ['gateway', 'password', 'device_id', 'ru_direct', 'tun_mtu', 'kill_switch'],
+	params: ['gateway', 'password', 'device_id', 'ru_direct', 'tun_mtu', 'kill_switch', 'normalize_ttl', 'target_ttl', 'intercept_dns', 'block_dot', 'dead_drop_urls'],
 	expect: {}
 });
 
@@ -31,7 +31,33 @@ var callGetSplitConfig = rpc.declare({
 var callSetSplitConfig = rpc.declare({
 	object: 'sirin',
 	method: 'set_split_config',
-	params: ['mode', 'use_ru_direct', 'cidrs', 'domains'],
+	params: ['mode', 'use_ru_direct', 'cidrs', 'domains', 'ports', 'port_mode'],
+	expect: {}
+});
+
+var callGetAntiDPIConfig = rpc.declare({
+	object: 'sirin',
+	method: 'get_antidpi_config',
+	expect: {}
+});
+
+var callSetAntiDPIConfig = rpc.declare({
+	object: 'sirin',
+	method: 'set_antidpi_config',
+	params: ['enabled', 'port', 'split_pos', 'quic_reject', 'youtube', 'discord', 'custom_domains'],
+	expect: {}
+});
+
+var callGetWhitelistConfig = rpc.declare({
+	object: 'sirin',
+	method: 'get_whitelist_config',
+	expect: {}
+});
+
+var callSetWhitelistConfig = rpc.declare({
+	object: 'sirin',
+	method: 'set_whitelist_config',
+	params: ['enabled', 'mode', 'gateway_port', 'use_dtls', 'turn_backup', 'turn_realm', 'relay_target', 'vk_hashes', 'dion_slugs'],
 	expect: {}
 });
 
@@ -104,7 +130,9 @@ return view.extend({
 			callStatus().catch(function() { return {}; }),
 			callGetConfig().catch(function() { return {}; }),
 			callGetSplitConfig().catch(function() { return {}; }),
-			callGetRuDirectInfo().catch(function() { return {}; })
+			callGetRuDirectInfo().catch(function() { return {}; }),
+			callGetAntiDPIConfig().catch(function() { return {}; }),
+			callGetWhitelistConfig().catch(function() { return {}; })
 		]);
 	},
 
@@ -113,6 +141,8 @@ return view.extend({
 		var config = data[1] || {};
 		var splitConfig = data[2] || {};
 		var ruInfo = data[3] || {};
+		var antiDPI = data[4] || {};
+		var wlConfig = data[5] || {};
 
 		var ruCount = ruInfo.count || 8641;
 
@@ -323,6 +353,40 @@ return view.extend({
 			checked: (config.kill_switch !== undefined ? !!config.kill_switch : true)
 		});
 
+		var chkNormalizeTTL = E('input', {
+			class: 'cbi-input-checkbox',
+			type: 'checkbox',
+			checked: (config.normalize_ttl !== undefined ? !!config.normalize_ttl : true)
+		});
+
+		var inTargetTTL = E('input', {
+			class: 'cbi-input-text',
+			type: 'number',
+			min: '1',
+			max: '255',
+			style: 'width: 80px;',
+			value: config.target_ttl || 64
+		});
+
+		var chkInterceptDNS = E('input', {
+			class: 'cbi-input-checkbox',
+			type: 'checkbox',
+			checked: (config.intercept_dns !== undefined ? !!config.intercept_dns : true)
+		});
+
+		var chkBlockDoT = E('input', {
+			class: 'cbi-input-checkbox',
+			type: 'checkbox',
+			checked: (config.block_dot !== undefined ? !!config.block_dot : true)
+		});
+
+		var txtDeadDrop = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 3,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'https://disk.yandex.ru/d/...\nhttps://bucket.storage.yandexcloud.net/params.json'
+		}, (config.dead_drop_urls || []).join('\n'));
+
 		var btnSaveConfig = E('button', {
 			class: 'btn cbi-button cbi-button-save',
 			style: 'margin-right: 8px;',
@@ -333,6 +397,20 @@ return view.extend({
 				var mtu = parseInt(inTunMtu.value, 10);
 				var rud = (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true);
 				var ks = chkKillSwitch.checked;
+				var normTTL = chkNormalizeTTL.checked;
+				var targTTL = parseInt(inTargetTTL.value, 10);
+				if (isNaN(targTTL) || targTTL < 1 || targTTL > 255) targTTL = 64;
+				var intDNS = chkInterceptDNS.checked;
+				var blkDoT = chkBlockDoT.checked;
+
+				var rawDD = txtDeadDrop.value.split('\n');
+				var validDD = [];
+				for (var d = 0; d < rawDD.length; d++) {
+					var item = rawDD[d].trim();
+					if (item && (item.indexOf('http://') === 0 || item.indexOf('https://') === 0)) {
+						validDD.push(item);
+					}
+				}
 
 				if (!gw || /[^a-zA-Z0-9.-]/.test(gw)) {
 					ui.addNotification(null, E('p', {}, 'Ошибка в поле «Шлюз»: укажите валидное доменное имя или IP-адрес'), 'error');
@@ -352,7 +430,7 @@ return view.extend({
 				}
 
 				btnSaveConfig.disabled = true;
-				return callSetConfig(gw, pw, did, rud, mtu, ks).then(function(res) {
+				return callSetConfig(gw, pw, did, rud, mtu, ks, normTTL, targTTL, intDNS, blkDoT, validDD).then(function(res) {
 					btnSaveConfig.disabled = false;
 					if (res && res.ok) {
 						ui.addNotification(null, E('p', {}, 'Настройки успешно сохранены в /etc/sirin/client.toml'), 'info');
@@ -400,6 +478,11 @@ return view.extend({
 						inDeviceId.value = cfg.device_id || 'router-01';
 						inTunMtu.value = cfg.tun_mtu || 1280;
 						chkKillSwitch.checked = (cfg.kill_switch !== undefined ? !!cfg.kill_switch : true);
+						chkNormalizeTTL.checked = (cfg.normalize_ttl !== undefined ? !!cfg.normalize_ttl : true);
+						inTargetTTL.value = cfg.target_ttl || 64;
+						chkInterceptDNS.checked = (cfg.intercept_dns !== undefined ? !!cfg.intercept_dns : true);
+						chkBlockDoT.checked = (cfg.block_dot !== undefined ? !!cfg.block_dot : true);
+						txtDeadDrop.value = (cfg.dead_drop_urls || []).join('\n');
 						ui.addNotification(null, E('p', {}, 'Значения сброшены до текущих настроек файла'), 'info');
 					}
 				}).catch(function() {
@@ -458,6 +541,27 @@ return view.extend({
 			placeholder: 'rutracker.org\nkinopoisk.ru'
 		}, (splitConfig.domains || []).join('\n'));
 
+		var portMode = (splitConfig.port_mode || 'only').toLowerCase();
+		var radPortOnly = E('input', {
+			type: 'radio',
+			name: 'split_port_mode',
+			value: 'only',
+			checked: portMode !== 'bypass'
+		});
+		var radPortBypass = E('input', {
+			type: 'radio',
+			name: 'split_port_mode',
+			value: 'bypass',
+			checked: portMode === 'bypass'
+		});
+
+		var txtPorts = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 4,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: '80\n443\n8080-8090\nudp:27000-27050'
+		}, (splitConfig.ports || []).join('\n'));
+
 		var btnSaveSplit = E('button', {
 			class: 'btn cbi-button cbi-button-save',
 			style: 'margin-right: 8px;',
@@ -493,8 +597,42 @@ return view.extend({
 					validDomains.push(d);
 				}
 
+				// Parse and validate ports
+				var rawPorts = txtPorts.value.split('\n');
+				var validPorts = [];
+				var portRegex = /^(tcp:|udp:)?[0-9]{1,5}(-[0-9]{1,5})?$/i;
+				for (var k = 0; k < rawPorts.length; k++) {
+					var p = rawPorts[k].trim();
+					if (!p) continue;
+					if (!portRegex.test(p)) {
+						ui.addNotification(null, E('p', {}, 'Некорректный формат порта или диапазона: ' + p), 'error');
+						return;
+					}
+					var checkPart = p;
+					if (checkPart.indexOf(':') !== -1) {
+						checkPart = checkPart.split(':')[1];
+					}
+					if (checkPart.indexOf('-') !== -1) {
+						var rangeParts = checkPart.split('-');
+						var pStart = parseInt(rangeParts[0], 10);
+						var pEnd = parseInt(rangeParts[1], 10);
+						if (pStart < 1 || pStart > 65535 || pEnd < 1 || pEnd > 65535 || pStart >= pEnd) {
+							ui.addNotification(null, E('p', {}, 'Некорректный диапазон портов (1-65535, start < end): ' + p), 'error');
+							return;
+						}
+					} else {
+						var pVal = parseInt(checkPart, 10);
+						if (pVal < 1 || pVal > 65535) {
+							ui.addNotification(null, E('p', {}, 'Номер порта вне диапазона 1-65535: ' + p), 'error');
+							return;
+						}
+					}
+					validPorts.push(p);
+				}
+				var selectedPortMode = radPortBypass.checked ? 'bypass' : 'only';
+
 				btnSaveSplit.disabled = true;
-				return callSetSplitConfig(mode, useRu, validCidrs, validDomains).then(function(res) {
+				return callSetSplitConfig(mode, useRu, validCidrs, validDomains, validPorts, selectedPortMode).then(function(res) {
 					btnSaveSplit.disabled = false;
 					if (res && res.ok) {
 						ui.addNotification(null, E('p', {}, 'Параметры раздельного туннелирования сохранены'), 'info');
@@ -546,6 +684,12 @@ return view.extend({
 					chkRuDirect.checked = (sc.use_ru_direct !== undefined ? !!sc.use_ru_direct : true);
 					txtCIDRs.value = (sc.cidrs || []).join('\n');
 					txtDomains.value = (sc.domains || []).join('\n');
+					txtPorts.value = (sc.ports || []).join('\n');
+					if (sc.port_mode === 'bypass') {
+						radPortBypass.checked = true;
+					} else {
+						radPortOnly.checked = true;
+					}
 					ui.addNotification(null, E('p', {}, 'Настройки разделения сброшены'), 'info');
 				}).catch(function() {
 					btnCancelSplit.disabled = false;
@@ -553,7 +697,307 @@ return view.extend({
 			}
 		}, 'Отмена');
 
-		// Section 4: Diagnostics
+		// Section 4: Anti-DPI (YouTube / Discord)
+		var chkADEnabled = E('input', {
+			type: 'checkbox',
+			checked: (antiDPI.enabled !== undefined ? !!antiDPI.enabled : true)
+		});
+
+		var chkADYouTube = E('input', {
+			type: 'checkbox',
+			checked: (antiDPI.youtube !== undefined ? !!antiDPI.youtube : true)
+		});
+
+		var chkADDiscord = E('input', {
+			type: 'checkbox',
+			checked: (antiDPI.discord !== undefined ? !!antiDPI.discord : true)
+		});
+
+		var chkADQUICReject = E('input', {
+			type: 'checkbox',
+			checked: (antiDPI.quic_reject !== undefined ? !!antiDPI.quic_reject : true)
+		});
+
+		var inADSplitPos = E('input', {
+			type: 'number',
+			class: 'cbi-input-text',
+			min: 1,
+			max: 100,
+			value: antiDPI.split_pos || 2,
+			style: 'width: 100px;'
+		});
+
+		var inADPort = E('input', {
+			type: 'number',
+			class: 'cbi-input-text',
+			min: 1024,
+			max: 65535,
+			value: antiDPI.port || 56100,
+			style: 'width: 120px;'
+		});
+
+		var txtADCustomDomains = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 4,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'example.com\ncdn.example.org'
+		}, (antiDPI.custom_domains || []).join('\n'));
+
+		var btnSaveAntiDPI = E('button', {
+			class: 'btn cbi-button cbi-button-save',
+			style: 'margin-right: 8px;',
+			click: function() {
+				var enabled = chkADEnabled.checked;
+				var yt = chkADYouTube.checked;
+				var dc = chkADDiscord.checked;
+				var quic = chkADQUICReject.checked;
+				var sp = parseInt(inADSplitPos.value, 10);
+				if (isNaN(sp) || sp < 1 || sp > 100) {
+					ui.addNotification(null, E('p', {}, 'Некорректная позиция фрагментации ClientHello (1-100)'), 'error');
+					return;
+				}
+				var port = parseInt(inADPort.value, 10);
+				if (isNaN(port) || port < 1024 || port > 65535) {
+					ui.addNotification(null, E('p', {}, 'Некорректный порт локального прокси Anti-DPI (1024-65535)'), 'error');
+					return;
+				}
+
+				var rawDomains = txtADCustomDomains.value.split('\n');
+				var validDomains = [];
+				var domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+				for (var i = 0; i < rawDomains.length; i++) {
+					var d = rawDomains[i].trim().toLowerCase();
+					if (!d) continue;
+					if (!domainRegex.test(d)) {
+						ui.addNotification(null, E('p', {}, 'Некорректный формат доменного имени Anti-DPI: ' + d), 'error');
+						return;
+					}
+					validDomains.push(d);
+				}
+
+				btnSaveAntiDPI.disabled = true;
+				return callSetAntiDPIConfig(enabled, port, sp, quic, yt, dc, validDomains).then(function(res) {
+					btnSaveAntiDPI.disabled = false;
+					if (res && res.ok) {
+						ui.addNotification(null, E('p', {}, 'Параметры Anti-DPI сохранены'), 'info');
+						ui.showModal('Перезапустить службу Sirin?', [
+							E('p', {}, 'Параметры Anti-DPI сохранены. Для применения сетевых правил nftables и dnsmasq требуется перезапуск службы.'),
+							E('div', { class: 'right' }, [
+								E('button', {
+									class: 'btn cbi-button cbi-button-neutral',
+									style: 'margin-right: 8px;',
+									click: function() {
+										ui.hideModal();
+									}
+								}, 'Нет, позже'),
+								E('button', {
+									class: 'btn cbi-button cbi-button-apply',
+									click: function() {
+										ui.hideModal();
+										callRestart().then(function() {
+											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
+											updateStatusView();
+										});
+									}
+								}, 'Да, перезапустить')
+							])
+						]);
+					} else {
+						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения Anti-DPI'), 'error');
+					}
+				}).catch(function(e) {
+					btnSaveAntiDPI.disabled = false;
+					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения Anti-DPI'), 'error');
+				});
+			}
+		}, 'Сохранить параметры Anti-DPI');
+
+		var btnCancelAntiDPI = E('button', {
+			class: 'btn cbi-button cbi-button-reset',
+			click: function() {
+				btnCancelAntiDPI.disabled = true;
+				return callGetAntiDPIConfig().then(function(ad) {
+					btnCancelAntiDPI.disabled = false;
+					ad = ad || {};
+					chkADEnabled.checked = (ad.enabled !== undefined ? !!ad.enabled : true);
+					chkADYouTube.checked = (ad.youtube !== undefined ? !!ad.youtube : true);
+					chkADDiscord.checked = (ad.discord !== undefined ? !!ad.discord : true);
+					chkADQUICReject.checked = (ad.quic_reject !== undefined ? !!ad.quic_reject : true);
+					inADSplitPos.value = ad.split_pos || 2;
+					inADPort.value = ad.port || 56100;
+					txtADCustomDomains.value = (ad.custom_domains || []).join('\n');
+					ui.addNotification(null, E('p', {}, 'Настройки Anti-DPI сброшены'), 'info');
+				}).catch(function() {
+					btnCancelAntiDPI.disabled = false;
+				});
+			}
+		}, 'Отмена');
+
+		// Section 5: Whitelist Fallback (VK Calls / DION / S3)
+		var chkWLEnabled = E('input', {
+			type: 'checkbox',
+			checked: (wlConfig.enabled !== undefined ? !!wlConfig.enabled : true)
+		});
+
+		var wlMode = (wlConfig.mode || 'auto').toLowerCase();
+		var radWLAuto = E('input', {
+			type: 'radio',
+			name: 'wl_mode',
+			value: 'auto',
+			checked: wlMode !== 'always'
+		});
+		var radWLAlways = E('input', {
+			type: 'radio',
+			name: 'wl_mode',
+			value: 'always',
+			checked: wlMode === 'always'
+		});
+
+		var inWLPort = E('input', {
+			type: 'number',
+			class: 'cbi-input-text',
+			min: 1,
+			max: 65535,
+			value: wlConfig.gateway_port || 56005,
+			style: 'width: 100px;'
+		});
+
+		var chkWLDTLS = E('input', {
+			type: 'checkbox',
+			checked: !!wlConfig.use_dtls
+		});
+
+		var inWLTurnBackup = E('input', {
+			type: 'text',
+			class: 'cbi-input-text',
+			value: wlConfig.turn_backup || '193.203.43.1:19302',
+			style: 'width: 250px;'
+		});
+
+		var inWLTurnRealm = E('input', {
+			type: 'text',
+			class: 'cbi-input-text',
+			value: wlConfig.turn_realm || 'vkcalls',
+			style: 'width: 150px;'
+		});
+
+		var inWLRelayTarget = E('input', {
+			type: 'text',
+			class: 'cbi-input-text',
+			value: wlConfig.relay_target || '',
+			placeholder: '200.10.40.239',
+			style: 'width: 200px;'
+		});
+
+		var txtWLVKHashes = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 4,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'https://vk.com/call/join/abcdef123456\nhttps://vk.com/call/join/uvwxyz789012'
+		}, (wlConfig.vk_hashes || []).join('\n'));
+
+		var txtWLDionSlugs = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 4,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'https://dion.vc/event/my-room-slug\nanother-slug'
+		}, (wlConfig.dion_slugs || []).join('\n'));
+
+		var btnSaveWhitelist = E('button', {
+			class: 'btn cbi-button cbi-button-save',
+			style: 'margin-right: 8px;',
+			click: function() {
+				var enabled = chkWLEnabled.checked;
+				var mode = radWLAlways.checked ? 'always' : 'auto';
+				var port = parseInt(inWLPort.value, 10);
+				if (isNaN(port) || port < 1 || port > 65535) {
+					ui.addNotification(null, E('p', {}, 'Некорректный порт шлюза для релея (1-65535)'), 'error');
+					return;
+				}
+				var dtls = chkWLDTLS.checked;
+				var turn = inWLTurnBackup.value.trim() || '193.203.43.1:19302';
+				var realm = inWLTurnRealm.value.trim() || 'vkcalls';
+				var target = inWLRelayTarget.value.trim();
+
+				var rawVK = txtWLVKHashes.value.split('\n');
+				var validVK = [];
+				for (var i = 0; i < rawVK.length; i++) {
+					var item = rawVK[i].trim();
+					if (item) validVK.push(item);
+				}
+
+				var rawDion = txtWLDionSlugs.value.split('\n');
+				var validDion = [];
+				for (var j = 0; j < rawDion.length; j++) {
+					var dItem = rawDion[j].trim();
+					if (dItem) validDion.push(dItem);
+				}
+
+				btnSaveWhitelist.disabled = true;
+				return callSetWhitelistConfig(enabled, mode, port, dtls, turn, realm, target, validVK, validDion).then(function(res) {
+					btnSaveWhitelist.disabled = false;
+					if (res && res.ok) {
+						ui.addNotification(null, E('p', {}, 'Параметры Whitelist Fallback сохранены'), 'info');
+						ui.showModal('Перезапустить службу Sirin?', [
+							E('p', {}, 'Параметры аварийного канала сохранены. Для применения конфигурации требуется перезапуск службы.'),
+							E('div', { class: 'right' }, [
+								E('button', {
+									class: 'btn cbi-button cbi-button-neutral',
+									style: 'margin-right: 8px;',
+									click: function() {
+										ui.hideModal();
+									}
+								}, 'Нет, позже'),
+								E('button', {
+									class: 'btn cbi-button cbi-button-apply',
+									click: function() {
+										ui.hideModal();
+										callRestart().then(function() {
+											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
+											updateStatusView();
+										});
+									}
+								}, 'Да, перезапустить')
+							])
+						]);
+					} else {
+						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения Whitelist Fallback'), 'error');
+					}
+				}).catch(function(e) {
+					btnSaveWhitelist.disabled = false;
+					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения'), 'error');
+				});
+			}
+		}, 'Сохранить параметры Whitelist Fallback');
+
+		var btnCancelWhitelist = E('button', {
+			class: 'btn cbi-button cbi-button-reset',
+			click: function() {
+				btnCancelWhitelist.disabled = true;
+				return callGetWhitelistConfig().then(function(wl) {
+					btnCancelWhitelist.disabled = false;
+					wl = wl || {};
+					chkWLEnabled.checked = (wl.enabled !== undefined ? !!wl.enabled : true);
+					if (wl.mode === 'always') {
+						radWLAlways.checked = true;
+					} else {
+						radWLAuto.checked = true;
+					}
+					inWLPort.value = wl.gateway_port || 56005;
+					chkWLDTLS.checked = !!wl.use_dtls;
+					inWLTurnBackup.value = wl.turn_backup || '193.203.43.1:19302';
+					inWLTurnRealm.value = wl.turn_realm || 'vkcalls';
+					inWLRelayTarget.value = wl.relay_target || '';
+					txtWLVKHashes.value = (wl.vk_hashes || []).join('\n');
+					txtWLDionSlugs.value = (wl.dion_slugs || []).join('\n');
+					ui.addNotification(null, E('p', {}, 'Настройки Whitelist Fallback сброшены'), 'info');
+				}).catch(function() {
+					btnCancelWhitelist.disabled = false;
+				});
+			}
+		}, 'Отмена');
+
+		// Section 6: Diagnostics
 		var diagResult = E('div', { style: 'margin-top: 12px; display: none;' });
 
 		var btnTestConn = E('button', {
@@ -683,6 +1127,48 @@ return view.extend({
 						E('div', { class: 'cbi-value-description' }, 'Блокировать трафик локальной сети при обрыве туннеля для предотвращения утечек в WAN')
 					])
 				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'OpSec: Нормализация TTL'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkNormalizeTTL,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Нормализовать TTL исходящих пакетов'))
+						]),
+						E('div', { style: 'margin-top: 6px; display: flex; align-items: center;' }, [
+							E('span', { style: 'margin-right: 8px;' }, 'Целевое значение TTL:'),
+							inTargetTTL,
+							E('span', { style: 'color: #888; margin-left: 8px;' }, '(по умолчанию 64; для Windows 128)')
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Маскирует роутер и факт раздачи интернета (ставит фиксированный TTL на выходе из туннеля и выравнивает TCP MSS под MTU).')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'OpSec: Anti-DNS-Leak'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkInterceptDNS,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Перехват всех DNS-запросов (порт 53)'))
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Принудительно заворачивает любые DNS-запросы LAN-клиентов на локальный dnsmasq роутера, исключая утечки.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'OpSec: Блокировка DoT'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkBlockDoT,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Блокировать DNS-over-TLS (порт 853)'))
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Запрещает соединения на порт 853, не позволяя Android Private DNS обходить локальный DNS роутера.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Резервный Dead Drop (Яндекс Диск / S3)'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtDeadDrop,
+						E('div', { class: 'cbi-value-description' }, 'Резервные публичные ссылки Яндекс Диска (https://disk.yandex.ru/d/...) или S3 URL для получения конфигурации при блокировке центрального API.')
+					])
+				]),
 				E('div', { style: 'margin-top: 16px;' }, [
 					btnSaveConfig,
 					btnCancelConfig
@@ -729,6 +1215,29 @@ return view.extend({
 						E('div', { class: 'cbi-value-description' }, 'По одному домену на строку (например rutracker.org). IP-адреса разрешаются при запуске службы.')
 					])
 				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Режим разделения портов'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'margin-right: 16px; cursor: pointer;' }, [
+							radPortOnly,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Only (Веб-порты)')),
+							E('span', { style: 'color: #888; margin-left: 4px;' }, '— только указанные порты в VPN, всё остальное напрямую в WAN')
+						]),
+						E('br'),
+						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
+							radPortBypass,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Bypass (Gaming Bypass)')),
+							E('span', { style: 'color: #888; margin-left: 4px;' }, '— исключать указанные порты из VPN (игры напрямую в WAN)')
+						])
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Порты назначения (Split Ports)'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtPorts,
+						E('div', { class: 'cbi-value-description' }, 'По одному порту или диапазону на строку (например 80, 443, 8080-8090, tcp:80, udp:27000-27050). Оставьте пустым, чтобы туннелировать весь трафик без фильтрации портов.')
+					])
+				]),
 				E('div', { style: 'margin-top: 16px;' }, [
 					btnSaveSplit,
 					btnCancelSplit
@@ -736,7 +1245,134 @@ return view.extend({
 			]),
 
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '4. Диагностика и мониторинг'),
+				E('h3', {}, '4. Обход замедления без VPN (Anti-DPI: YouTube / Discord)'),
+				E('p', { class: 'cbi-section-descr' }, 'Фрагментация TLS ClientHello и блокировка QUIC (UDP 443) на уровне роутера. Позволяет смотреть YouTube в 4K/8K и пользоваться Discord на максимальной скорости провайдера напрямую через WAN, без нагрузки на внешний VPN-сервер.'),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Активация Anti-DPI'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkADEnabled,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Включить встроенный модуль Anti-DPI'))
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Автоматически перенаправляет TCP 80/443 целевых сервисов на локальный прозрачный прокси фрагментации пакетов.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Целевые сервисы'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer; margin-right: 16px;' }, [
+							chkADYouTube,
+							E('span', { style: 'margin-left: 6px;' }, 'YouTube & Google Video CDN (googlevideo.com, ytimg.com, etc.)')
+						]),
+						E('br'),
+						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
+							chkADDiscord,
+							E('span', { style: 'margin-left: 6px;' }, 'Discord (discord.com, discord.gg, gateway, voice servers)')
+						])
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Блокировка QUIC (UDP 443)'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkADQUICReject,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Принудительный откат на TCP (Reject QUIC)'))
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Блокирует протокол QUIC для целевых доменов, заставляя браузер мгновенно переключаться на защищаемый TCP/TLS HTTP/2.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Позиция сплита ClientHello'),
+					E('div', { class: 'cbi-value-field' }, [
+						inADSplitPos,
+						E('div', { class: 'cbi-value-description' }, 'Байт разделения первого TLS-пакета (по умолчанию 2). Разбивает заголовок TLS, скрывая SNI от ТСПУ.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Пользовательские домены'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtADCustomDomains,
+						E('div', { class: 'cbi-value-description' }, 'Дополнительные домены для прямого Anti-DPI обхода (по одному на строку, например hdrezka.ag).')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Локальный порт Anti-DPI'),
+					E('div', { class: 'cbi-value-field' }, [
+						inADPort,
+						E('div', { class: 'cbi-value-description' }, 'Внутренний порт прокси-сервера фрагментации на роутере (по умолчанию 56100).')
+					])
+				]),
+				E('div', { style: 'margin-top: 16px;' }, [
+					btnSaveAntiDPI,
+					btnCancelAntiDPI
+				])
+			]),
+
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '5. Аварийный обход (Whitelist Fallback: WebRTC TURN VK / DION)'),
+				E('p', { class: 'cbi-section-descr' }, 'Аварийный резервный туннель через разрешённые отечественные сервисы (WebRTC TURN VK Calls и DION Video Calls). Применяется при тотальных блокировках протоколов, изоляции внешнего интернета и введении «белых списков» (трафик идёт на доверенные российские адреса api.vk.me, calls.okcdn.ru, api.dion.vc).'),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Аварийный канал'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkWLEnabled,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Включить Whitelist Fallback'))
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Разрешает автоматический переход на WebRTC TURN релеи при недоступности прямого туннеля.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Режим работы'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'margin-right: 16px; cursor: pointer;' }, [
+							radWLAuto,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Auto (Аварийный откат)')),
+							E('span', { style: 'color: #888; margin-left: 4px;' }, '— включается последней ступенью при отказе прямых соединений')
+						]),
+						E('br'),
+						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
+							radWLAlways,
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Always (Только белый список)')),
+							E('span', { style: 'color: #888; margin-left: 4px;' }, '— принудительно направлять трафик исключительно через отечественные WebRTC релеи')
+						])
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Ссылки / хеши VK Calls'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtWLVKHashes,
+						E('div', { class: 'cbi-value-description' }, 'Ссылки на групповые звонки VK (https://vk.com/call/join/...) или голые хеши. Клиент анонимно запрашивает свежие TURN-токены через api.vk.me без необходимости входа в аккаунт.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Комнаты DION (ВТБ)'),
+					E('div', { class: 'cbi-value-field' }, [
+						txtWLDionSlugs,
+						E('div', { class: 'cbi-value-description' }, 'Ссылки на конференции DION (https://dion.vc/event/...) или slug комнат. Запасной отечественный источник WebRTC TURN после VK.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Запасной TURN сервер'),
+					E('div', { class: 'cbi-value-field' }, [
+						inWLTurnBackup,
+						E('div', { class: 'cbi-value-description' }, 'Резервный IP:порт TURN-сервера (по умолчанию 193.203.43.1:19302).')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Порт шлюза'),
+					E('div', { class: 'cbi-value-field' }, [
+						inWLPort,
+						E('div', { class: 'cbi-value-description' }, 'Порт назначения на сервере при прохождении через релей (по умолчанию 56005).')
+					])
+				]),
+				E('div', { style: 'margin-top: 16px;' }, [
+					btnSaveWhitelist,
+					btnCancelWhitelist
+				])
+			]),
+
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '6. Диагностика и мониторинг'),
 				E('div', {}, [
 					btnTestConn,
 					btnShowLogs

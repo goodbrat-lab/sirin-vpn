@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
-VERSION="1.2.0"
+VERSION="1.5.0"
 
 get_input() {
     if [ "$MODE" = "call" ] && [ -n "$ARG3" ]; then
@@ -53,7 +53,7 @@ method_status() {
 
 method_get_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        printf '{"gateway":"","password":"","device_id":"","ru_direct":false,"tun_mtu":1280,"kill_switch":true}\n'
+        printf '{"gateway":"","password":"","device_id":"","ru_direct":false,"tun_mtu":1280,"kill_switch":true,"normalize_ttl":true,"target_ttl":64,"intercept_dns":true,"block_dot":true,"dead_drop_urls":[]}\n'
         return
     fi
 
@@ -66,8 +66,17 @@ method_get_config() {
         ru_direct = "false"
         tun_mtu = 1280
         kill_switch = "true"
+        normalize_ttl = "true"
+        target_ttl = 64
+        intercept_dns = "true"
+        block_dot = "true"
+        dead_drop_urls = ""
+        in_dd = 0
     }
-    /^\[/ { in_top = 0 }
+    /^\[/ {
+        in_top = 0
+        in_dd = 0
+    }
     in_top && /^[ \t]*gateway[ \t]*=/ {
         if (match($0, /"[^"]*"/)) gateway = substr($0, RSTART + 1, RLENGTH - 2)
     }
@@ -89,6 +98,37 @@ method_get_config() {
         sub(/^[ \t]*tun_mtu[ \t]*=[ \t]*/, "")
         if (match($0, /[0-9]+/)) tun_mtu = substr($0, RSTART, RLENGTH)
     }
+    in_top && /^[ \t]*normalize_ttl[ \t]*=/ {
+        if ($0 ~ /false/i) normalize_ttl = "false"
+        else normalize_ttl = "true"
+    }
+    in_top && /^[ \t]*target_ttl[ \t]*=/ {
+        sub(/^[ \t]*target_ttl[ \t]*=[ \t]*/, "")
+        if (match($0, /[0-9]+/)) target_ttl = substr($0, RSTART, RLENGTH)
+    }
+    in_top && /^[ \t]*intercept_dns[ \t]*=/ {
+        if ($0 ~ /false/i) intercept_dns = "false"
+        else intercept_dns = "true"
+    }
+    in_top && /^[ \t]*block_dot[ \t]*=/ {
+        if ($0 ~ /false/i) block_dot = "false"
+        else block_dot = "true"
+    }
+    in_top && /^[ \t]*dead_drop_urls[ \t]*=[ \t]*\[/ {
+        in_dd = 1
+    }
+    in_dd {
+        line = $0
+        sub(/^[ \t]*dead_drop_urls[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            gsub(/"/, "\\\"", item)
+            if (dead_drop_urls != "") dead_drop_urls = dead_drop_urls ","
+            dead_drop_urls = dead_drop_urls "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_dd = 0
+    }
     END {
         masked_pw = password
         if (length(password) > 8) {
@@ -97,7 +137,7 @@ method_get_config() {
         gsub(/"/, "\\\"", gateway)
         gsub(/"/, "\\\"", masked_pw)
         gsub(/"/, "\\\"", device_id)
-        printf "{\"gateway\":\"%s\",\"password\":\"%s\",\"device_id\":\"%s\",\"ru_direct\":%s,\"tun_mtu\":%d,\"kill_switch\":%s}\n", gateway, masked_pw, device_id, ru_direct, tun_mtu, kill_switch
+        printf "{\"gateway\":\"%s\",\"password\":\"%s\",\"device_id\":\"%s\",\"ru_direct\":%s,\"tun_mtu\":%d,\"kill_switch\":%s,\"normalize_ttl\":%s,\"target_ttl\":%d,\"intercept_dns\":%s,\"block_dot\":%s,\"dead_drop_urls\":[%s]}\n", gateway, masked_pw, device_id, ru_direct, tun_mtu, kill_switch, normalize_ttl, target_ttl, intercept_dns, block_dot, dead_drop_urls
     }
     ' "$CONFIG_FILE"
 }
@@ -123,6 +163,15 @@ method_set_config() {
         }
         return ""
     }
+    function get_array(k,    arr) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\\[[^]]*\\]")) {
+            arr = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*\\[", "", arr)
+            sub("\\]$", "", arr)
+            return arr
+        }
+        return ""
+    }
     BEGIN {
         gw = get_field("gateway")
         pw = get_field("password")
@@ -130,13 +179,23 @@ method_set_config() {
         rud = get_field("ru_direct")
         mtu = get_field("tun_mtu")
         ks = get_field("kill_switch")
+        norm_ttl = get_field("normalize_ttl")
+        targ_ttl = get_field("target_ttl")
+        int_dns = get_field("intercept_dns")
+        blk_dot = get_field("block_dot")
+        dd = get_array("dead_drop_urls")
         gsub(/'\''/, "'\''\\'\'''\''", gw)
         gsub(/'\''/, "'\''\\'\'''\''", pw)
         gsub(/'\''/, "'\''\\'\'''\''", did)
         gsub(/'\''/, "'\''\\'\'''\''", rud)
         gsub(/'\''/, "'\''\\'\'''\''", mtu)
         gsub(/'\''/, "'\''\\'\'''\''", ks)
-        printf "NEW_GW='\''%s'\''; NEW_PW='\''%s'\''; NEW_DID='\''%s'\''; NEW_RUD='\''%s'\''; NEW_MTU='\''%s'\''; NEW_KS='\''%s'\'';\n", gw, pw, did, rud, mtu, ks
+        gsub(/'\''/, "'\''\\'\'''\''", norm_ttl)
+        gsub(/'\''/, "'\''\\'\'''\''", targ_ttl)
+        gsub(/'\''/, "'\''\\'\'''\''", int_dns)
+        gsub(/'\''/, "'\''\\'\'''\''", blk_dot)
+        gsub(/'\''/, "'\''\\'\'''\''", dd)
+        printf "NEW_GW='\''%s'\''; NEW_PW='\''%s'\''; NEW_DID='\''%s'\''; NEW_RUD='\''%s'\''; NEW_MTU='\''%s'\''; NEW_KS='\''%s'\''; NEW_NORM_TTL='\''%s'\''; NEW_TARG_TTL='\''%s'\''; NEW_INT_DNS='\''%s'\''; NEW_BLK_DOT='\''%s'\''; NEW_DD='\''%s'\'';\n", gw, pw, did, rud, mtu, ks, norm_ttl, targ_ttl, int_dns, blk_dot, dd
     }
     ')
 
@@ -191,6 +250,22 @@ method_set_config() {
         NEW_KS="true"
     fi
 
+    if [ "$NEW_NORM_TTL" != "false" ]; then
+        NEW_NORM_TTL="true"
+    fi
+
+    if ! echo "$NEW_TARG_TTL" | grep -qE "^[0-9]+$" || [ "$NEW_TARG_TTL" -le 0 ] || [ "$NEW_TARG_TTL" -gt 255 ]; then
+        NEW_TARG_TTL="64"
+    fi
+
+    if [ "$NEW_INT_DNS" != "false" ]; then
+        NEW_INT_DNS="true"
+    fi
+
+    if [ "$NEW_BLK_DOT" != "false" ]; then
+        NEW_BLK_DOT="true"
+    fi
+
     mkdir -p "$(dirname "$CONFIG_FILE")"
     if [ -f "$CONFIG_FILE" ]; then
         cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s 2>/dev/null || echo $$)"
@@ -202,7 +277,12 @@ method_set_config() {
         -v new_did="$NEW_DID" \
         -v new_rud="$NEW_RUD" \
         -v new_mtu="$NEW_MTU" \
-        -v new_ks="$NEW_KS" '
+        -v new_ks="$NEW_KS" \
+        -v new_norm_ttl="$NEW_NORM_TTL" \
+        -v new_targ_ttl="$NEW_TARG_TTL" \
+        -v new_int_dns="$NEW_INT_DNS" \
+        -v new_blk_dot="$NEW_BLK_DOT" \
+        -v new_dd="$NEW_DD" '
     BEGIN {
         in_top = 1
         seen_gw = 0
@@ -211,6 +291,12 @@ method_set_config() {
         seen_rud = 0
         seen_mtu = 0
         seen_ks = 0
+        seen_norm_ttl = 0
+        seen_targ_ttl = 0
+        seen_int_dns = 0
+        seen_blk_dot = 0
+        seen_dd = 0
+        in_skip_dd = 0
     }
     /^\[/ {
         if (in_top) {
@@ -220,6 +306,11 @@ method_set_config() {
             if (!seen_mtu) print "tun_mtu = " new_mtu
             if (!seen_rud) print "ru_direct = " new_rud
             if (!seen_ks) print "kill_switch = " new_ks
+            if (!seen_norm_ttl) print "normalize_ttl = " new_norm_ttl
+            if (!seen_targ_ttl) print "target_ttl = " new_targ_ttl
+            if (!seen_int_dns) print "intercept_dns = " new_int_dns
+            if (!seen_blk_dot) print "block_dot = " new_blk_dot
+            if (!seen_dd && new_dd != "") print "dead_drop_urls = [" new_dd "]"
             print ""
             in_top = 0
         }
@@ -254,6 +345,36 @@ method_set_config() {
         seen_ks = 1
         next
     }
+    in_top && /^[ \t]*normalize_ttl[ \t]*=/ {
+        print "normalize_ttl = " new_norm_ttl
+        seen_norm_ttl = 1
+        next
+    }
+    in_top && /^[ \t]*target_ttl[ \t]*=/ {
+        print "target_ttl = " new_targ_ttl
+        seen_targ_ttl = 1
+        next
+    }
+    in_top && /^[ \t]*intercept_dns[ \t]*=/ {
+        print "intercept_dns = " new_int_dns
+        seen_int_dns = 1
+        next
+    }
+    in_top && /^[ \t]*block_dot[ \t]*=/ {
+        print "block_dot = " new_blk_dot
+        seen_blk_dot = 1
+        next
+    }
+    in_top && /^[ \t]*dead_drop_urls[ \t]*=[ \t]*\[/ {
+        in_skip_dd = 1
+        seen_dd = 1
+        print "dead_drop_urls = [" new_dd "]"
+        next
+    }
+    in_skip_dd {
+        if ($0 ~ /\]/) in_skip_dd = 0
+        next
+    }
     { print $0 }
     END {
         if (in_top) {
@@ -263,6 +384,11 @@ method_set_config() {
             if (!seen_mtu) print "tun_mtu = " new_mtu
             if (!seen_rud) print "ru_direct = " new_rud
             if (!seen_ks) print "kill_switch = " new_ks
+            if (!seen_norm_ttl) print "normalize_ttl = " new_norm_ttl
+            if (!seen_targ_ttl) print "target_ttl = " new_targ_ttl
+            if (!seen_int_dns) print "intercept_dns = " new_int_dns
+            if (!seen_blk_dot) print "block_dot = " new_blk_dot
+            if (!seen_dd && new_dd != "") print "dead_drop_urls = [" new_dd "]"
         }
     }
     ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
@@ -282,7 +408,7 @@ method_set_config() {
 
 method_get_split_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        printf '{"mode":"bypass","use_ru_direct":true,"cidrs":[],"domains":[]}\n'
+        printf '{"mode":"bypass","use_ru_direct":true,"cidrs":[],"domains":[],"ports":[],"port_mode":"only"}\n'
         return
     fi
 
@@ -291,10 +417,13 @@ method_get_split_config() {
         in_split = 0
         in_cidrs = 0
         in_domains = 0
+        in_ports = 0
         mode = "bypass"
         use_ru = "true"
+        port_mode = "only"
         cidrs = ""
         domains = ""
+        ports = ""
     }
     /^\[split_tunnel\]/ {
         in_split = 1
@@ -304,6 +433,7 @@ method_get_split_config() {
         in_split = 0
         in_cidrs = 0
         in_domains = 0
+        in_ports = 0
     }
     in_split && /^[ \t]*mode[ \t]*=/ {
         if (match($0, /"[^"]*"/)) mode = substr($0, RSTART + 1, RLENGTH - 2)
@@ -311,6 +441,9 @@ method_get_split_config() {
     in_split && /^[ \t]*use_ru_direct[ \t]*=/ {
         if ($0 ~ /false/i) use_ru = "false"
         else use_ru = "true"
+    }
+    in_split && /^[ \t]*port_mode[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) port_mode = substr($0, RSTART + 1, RLENGTH - 2)
     }
     in_split && /^[ \t]*cidrs[ \t]*=[ \t]*\[/ {
         in_cidrs = 1
@@ -342,8 +475,30 @@ method_get_split_config() {
         }
         if ($0 ~ /\]/) in_domains = 0
     }
+    in_split && /^[ \t]*ports[ \t]*=[ \t]*\[/ {
+        in_ports = 1
+    }
+    in_ports {
+        line = $0
+        sub(/^[ \t]*ports[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"|[0-9]+(-[0-9]+)?/)) {
+            token = substr(line, RSTART, RLENGTH)
+            line = substr(line, RSTART + RLENGTH)
+            if (token ~ /^"/) {
+                item = substr(token, 2, length(token) - 2)
+            } else {
+                item = token
+            }
+            if (item != "") {
+                gsub(/"/, "\\\"", item)
+                if (ports != "") ports = ports ","
+                ports = ports "\"" item "\""
+            }
+        }
+        if ($0 ~ /\]/) in_ports = 0
+    }
     END {
-        printf "{\"mode\":\"%s\",\"use_ru_direct\":%s,\"cidrs\":[%s],\"domains\":[%s]}\n", mode, use_ru, cidrs, domains
+        printf "{\"mode\":\"%s\",\"use_ru_direct\":%s,\"cidrs\":[%s],\"domains\":[%s],\"ports\":[%s],\"port_mode\":\"%s\"}\n", mode, use_ru, cidrs, domains, ports, port_mode
     }
     ' "$CONFIG_FILE"
 }
@@ -396,18 +551,28 @@ method_set_split_config() {
         if (rud == "") rud = "true"
         c = get_array("cidrs")
         d = tolower(get_array("domains"))
+        p = tolower(get_array("ports"))
+        pm = tolower(get_str("port_mode"))
+        if (pm == "") pm = "only"
 
         gsub(/'\''/, "'\''\\'\'''\''", m)
         gsub(/'\''/, "'\''\\'\'''\''", rud)
         gsub(/'\''/, "'\''\\'\'''\''", c)
         gsub(/'\''/, "'\''\\'\'''\''", d)
+        gsub(/'\''/, "'\''\\'\'''\''", p)
+        gsub(/'\''/, "'\''\\'\'''\''", pm)
 
-        printf "SPLIT_MODE='\''%s'\''; SPLIT_RU='\''%s'\''; SPLIT_CIDRS='\''%s'\''; SPLIT_DOMAINS='\''%s'\'';\n", m, rud, c, d
+        printf "SPLIT_MODE='\''%s'\''; SPLIT_RU='\''%s'\''; SPLIT_CIDRS='\''%s'\''; SPLIT_DOMAINS='\''%s'\''; SPLIT_PORTS='\''%s'\''; SPLIT_PORT_MODE='\''%s'\'';\n", m, rud, c, d, p, pm
     }
     ')
 
     if [ "$SPLIT_MODE" != "bypass" ] && [ "$SPLIT_MODE" != "only" ]; then
         printf '{"ok":false,"error":"Недопустимый режим mode (только bypass или only)"}\n'
+        return
+    fi
+
+    if [ "$SPLIT_PORT_MODE" != "only" ] && [ "$SPLIT_PORT_MODE" != "bypass" ]; then
+        printf '{"ok":false,"error":"Недопустимый режим port_mode (только only или bypass)"}\n'
         return
     fi
 
@@ -460,6 +625,49 @@ method_set_split_config() {
         IFS="$old_ifs"
     fi
 
+    # Валидация портов
+    CLEAN_PORTS=""
+    if [ -n "$SPLIT_PORTS" ]; then
+        old_ifs="$IFS"
+        IFS=','
+        for p_item in $SPLIT_PORTS; do
+            p_item=$(echo "$p_item" | tr -d ' \t\r\n' | tr 'A-Z' 'a-z')
+            [ -z "$p_item" ] && continue
+            if echo "$p_item" | grep -qE '^(tcp:|udp:)?[0-9]{1,5}(-[0-9]{1,5})?$'; then
+                val_part="$p_item"
+                case "$val_part" in
+                    tcp:*|udp:*) val_part=$(echo "$val_part" | cut -d: -f2) ;;
+                esac
+                if echo "$val_part" | grep -q '-'; then
+                    p_start=$(echo "$val_part" | cut -d- -f1)
+                    p_end=$(echo "$val_part" | cut -d- -f2)
+                    if [ "$p_start" -lt 1 ] || [ "$p_start" -gt 65535 ] || [ "$p_end" -lt 1 ] || [ "$p_end" -gt 65535 ] || [ "$p_start" -ge "$p_end" ]; then
+                        IFS="$old_ifs"
+                        printf '{"ok":false,"error":"Неверный диапазон портов: %s"}\n' "$p_item"
+                        return
+                    fi
+                else
+                    if [ "$val_part" -lt 1 ] || [ "$val_part" -gt 65535 ]; then
+                        IFS="$old_ifs"
+                        printf '{"ok":false,"error":"Номер порта вне диапазона 1-65535: %s"}\n' "$p_item"
+                        return
+                    fi
+                fi
+
+                if [ -z "$CLEAN_PORTS" ]; then
+                    CLEAN_PORTS="$p_item"
+                else
+                    CLEAN_PORTS="$CLEAN_PORTS,$p_item"
+                fi
+            else
+                IFS="$old_ifs"
+                printf '{"ok":false,"error":"Неверный формат порта или диапазона: %s"}\n' "$p_item"
+                return
+            fi
+        done
+        IFS="$old_ifs"
+    fi
+
     mkdir -p "$(dirname "$CONFIG_FILE")"
     if [ -f "$CONFIG_FILE" ]; then
         cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s 2>/dev/null || echo $$)"
@@ -471,7 +679,9 @@ method_set_split_config() {
     awk -v new_mode="$SPLIT_MODE" \
         -v new_use_ru="$SPLIT_RU" \
         -v new_cidrs="$CLEAN_CIDRS" \
-        -v new_domains="$CLEAN_DOMAINS" '
+        -v new_domains="$CLEAN_DOMAINS" \
+        -v new_ports="$CLEAN_PORTS" \
+        -v new_port_mode="$SPLIT_PORT_MODE" '
     BEGIN {
         in_split = 0
         split_written = 0
@@ -501,6 +711,19 @@ method_set_split_config() {
                 }
             }
             print "]"
+            print "ports = ["
+            n_p = split(new_ports, arr_p, ",")
+            for (i = 1; i <= n_p; i++) {
+                gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", arr_p[i])
+                if (arr_p[i] != "") {
+                    comma = (i < n_p) ? "," : ""
+                    print "    \"" arr_p[i] "\"" comma
+                }
+            }
+            print "]"
+            if (new_ports != "") {
+                print "port_mode = \"" new_port_mode "\""
+            }
             print ""
             split_written = 1
         }
@@ -532,6 +755,404 @@ method_set_split_config() {
     else
         rm -f "$TMP_CONF"
         printf '{"ok":false,"error":"Не удалось обновить секцию split_tunnel"}\n'
+    fi
+}
+
+method_get_antidpi_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        printf '{"enabled":true,"port":56100,"split_pos":2,"quic_reject":true,"youtube":true,"discord":true,"custom_domains":[]}\n'
+        return
+    fi
+
+    awk '
+    BEGIN {
+        in_ad = 0
+        in_domains = 0
+        enabled = "true"
+        port = 56100
+        split_pos = 2
+        quic_reject = "true"
+        youtube = "true"
+        discord = "true"
+        custom_domains = ""
+    }
+    /^\[antidpi\]/ {
+        in_ad = 1
+        next
+    }
+    /^\[/ && !/^\[antidpi\]/ {
+        in_ad = 0
+        in_domains = 0
+    }
+    in_ad && /^[ \t]*enabled[ \t]*=/ {
+        if ($0 ~ /false/i) enabled = "false"
+        else enabled = "true"
+    }
+    in_ad && /^[ \t]*port[ \t]*=/ {
+        sub(/^[ \t]*port[ \t]*=[ \t]*/, "")
+        if (match($0, /[0-9]+/)) port = substr($0, RSTART, RLENGTH)
+    }
+    in_ad && /^[ \t]*split_pos[ \t]*=/ {
+        sub(/^[ \t]*split_pos[ \t]*=[ \t]*/, "")
+        if (match($0, /[0-9]+/)) split_pos = substr($0, RSTART, RLENGTH)
+    }
+    in_ad && /^[ \t]*quic_reject[ \t]*=/ {
+        if ($0 ~ /false/i) quic_reject = "false"
+        else quic_reject = "true"
+    }
+    in_ad && /^[ \t]*youtube[ \t]*=/ {
+        if ($0 ~ /false/i) youtube = "false"
+        else youtube = "true"
+    }
+    in_ad && /^[ \t]*discord[ \t]*=/ {
+        if ($0 ~ /false/i) discord = "false"
+        else discord = "true"
+    }
+    in_ad && /^[ \t]*custom_domains[ \t]*=[ \t]*\[/ {
+        in_domains = 1
+    }
+    in_domains {
+        line = $0
+        sub(/^[ \t]*custom_domains[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            gsub(/"/, "\\\"", item)
+            if (custom_domains != "") custom_domains = custom_domains ","
+            custom_domains = custom_domains "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_domains = 0
+    }
+    END {
+        printf "{\"enabled\":%s,\"port\":%d,\"split_pos\":%d,\"quic_reject\":%s,\"youtube\":%s,\"discord\":%s,\"custom_domains\":[%s]}\n", enabled, port, split_pos, quic_reject, youtube, discord, custom_domains
+    }
+    ' "$CONFIG_FILE"
+}
+
+method_set_antidpi_config() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    eval $(awk -v json="$raw_input" '
+    function get_bool(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*", "", val)
+            return val
+        }
+        return ""
+    }
+    function get_int(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*[0-9]+")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub("^\"" k "\"[ \t]*:[ \t]*", "", val)
+            return val
+        }
+        return ""
+    }
+    function get_array(k,    subjson, res, item) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\\[")) {
+            subjson = substr(json, RSTART + RLENGTH)
+            if (match(subjson, /\]/)) {
+                subjson = substr(subjson, 1, RSTART - 1)
+                res = ""
+                while (match(subjson, /"[^"]*"/)) {
+                    item = substr(subjson, RSTART + 1, RLENGTH - 2)
+                    if (res != "") res = res ","
+                    res = res "\"" item "\""
+                    subjson = substr(subjson, RSTART + RLENGTH)
+                }
+                return res
+            }
+        }
+        return ""
+    }
+    BEGIN {
+        en = tolower(get_bool("enabled"))
+        if (en != "false") en = "true"
+        p = get_int("port")
+        if (p == "") p = "56100"
+        sp = get_int("split_pos")
+        if (sp == "") sp = "2"
+        qr = tolower(get_bool("quic_reject"))
+        if (qr != "false") qr = "true"
+        yt = tolower(get_bool("youtube"))
+        if (yt != "false") yt = "true"
+        dc = tolower(get_bool("discord"))
+        if (dc != "false") dc = "true"
+        cd = get_array("custom_domains")
+        gsub(/'\''/, "'\''\\'\'''\''", cd)
+        printf "NEW_AD_EN='\''%s'\''; NEW_AD_PORT='\''%s'\''; NEW_AD_SP='\''%s'\''; NEW_AD_QR='\''%s'\''; NEW_AD_YT='\''%s'\''; NEW_AD_DC='\''%s'\''; NEW_AD_CD='\''%s'\'';\n", en, p, sp, qr, yt, dc, cd
+    }
+    ')
+
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    TMP_CONF="/tmp/client.toml.tmp.$$"
+    awk -v en="$NEW_AD_EN" \
+        -v port="$NEW_AD_PORT" \
+        -v sp="$NEW_AD_SP" \
+        -v qr="$NEW_AD_QR" \
+        -v yt="$NEW_AD_YT" \
+        -v dc="$NEW_AD_DC" \
+        -v cd="$NEW_AD_CD" '
+    BEGIN {
+        in_ad = 0
+        seen_ad = 0
+    }
+    /^\[antidpi\]/ {
+        in_ad = 1
+        seen_ad = 1
+        print "[antidpi]"
+        print "enabled = " en
+        print "port = " port
+        print "split_pos = " sp
+        print "quic_reject = " qr
+        print "youtube = " yt
+        print "discord = " dc
+        print "custom_domains = [" cd "]"
+        print ""
+        next
+    }
+    /^\[/ && !/^\[antidpi\]/ {
+        in_ad = 0
+    }
+    !in_ad { print $0 }
+    END {
+        if (!seen_ad) {
+            print ""
+            print "[antidpi]"
+            print "enabled = " en
+            print "port = " port
+            print "split_pos = " sp
+            print "quic_reject = " qr
+            print "youtube = " yt
+            print "discord = " dc
+            print "custom_domains = [" cd "]"
+        }
+    }
+    ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
+
+    if [ -s "$TMP_CONF" ]; then
+        mv "$TMP_CONF" "$CONFIG_FILE"
+        printf '{"ok":true}\n'
+    else
+        rm -f "$TMP_CONF"
+        printf '{"ok":false,"error":"Не удалось записать настройки Anti-DPI"}\n'
+    fi
+}
+
+method_get_whitelist_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        printf '{"enabled":true,"mode":"auto","gateway_port":56005,"use_dtls":false,"turn_backup":"193.203.43.1:19302","turn_realm":"vkcalls","relay_target":"","vk_hashes":[],"dion_slugs":[]}\n'
+        return
+    fi
+
+    awk '
+    BEGIN {
+        in_wl = 0
+        in_vk = 0
+        in_dion = 0
+        enabled = "true"
+        mode = "auto"
+        gateway_port = 56005
+        use_dtls = "false"
+        turn_backup = "193.203.43.1:19302"
+        turn_realm = "vkcalls"
+        relay_target = ""
+        vk_hashes = ""
+        dion_slugs = ""
+    }
+    /^\[whitelist_fallback\]/ {
+        in_wl = 1
+        next
+    }
+    /^\[/ && !/^\[whitelist_fallback\]/ {
+        in_wl = 0
+        in_vk = 0
+        in_dion = 0
+    }
+    in_wl && /^[ \t]*enabled[ \t]*=/ {
+        if ($0 ~ /false/i) enabled = "false"
+        else enabled = "true"
+    }
+    in_wl && /^[ \t]*mode[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) mode = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_wl && /^[ \t]*gateway_port[ \t]*=/ {
+        sub(/^[ \t]*gateway_port[ \t]*=[ \t]*/, "")
+        if (match($0, /[0-9]+/)) gateway_port = substr($0, RSTART, RLENGTH)
+    }
+    in_wl && /^[ \t]*use_dtls[ \t]*=/ {
+        if ($0 ~ /true/i) use_dtls = "true"
+        else use_dtls = "false"
+    }
+    in_wl && /^[ \t]*turn_backup[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) turn_backup = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_wl && /^[ \t]*turn_realm[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) turn_realm = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_wl && /^[ \t]*relay_target[ \t]*=/ {
+        if (match($0, /"[^"]*"/)) relay_target = substr($0, RSTART + 1, RLENGTH - 2)
+    }
+    in_wl && /^[ \t]*vk_hashes[ \t]*=[ \t]*\[/ {
+        in_vk = 1
+    }
+    in_vk {
+        line = $0
+        sub(/^[ \t]*vk_hashes[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            gsub(/"/, "\\\"", item)
+            if (vk_hashes != "") vk_hashes = vk_hashes ","
+            vk_hashes = vk_hashes "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_vk = 0
+    }
+    in_wl && /^[ \t]*dion_slugs[ \t]*=[ \t]*\[/ {
+        in_dion = 1
+    }
+    in_dion {
+        line = $0
+        sub(/^[ \t]*dion_slugs[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            gsub(/"/, "\\\"", item)
+            if (dion_slugs != "") dion_slugs = dion_slugs ","
+            dion_slugs = dion_slugs "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_dion = 0
+    }
+    END {
+        printf "{\"enabled\":%s,\"mode\":\"%s\",\"gateway_port\":%d,\"use_dtls\":%s,\"turn_backup\":\"%s\",\"turn_realm\":\"%s\",\"relay_target\":\"%s\",\"vk_hashes\":[%s],\"dion_slugs\":[%s]}\n", \
+            enabled, mode, gateway_port, use_dtls, turn_backup, turn_realm, relay_target, vk_hashes, dion_slugs
+    }
+    ' "$CONFIG_FILE"
+}
+
+method_set_whitelist_config() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    eval $(awk -v json="$raw_input" '
+    function get_bool(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub(/^[^:]*:[ \t]*/, "", val)
+            return val
+        }
+        return ""
+    }
+    function get_str(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub(/^[^"]*"[ \t]*:[ \t]*"/, "", val)
+            sub(/"$/, "", val)
+            return val
+        }
+        return ""
+    }
+    function get_int(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*[0-9]+")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub(/^[^:]*:[ \t]*/, "", val)
+            return val
+        }
+        return ""
+    }
+    function get_array(k,    start, rest, arr, item) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\\[")) {
+            start = RSTART + RLENGTH - 1
+            rest = substr(json, start)
+            if (match(rest, /\]/)) {
+                arr = substr(rest, 1, RSTART)
+                gsub(/^[ \t]*\[[ \t]*/, "", arr)
+                gsub(/[ \t]*\][ \t]*$/, "", arr)
+                return arr
+            }
+        }
+        return ""
+    }
+    BEGIN {
+        en = get_bool("enabled")
+        mode = get_str("mode")
+        port = get_int("gateway_port")
+        dtls = get_bool("use_dtls")
+        turn = get_str("turn_backup")
+        realm = get_str("turn_realm")
+        target = get_str("relay_target")
+        vk = get_array("vk_hashes")
+        dion = get_array("dion_slugs")
+
+        if (en == "") en = "true"
+        if (mode == "") mode = "auto"
+        if (port == "") port = "56005"
+        if (dtls == "") dtls = "false"
+        if (turn == "") turn = "193.203.43.1:19302"
+        if (realm == "") realm = "vkcalls"
+
+        printf "NEW_WL_EN=\"%s\"; NEW_WL_MODE=\"%s\"; NEW_WL_PORT=\"%s\"; NEW_WL_DTLS=\"%s\"; NEW_WL_TURN=\"%s\"; NEW_WL_REALM=\"%s\"; NEW_WL_TARGET=\"%s\"; NEW_WL_VK=\"%s\"; NEW_WL_DION=\"%s\";", \
+            en, mode, port, dtls, turn, realm, target, vk, dion
+    }
+    ')
+
+    TMP_CONF="/tmp/sirin_client_$$.tmp"
+    awk -v en="$NEW_WL_EN" -v mode="$NEW_WL_MODE" -v port="$NEW_WL_PORT" \
+        -v dtls="$NEW_WL_DTLS" -v turn="$NEW_WL_TURN" -v realm="$NEW_WL_REALM" \
+        -v target="$NEW_WL_TARGET" -v vk="$NEW_WL_VK" -v dion="$NEW_WL_DION" '
+    BEGIN {
+        in_wl = 0
+        seen_wl = 0
+    }
+    /^\[whitelist_fallback\]/ {
+        in_wl = 1
+        seen_wl = 1
+        print "[whitelist_fallback]"
+        print "enabled = " en
+        print "mode = \"" mode "\""
+        print "gateway_port = " port
+        print "use_dtls = " dtls
+        print "turn_backup = \"" turn "\""
+        print "turn_realm = \"" realm "\""
+        if (target != "") print "relay_target = \"" target "\""
+        print "vk_hashes = [" vk "]"
+        print "dion_slugs = [" dion "]"
+        print ""
+        next
+    }
+    /^\[/ && !/^\[whitelist_fallback\]/ {
+        in_wl = 0
+    }
+    !in_wl { print $0 }
+    END {
+        if (!seen_wl) {
+            print ""
+            print "[whitelist_fallback]"
+            print "enabled = " en
+            print "mode = \"" mode "\""
+            print "gateway_port = " port
+            print "use_dtls = " dtls
+            print "turn_backup = \"" turn "\""
+            print "turn_realm = \"" realm "\""
+            if (target != "") print "relay_target = \"" target "\""
+            print "vk_hashes = [" vk "]"
+            print "dion_slugs = [" dion "]"
+        }
+    }
+    ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
+
+    if [ -s "$TMP_CONF" ]; then
+        mv "$TMP_CONF" "$CONFIG_FILE"
+        printf '{"ok":true}\n'
+    else
+        rm -f "$TMP_CONF"
+        printf '{"ok":false,"error":"Не удалось записать настройки Whitelist Fallback"}\n'
     fi
 }
 
@@ -652,14 +1273,43 @@ case "$1" in
     "device_id": "str",
     "ru_direct": "bool",
     "tun_mtu": "int",
-    "kill_switch": "bool"
+    "kill_switch": "bool",
+    "normalize_ttl": "bool",
+    "target_ttl": "int",
+    "intercept_dns": "bool",
+    "block_dot": "bool",
+    "dead_drop_urls": "array"
   },
   "get_split_config": {},
   "set_split_config": {
     "mode": "str",
     "use_ru_direct": "bool",
     "cidrs": "array",
-    "domains": "array"
+    "domains": "array",
+    "ports": "array",
+    "port_mode": "str"
+  },
+  "get_antidpi_config": {},
+  "set_antidpi_config": {
+    "enabled": "bool",
+    "port": "int",
+    "split_pos": "int",
+    "quic_reject": "bool",
+    "youtube": "bool",
+    "discord": "bool",
+    "custom_domains": "array"
+  },
+  "get_whitelist_config": {},
+  "set_whitelist_config": {
+    "enabled": "bool",
+    "mode": "str",
+    "gateway_port": "int",
+    "use_dtls": "bool",
+    "turn_backup": "str",
+    "turn_realm": "str",
+    "relay_target": "str",
+    "vk_hashes": "array",
+    "dion_slugs": "array"
   },
   "get_ru_direct_info": {},
   "start": {},
@@ -704,6 +1354,18 @@ case "$cmd" in
         ;;
     set_split_config)
         method_set_split_config "$(get_input)"
+        ;;
+    get_antidpi_config)
+        method_get_antidpi_config
+        ;;
+    set_antidpi_config)
+        method_set_antidpi_config "$(get_input)"
+        ;;
+    get_whitelist_config)
+        method_get_whitelist_config
+        ;;
+    set_whitelist_config)
+        method_set_whitelist_config "$(get_input)"
         ;;
     get_ru_direct_info)
         method_get_ru_direct_info
