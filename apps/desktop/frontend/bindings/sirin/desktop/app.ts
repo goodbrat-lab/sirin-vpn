@@ -72,6 +72,27 @@ export function SaveRoutingConfig(ruDirect: boolean, mode: string, cidrs: string
     return $Call.ByID(1938470448, ruDirect, mode, cidrs, domains);
 }
 
+/**
+ * CheckForUpdate проверяет наличие обновлений на GitHub Releases
+ */
+export function CheckForUpdate(): $CancellablePromise<any> {
+    return $Call.ByName("main.App.CheckForUpdate");
+}
+
+/**
+ * InstallUpdate скачивает и применяет обновление
+ */
+export function InstallUpdate(downloadURL: string): $CancellablePromise<void> {
+    return $Call.ByName("main.App.InstallUpdate", downloadURL);
+}
+
+/**
+ * GetAppVersion возвращает текущую версию десктопного приложения
+ */
+export function GetAppVersion(): $CancellablePromise<string> {
+    return $Call.ByName("main.App.GetAppVersion");
+}
+
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = $Create.Map($Create.Any, $Create.Any);

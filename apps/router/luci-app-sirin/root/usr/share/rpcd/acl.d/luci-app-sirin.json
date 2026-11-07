@@ -7,9 +7,12 @@
           "status",
           "get_config",
           "get_split_config",
+          "get_antidpi_config",
+          "get_whitelist_config",
           "get_ru_direct_info",
           "get_logs",
-          "test_connection"
+          "test_connection",
+          "check_update"
         ]
       },
       "file": {
@@ -21,11 +24,14 @@
         "sirin": [
           "set_config",
           "set_split_config",
+          "set_antidpi_config",
+          "set_whitelist_config",
           "start",
           "stop",
           "restart",
           "enable",
-          "disable"
+          "disable",
+          "upgrade"
         ]
       },
       "file": {

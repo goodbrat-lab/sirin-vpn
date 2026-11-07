@@ -71,6 +71,19 @@
             <textarea id="cidrs-input" placeholder="192.168.1.0/24&#10;10.0.0.0/8" rows="2"></textarea>
         </div>
 
+        <div class="section-title">Обновление приложения</div>
+        <div class="update-section">
+            <div class="update-header">
+                <span id="app-version-label">Версия: 1.6.0</span>
+                <button type="button" class="secondary-btn" id="check-update-btn">Проверить</button>
+            </div>
+            <div id="update-box" class="update-box" style="display: none;">
+                <div id="update-message" class="update-message"></div>
+                <div id="update-notes" class="update-notes" style="display: none;"></div>
+                <button type="button" class="action-btn" id="apply-update-btn" style="display: none;">Обновить сейчас</button>
+            </div>
+        </div>
+
         <div class="buttons">
             <button id="save-settings">Сохранить</button>
             <button id="close-settings">Отмена</button>

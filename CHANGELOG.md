@@ -1,8 +1,23 @@
 # Changelog
 
-## [router-v1.6.0] - 2026-11-07
+## [router-v1.6.0 / desktop-v1.6.0] - 2026-11-07
 
 ### Added
+- **Встроенное обновление прямо из интерфейса (In-App Updater для Роутера и Windows Desktop)**:
+  - **OpenWrt Router (`luci-app-sirin` / `rpcd/sirin`)**:
+    - Интеграция с GitHub Releases API (`goodbrat-lab/sirin-vpn/releases` и `/releases/latest`).
+    - Автоматическое определение пакетного менеджера (`apk` для OpenWrt 25.x/Snapshot; `opkg` для OpenWrt 21.x-24.x).
+    - Автоматическое определение архитектуры роутера (`mips`, `mipsle`, `armv7`, `arm64`, `x86_64`) с проверкой endianness в `/proc/cpuinfo`.
+    - RPC методы `check_update` (проверка версии и доступных пакетов) и `upgrade` (безопасное скачивание в `/tmp`, проверка целостности и размера, установка через `opkg install --force-reinstall` или `apk add --allow-untrusted`, автоматический перезапуск службы).
+    - Разрешения в rpcd ACL (`/usr/share/rpcd/acl.d/luci-app-sirin.json`).
+    - Интерактивный UI в веб-интерфейсе LuCI (`overview.js`): кнопка «Проверить обновления», динамический бейдж статуса («У вас последняя версия» / «Доступно обновление»), модальное окно с деталями релиза и примечаниями к выпуску, безопасный запуск обновления с индикатором прогресса и автоматической перезагрузкой страницы.
+  - **Windows Desktop Client (`apps/desktop`)**:
+    - Модуль обновления `updater.go`: функция `CheckDesktopUpdate` для запроса GitHub Releases API, фильтрации черновиков, семантического сравнения версий и сопоставления исполняемых файлов `.exe`.
+    - Механизм безопасной самозамены исполняемого файла на Windows (`ApplyDesktopUpdate`): загрузка в `%APPDATA%\Sirin\updates\sirin_update.exe`, валидация PE-заголовка (`MZ`), генерация изолированного batch-хелпера `apply_update.cmd`, который ожидает завершения текущего процесса по PID, атомарно заменяет `.exe`, перезапускает обновленное приложение и удаляет временные файлы.
+    - Методы Go-бэкенда Wails: `CheckForUpdate()`, `InstallUpdate()`, `GetAppVersion()`.
+    - Обновленный UI диалога настроек (`index.html`, `style.css`, `main.ts`): отображение текущей версии, кнопка «Проверить», блок информации о новом релизе, показ changelog и кнопка «Обновить сейчас».
+    - Модульные тесты `TestIsNewerVersion` в `updater_test.go`.
+
 - **Аварийный резервный канал Whitelist Fallback (WebRTC TURN VK Calls / DION / S3)**:
   - **Обход тотальных блокировок и изоляции внешнего интернета (Чебурнет / Белые списки)**:
     - При блокировке всех зарубежных IP и протоколов (UDP Noise, VLESS, XHTTP) клиент автоматически переключается на последнюю ступень лестницы — отечественные WebRTC TURN серверы (VKontakte / Mail.ru / Odnoklassniki / DION).

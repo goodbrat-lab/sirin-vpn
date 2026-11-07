@@ -83,9 +83,19 @@ async function refreshStatus() {
 }
 
 // Настройки
+let currentLatestUpdate: any = null;
+
 async function openSettings() {
     const dialog = document.getElementById('settings-dialog') as HTMLDialogElement;
     
+    try {
+        const ver = await App.GetAppVersion();
+        const verLabel = document.getElementById('app-version-label');
+        if (verLabel && ver) verLabel.textContent = `Версия: ${ver}`;
+    } catch (e) {
+        console.error('GetAppVersion error:', e);
+    }
+
     try {
         const key = await App.GetKey();
         (document.getElementById('key-input') as HTMLInputElement).value = key || '';
@@ -114,6 +124,74 @@ async function openSettings() {
     }
 
     dialog.showModal();
+}
+
+// Проверка обновлений десктопа
+const checkUpdateBtn = document.getElementById('check-update-btn') as HTMLButtonElement;
+const updateBox = document.getElementById('update-box') as HTMLDivElement;
+const updateMessage = document.getElementById('update-message') as HTMLDivElement;
+const updateNotes = document.getElementById('update-notes') as HTMLDivElement;
+const applyUpdateBtn = document.getElementById('apply-update-btn') as HTMLButtonElement;
+
+if (checkUpdateBtn) {
+    checkUpdateBtn.addEventListener('click', async () => {
+        checkUpdateBtn.disabled = true;
+        checkUpdateBtn.textContent = 'Проверка...';
+        updateBox.style.display = 'block';
+        updateMessage.textContent = 'Поиск обновлений на GitHub...';
+        updateMessage.style.color = 'var(--m-dim)';
+        updateNotes.style.display = 'none';
+        applyUpdateBtn.style.display = 'none';
+
+        try {
+            const info: any = await App.CheckForUpdate();
+            checkUpdateBtn.disabled = false;
+            checkUpdateBtn.textContent = 'Проверить';
+
+            if (!info) {
+                updateMessage.textContent = 'Не удалось получить данные об обновлениях';
+                return;
+            }
+
+            if (info.available) {
+                currentLatestUpdate = info;
+                updateMessage.innerHTML = `<span style="color:#5cb85c; font-weight:bold;">Доступна версия ${info.latest_version}</span> (текущая: ${info.current_version})`;
+                if (info.release_notes) {
+                    updateNotes.textContent = info.release_notes;
+                    updateNotes.style.display = 'block';
+                }
+                applyUpdateBtn.textContent = `Обновить до v${info.latest_version}`;
+                applyUpdateBtn.style.display = 'block';
+            } else {
+                updateMessage.innerHTML = `<span style="color:#5cb85c;">✓ У вас актуальная версия (${info.current_version})</span>`;
+            }
+        } catch (e: any) {
+            checkUpdateBtn.disabled = false;
+            checkUpdateBtn.textContent = 'Проверить';
+            updateMessage.textContent = `Ошибка проверки: ${e?.message || e}`;
+            updateMessage.style.color = '#d9534f';
+        }
+    });
+}
+
+if (applyUpdateBtn) {
+    applyUpdateBtn.addEventListener('click', async () => {
+        if (!currentLatestUpdate?.download_url) return;
+        applyUpdateBtn.disabled = true;
+        applyUpdateBtn.textContent = 'Загрузка и установка...';
+        updateMessage.textContent = 'Загрузка новой версии и подготовка перезапуска...';
+        updateMessage.style.color = 'var(--m-text)';
+
+        try {
+            await App.InstallUpdate(currentLatestUpdate.download_url);
+            updateMessage.innerHTML = '<span style="color:#5cb85c; font-weight:bold;">✓ Обновление установлено! Перезапуск...</span>';
+        } catch (e: any) {
+            applyUpdateBtn.disabled = false;
+            applyUpdateBtn.textContent = 'Повторить обновление';
+            updateMessage.textContent = `Ошибка установки: ${e?.message || e}`;
+            updateMessage.style.color = '#d9534f';
+        }
+    });
 }
 
 document.getElementById('settings-btn')!.addEventListener('click', openSettings);

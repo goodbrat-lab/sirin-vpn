@@ -20,7 +20,7 @@ type PackageFile struct {
 
 func main() {
 	distDir := flag.String("dist", "dist", "Path to dist directory")
-	version := flag.String("version", "1.4.0", "Package version")
+	version := flag.String("version", "1.6.0", "Package version")
 	flag.Parse()
 
 	absDist, err := filepath.Abs(*distDir)

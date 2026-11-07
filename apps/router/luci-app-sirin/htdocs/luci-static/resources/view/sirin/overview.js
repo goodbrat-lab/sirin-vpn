@@ -110,6 +110,19 @@ var callTestConnection = rpc.declare({
 	expect: {}
 });
 
+var callCheckUpdate = rpc.declare({
+	object: 'sirin',
+	method: 'check_update',
+	expect: {}
+});
+
+var callUpgrade = rpc.declare({
+	object: 'sirin',
+	method: 'upgrade',
+	params: ['url'],
+	expect: {}
+});
+
 function formatUptime(sec) {
 	if (!sec || sec <= 0) return '—';
 	var days = Math.floor(sec / 86400);
@@ -146,6 +159,128 @@ return view.extend({
 
 		var ruCount = ruInfo.count || 8641;
 
+		var updateStatusSpan = E('span', {
+			id: 'sirin-update-badge',
+			style: 'margin-left: 10px; display: inline-flex; align-items: center;'
+		});
+
+		function showUpgradeModal(info) {
+			var modalBody = E('div', { class: 'cbi-modal-body' }, [
+				E('p', {}, 'Доступна новая версия пакета Sirin VPN:'),
+				E('table', { class: 'table', style: 'margin: 10px 0;' }, [
+					E('tr', { class: 'tr' }, [
+						E('td', { class: 'td', style: 'width: 35%; font-weight: bold;' }, 'Текущая версия:'),
+						E('td', { class: 'td' }, info.current_version || '1.6.0')
+					]),
+					E('tr', { class: 'tr' }, [
+						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Новая версия:'),
+						E('td', { class: 'td', style: 'color: #5cb85c; font-weight: bold;' }, info.latest_version || info.tag)
+					]),
+					E('tr', { class: 'tr' }, [
+						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Архитектура / Менеджер:'),
+						E('td', { class: 'td' }, (info.arch || 'mipsle') + ' (' + (info.pkg_mgr || 'opkg') + ')')
+					]),
+					E('tr', { class: 'tr' }, [
+						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Файл обновления:'),
+						E('td', { class: 'td', style: 'word-break: break-all;' }, info.asset_name || 'sirin-full')
+					])
+				]),
+				info.release_notes ? E('div', { style: 'background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 8px; margin: 10px 0; max-height: 120px; overflow-y: auto; font-size: 12px;' }, [
+					E('strong', {}, 'Информация о выпуске:'),
+					E('p', { style: 'margin: 4px 0 0 0;' }, info.release_notes)
+				]) : E('span', {}),
+				E('p', { style: 'color: #f0ad4e; margin-top: 10px;' }, '⚠ Во время обновления служба VPN будет перезапущена. Не выключайте роутер.')
+			]);
+
+			var progressDiv = E('div', { style: 'display:none; text-align:center; padding: 20px 0;' }, [
+				E('div', { class: 'spinning', style: 'display: inline-block; margin-bottom: 12px;' }),
+				E('p', { id: 'sirin-upgrade-status-text', style: 'font-weight: bold;' }, 'Загрузка и установка обновления... Пожалуйста, подождите.')
+			]);
+
+			var btnApply = E('button', {
+				class: 'btn cbi-button cbi-button-action',
+				click: function() {
+					btnApply.disabled = true;
+					btnCancel.disabled = true;
+					modalBody.style.display = 'none';
+					progressDiv.style.display = 'block';
+
+					return callUpgrade(info.asset_url).then(function(res) {
+						if (res && res.ok) {
+							progressDiv.innerHTML = '<div style="color: #5cb85c; font-size: 16px; font-weight: bold; margin-bottom: 8px;">✓ ' +
+								(res.message || 'Обновление успешно установлено!') + '</div>' +
+								'<p>Перезагрузка страницы через 3 секунды...</p>';
+							setTimeout(function() {
+								location.reload();
+							}, 3000);
+						} else {
+							progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка обновления</div>' +
+								'<p style="word-break: break-all;">' + ((res && res.error) || 'Неизвестная ошибка') + '</p>';
+							btnCancel.disabled = false;
+							btnCancel.textContent = 'Закрыть';
+						}
+					}).catch(function(e) {
+						progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка выполнения запроса</div>' +
+							'<p>' + (e.message || 'Ошибка RPC') + '</p>';
+						btnCancel.disabled = false;
+						btnCancel.textContent = 'Закрыть';
+					});
+				}
+			}, 'Установить обновление');
+
+			var btnCancel = E('button', {
+				class: 'btn cbi-button cbi-button-neutral',
+				click: ui.hideModal
+			}, 'Отмена');
+
+			ui.showModal('Обновление Sirin VPN', [
+				modalBody,
+				progressDiv,
+				E('div', { class: 'right', style: 'margin-top: 15px;' }, [
+					btnCancel,
+					' ',
+					btnApply
+				])
+			]);
+		}
+
+		var btnCheckUpdate = E('button', {
+			class: 'btn cbi-button cbi-button-neutral',
+			style: 'padding: 2px 8px; font-size: 12px; margin-left: 8px;',
+			click: function() {
+				btnCheckUpdate.disabled = true;
+				updateStatusSpan.textContent = ' Проверка...';
+				return callCheckUpdate().then(function(res) {
+					btnCheckUpdate.disabled = false;
+					if (!res || !res.ok) {
+						updateStatusSpan.innerHTML = '<span style="color:#d9534f; margin-left:6px;">✗ ' + ((res && res.error) || 'Ошибка проверки') + '</span>';
+						return;
+					}
+					if (res.update_available) {
+						var btnDoUpgrade = E('button', {
+							class: 'btn cbi-button cbi-button-action',
+							style: 'margin-left: 8px; padding: 2px 8px; font-size: 12px;',
+							click: function() {
+								showUpgradeModal(res);
+							}
+						}, 'Обновить до ' + (res.tag || ('v' + res.latest_version)));
+
+						updateStatusSpan.innerHTML = '';
+						updateStatusSpan.appendChild(E('span', { style: 'color:#5cb85c; font-weight:bold; margin-left:6px;' }, 'Доступно: ' + res.latest_version));
+						updateStatusSpan.appendChild(btnDoUpgrade);
+					} else {
+						updateStatusSpan.innerHTML = '<span style="color:#5cb85c; margin-left:6px;">✓ У вас последняя версия (' + res.current_version + ')</span>';
+						setTimeout(function() {
+							updateStatusSpan.innerHTML = '';
+						}, 6000);
+					}
+				}).catch(function(e) {
+					btnCheckUpdate.disabled = false;
+					updateStatusSpan.innerHTML = '<span style="color:#d9534f; margin-left:6px;">✗ ' + (e.message || 'Ошибка RPC') + '</span>';
+				});
+			}
+		}, 'Проверить обновления');
+
 		var statusNode = E('span', { class: 'label' }, 'Опрос...');
 		var infoTable = E('table', { class: 'table' }, [
 			E('tr', { class: 'tr' }, [
@@ -154,7 +289,11 @@ return view.extend({
 			]),
 			E('tr', { class: 'tr' }, [
 				E('td', { class: 'td' }, 'Версия клиента:'),
-				E('td', { class: 'td', id: 'sirin-version' }, status.version || '1.2.0')
+				E('td', { class: 'td' }, [
+					E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '1.6.0'),
+					btnCheckUpdate,
+					updateStatusSpan
+				])
 			]),
 			E('tr', { class: 'tr' }, [
 				E('td', { class: 'td' }, 'Активный транспорт:'),

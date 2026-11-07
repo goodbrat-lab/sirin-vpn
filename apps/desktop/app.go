@@ -400,6 +400,33 @@ func (a *App) SaveAdvancedConfig(deadDropURLs []string, wlEnabled bool, wlMode s
 	return SaveConfig(cfg)
 }
 
+// CheckForUpdate проверяет наличие обновлений на GitHub Releases
+func (a *App) CheckForUpdate() (*UpdateInfo, error) {
+	a.emitLog("Проверка наличия обновлений на GitHub...", "info")
+	info, err := CheckDesktopUpdate(DesktopVersion)
+	if err != nil {
+		a.emitLog("Ошибка проверки обновлений: "+err.Error(), "error")
+		return nil, err
+	}
+	if info.Available {
+		a.emitLog(fmt.Sprintf("Найдена новая версия: %s (текущая: %s)", info.LatestVersion, info.CurrentVersion), "info")
+	} else {
+		a.emitLog("У вас установлена последняя версия: "+info.CurrentVersion, "info")
+	}
+	return info, nil
+}
+
+// InstallUpdate скачивает и применяет обновление
+func (a *App) InstallUpdate(downloadURL string) error {
+	a.emitLog("Инициализация установки обновления...", "info")
+	return ApplyDesktopUpdate(downloadURL, a.emitLog)
+}
+
+// GetAppVersion возвращает текущую версию десктопного приложения
+func (a *App) GetAppVersion() string {
+	return DesktopVersion
+}
+
 // GetLogs возвращает накопленный журнал сообщений
 func (a *App) GetLogs() []string {
 	a.mu.Lock()
