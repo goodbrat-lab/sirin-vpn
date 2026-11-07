@@ -49,7 +49,8 @@ func getOriginalDst(conn *net.TCPConn) (*net.TCPAddr, error) {
 	}
 
 	ip := net.IPv4(addr.Addr[0], addr.Addr[1], addr.Addr[2], addr.Addr[3])
-	port := int(addr.Port[0])<<8 + int(addr.Port[1])
+	portBytes := (*[2]byte)(unsafe.Pointer(&addr.Port))
+	port := int(portBytes[0])<<8 | int(portBytes[1])
 
 	return &net.TCPAddr{IP: ip, Port: port}, nil
 }
