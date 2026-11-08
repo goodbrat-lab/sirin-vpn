@@ -44,9 +44,15 @@ jobs:
         working-directory: apps/ios-spike
         run: |
           echo "Проверка компиляции Swift-файлов туннеля..."
-          swiftc -target arm64-apple-ios16.0-simulator \
+          SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          FW_DIR=$(find Mobile.xcframework -type d -name "ios-*simulator" | head -n 1)
+          if [ -z "$FW_DIR" ]; then FW_DIR="."; fi
+          echo "SDK_PATH=$SDK_PATH, FW_DIR=$FW_DIR"
+          xcrun --sdk iphonesimulator swiftc \
+            -sdk "$SDK_PATH" \
+            -target arm64-apple-ios16.0-simulator \
+            -F "$FW_DIR" \
             -F . \
-            -I . \
             -parse-as-library \
             -c SirinSpikeTunnel/PacketTunnelProvider.swift \
             -o /tmp/PacketTunnelProvider.o
