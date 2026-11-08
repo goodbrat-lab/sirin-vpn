@@ -153,7 +153,6 @@ object TunnelLog {
      * через event(). Молчание — состояние по умолчанию.
      */
     fun add(line: String) {
-        if (!BuildConfig.DEBUG) return
         write(line)
     }
 

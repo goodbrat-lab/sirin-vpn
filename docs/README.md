@@ -7,7 +7,7 @@
 ## 🚀 1. Установка и запуск
 
 ### 1.1. Android
-- **Актуальный релиз:** [sirin-v1.6.1.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.6.1/sirin-v1.6.1.apk)
+- **Актуальный релиз:** [sirin-v1.6.2.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.6.2/sirin-v1.6.2.apk)
 - **Инструкция по установке:**
   1. Скачайте APK-файл на устройство под управлением Android 8.0+.
   2. Разрешите установку из неизвестных источников при первом запуске файла.

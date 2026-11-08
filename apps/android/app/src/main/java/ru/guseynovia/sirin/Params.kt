@@ -312,9 +312,9 @@ object Params {
         val host: String,
         val port: Int,
         val dtls: Boolean,
-        /** "udp" (умолчание), "tcp" или "tls". Ступени 3-4 протокола. */
+        /** "udp" (умолчание), "tcp", "tls", "vless". */
         val transport: String,
-        /** SNI для tls-ступени; для прочих пусто. Привязан к IP. */
+        /** SNI для tls/vless-ступени; для прочих пусто. Привязан к IP. */
         val sni: String,
         val snis: List<String> = emptyList(),
         val pbk: String = "",
@@ -322,20 +322,39 @@ object Params {
     )
 
     /**
+     * Запасные узлы по умолчанию (VLESS Reality, UDP Noise NK).
+     * Используются при недоступности API/Dead Drop или чистой установке.
+     */
+    val DEFAULT_NODES = listOf(
+        Node(
+            id = "sirin-main-vless",
+            host = "94.183.159.114",
+            port = 443,
+            dtls = false,
+            transport = "vless",
+            sni = "sun8-21.userapi.com",
+            snis = listOf("sun8-21.userapi.com", "www.kinopoisk.ru", "wildberries.ru", "www.ikea.com"),
+            pbk = "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
+            sid = "8283f99ec6a0f52e"
+        ),
+        Node(
+            id = "sirin-main-udp",
+            host = "94.183.159.114",
+            port = 56005,
+            dtls = false,
+            transport = "udp",
+            sni = ""
+        )
+    )
+
+    /**
      * Узлы из сохранённого ответа. Пусто — сохранённого нет или он
-     * испорчен, и тогда по правилу 2 в дело идут зашитые запасные.
-     *
-     * СПИСОК ОТДАЁТСЯ ЦЕЛИКОМ И В ТОМ ЖЕ ПОРЯДКЕ. Порядок — подсказка
-     * о предпочтении, а узлы поднимаются параллельно; выкидывать или
-     * переставлять записи по своему разумению нельзя.
+     * испорчен, и тогда в дело идут зашитые запасные DEFAULT_NODES.
      */
     fun nodes(): List<Node> {
-        if (Config.SKIP_API_PARAMS_FETCH) {
-            return emptyList()
-        }
-        val s = saved() ?: return emptyList()
+        val s = saved() ?: return DEFAULT_NODES
         return try {
-            val a = JSONObject(s).optJSONArray("entries") ?: return emptyList()
+            val a = JSONObject(s).optJSONArray("entries") ?: return DEFAULT_NODES
             val out = ArrayList<Node>(a.length())
             for (i in 0 until a.length()) {
                 val o = a.optJSONObject(i) ?: continue
@@ -356,19 +375,18 @@ object Params {
                         host = host,
                         port = port,
                         dtls = o.optBoolean("dtls", false),
-                        // Умолчание "udp": запись без transport — старая
-                        // udp-запись, как и предусмотрено спецификацией.
                         transport = o.optString("transport").ifEmpty { "udp" },
                         sni = o.optString("sni"),
                         snis = snisList,
                         pbk = o.optString("pbk"),
                         sid = o.optString("sid"),
+                        
                     )
                 )
             }
-            out
+            if (out.isNotEmpty()) out else DEFAULT_NODES
         } catch (e: Throwable) {
-            emptyList()
+            DEFAULT_NODES
         }
     }
 

@@ -66,8 +66,8 @@ android {
         // старой, а удаление стирает и пул хешей, и память пути — то
         // есть ровно то, что мы отлаживаем. С растущим versionCode APK
         // ставится поверх, и накопленное переживает установку.
-        versionCode = 13
-        versionName = "1.6.1"
+        versionCode = 14
+        versionName = "1.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

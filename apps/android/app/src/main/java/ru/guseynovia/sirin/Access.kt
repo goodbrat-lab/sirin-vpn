@@ -389,6 +389,7 @@ object Access {
     fun password(): String = when {
         pending.isNotEmpty() -> pending
         key.isNotEmpty() -> key
+        Config.PASSWORD.isNotEmpty() -> Config.PASSWORD
         BuildConfig.DEBUG -> Config.PASSWORD
         else -> ""
     }

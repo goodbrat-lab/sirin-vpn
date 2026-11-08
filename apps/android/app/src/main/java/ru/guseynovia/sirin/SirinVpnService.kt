@@ -2419,25 +2419,25 @@ class SirinVpnService : VpnService() {
 
         val all: List<Node> = when {
             mode == Config.TransportMode.RELAY_ONLY -> emptyList()
-            fromService -> nodes.map {
+            nodes.isNotEmpty() -> nodes.map {
                 Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid)
             }
-            else -> Config.DIRECT_CANDIDATES.mapIndexed { i, c ->
-                Node(Paths.directName(i), "", c.port, c.useDtls)
+            else -> Params.DEFAULT_NODES.map {
+                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid)
             }
         }
 
         // ПРОПУСК ЗАКРЫТОГО UDP убирает ТОЛЬКО UDP-ступени, а поток
-        // (TCP/TLS/VLESS) оставляет: на сети, режущей UDP, поток и есть путь.
+        // (TCP/TLS/VLESS/XHTTP) оставляет: на сети, режущей UDP, поток и есть путь.
         // Раньше здесь был emptyList — он ронял и поток, когда стал
         // частью лестницы.
-        // ПРОПУСК РЕЗАННОГО ПОТОКА убирает TCP/TLS/VLESS и оставляет UDP: это
+        // ПРОПУСК РЕЗАННОГО ПОТОКА убирает TCP/TLS/VLESS/XHTTP и оставляет UDP: это
         // зеркало пропуска UDP, и включаются они независимо. Сеть, где
         // UDP не поднимается, а поток поднимается и немеет, выключит оба
         // — и лестница станет чисто релейной. Ровно этого мы и хотим:
         // релей на такой сети единственный, кто держит трафик.
         val byKind: List<Node> = all.filter { n ->
-            val stream = n.transport == "tcp" || n.transport == "tls" || n.transport == "vless"
+            val stream = n.transport == "tcp" || n.transport == "tls" || n.transport == "vless" || n.transport == "xhttp"
             if (stream) !skipStreams else !skipDirect
         }
         // Медленные входы обходим, но лестницу пустой не оставляем: если
@@ -2506,6 +2506,7 @@ class SirinVpnService : VpnService() {
                         TunnelLog.add("узел $code: vless ошибка — ${e.message}")
                     }
                 }
+
                 "udp" -> if (n.id == known) {
                     // Запомненную ступень помечаем явно: движок пробует
                     // её одну и без гонки. Гонка нужна незнакомой сети.
