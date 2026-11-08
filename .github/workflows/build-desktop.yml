@@ -61,13 +61,17 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: sirin-desktop-installer
-          path: apps/desktop/dist/Sirin-VPN-*-Setup.exe
+          path: |
+            apps/desktop/dist/Sirin-VPN-*-Setup.exe
+            apps/desktop/bin/sirin.exe
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/desktop/dist/Sirin-VPN-*-Setup.exe
+          files: |
+            apps/desktop/dist/Sirin-VPN-*-Setup.exe
+            apps/desktop/bin/sirin.exe
           generate_release_notes: true
           draft: false
           prerelease: false

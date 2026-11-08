@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.6.1 / router-v1.6.1 / desktop-v1.6.1 / android-v1.6.1] - 2026-11-08
+
+### Fixed
+- **OpenWrt Router (`apps/router` & `luci-app-sirin`)**:
+  - **Модуль Anti-DPI**: исправлен адрес прослушивания прозрачного прокси с `127.0.0.1:56100` на `0.0.0.0:56100` (так как `nftables redirect` на интерфейсе `br-lan` переписывает адрес назначения на IP роутера в LAN `192.168.1.1`) с защитой порта `56100` от доступа из WAN через `chain input`.
+  - **Разбиение TLS Record + авто-откат в VPN (`SplitTLSRecordAndSend`)**: реализовано корректное разделение TLS Record `ClientHello` на две валидные TLS-записи прямо посреди поля `SNI` с отправкой отдельными TCP-сегментами (`TCP_NODELAY`) и автоматическим fallback в защищенный VPN-туннель (`SO_MARK = 0x1`) с 10-минутным кэшем по SNI при блокировке IP кэш-серверов Google/YouTube провайдером.
+  - **Интеграция с `dnsmasq-full` (`nftset`)**: исправлен формат директив `nftset` на `4#ip#sirin#antidpi_cidrs` (с явным указанием семейства таблицы `ip`), добавлено автоопределение активных UCI-каталогов `/tmp/dnsmasq.cfg*.d` на OpenWrt 24.x/25.x и перезапуск `dnsmasq` для немедленного применения правил.
+  - **Таблица маршрутизации и Kill Switch в `nftables`**: добавлено правило `meta mark 0x00000001 return` в `chain output`, добавлен `gc-interval 1m` и `timeout 5m` для `@antidpi_cidrs`, скорректирован приоритет `sirin_killswitch` (`filter + 10`).
+  - **Обновление через LuCI (`rpcd/sirin`)**: исправлен парсер ответа GitHub Releases API для однострочного минифицированного JSON и добавлен автоматический fallback прямой распаковки (`tar -xzf`) для OpenWrt 25.x (`apk-tools v3`).
+- **Android (`apps/android`)**:
+  - Синхронизировано поле `DEAD_DROP_URLS` в `Config.kt.template` и CI-воркфлоу `build-apk.yml`.
+  - Версия приложения обновлена до `1.6.1` (`versionCode = 13`).
+- **Windows Desktop (`apps/desktop`)**:
+  - Версия клиента и инсталлятора Inno Setup синхронизирована до `1.6.1`.
+  - В релиз публикуются как установщик `Sirin-VPN-1.6.1-Setup.exe`, так и портативный бинарник `sirin.exe` для бесшовного автообновления из интерфейса.
+- **iOS Spike (`apps/ios-spike`)**:
+  - Обновлены зависимости `go.mod`/`go.sum` и установка `gobind` в CI-воркфлоу `build-ios-spike.yml`.
+
 ## [router-v1.6.0 / desktop-v1.6.0] - 2026-11-07
 
 ### Added

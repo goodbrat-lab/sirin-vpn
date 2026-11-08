@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const DesktopVersion = "1.6.0"
+const DesktopVersion = "1.6.1"
 
 // UpdateInfo содержит информацию о доступном обновлении
 type UpdateInfo struct {
@@ -151,27 +151,34 @@ func CheckDesktopUpdate(currentVer string) (*UpdateInfo, error) {
 			continue
 		}
 
-		// Find Windows .exe asset
-		for _, asset := range rel.Assets {
+		// Find Windows .exe asset (prefer standalone sirin.exe over *-Setup.exe installer)
+		var chosenAsset *ghAsset
+		for i := range rel.Assets {
+			asset := &rel.Assets[i]
 			lowerName := strings.ToLower(asset.Name)
 			if strings.HasSuffix(lowerName, ".exe") {
-				notes := strings.TrimSpace(rel.Body)
-				if len(notes) > 500 {
-					notes = notes[:497] + "..."
+				if chosenAsset == nil || !strings.Contains(lowerName, "setup") {
+					chosenAsset = asset
 				}
-
-				return &UpdateInfo{
-					Available:      true,
-					CurrentVersion: currentVer,
-					LatestVersion:  verClean,
-					Tag:            tag,
-					DownloadURL:    asset.BrowserDownloadURL,
-					AssetName:      asset.Name,
-					AssetSize:      asset.Size,
-					ReleaseNotes:   notes,
-					PublishedAt:    rel.PublishedAt.Format("02.01.2006"),
-				}, nil
 			}
+		}
+		if chosenAsset != nil {
+			notes := strings.TrimSpace(rel.Body)
+			if len(notes) > 500 {
+				notes = notes[:497] + "..."
+			}
+
+			return &UpdateInfo{
+				Available:      true,
+				CurrentVersion: currentVer,
+				LatestVersion:  verClean,
+				Tag:            tag,
+				DownloadURL:    chosenAsset.BrowserDownloadURL,
+				AssetName:      chosenAsset.Name,
+				AssetSize:      chosenAsset.Size,
+				ReleaseNotes:   notes,
+				PublishedAt:    rel.PublishedAt.Format("02.01.2006"),
+			}, nil
 		}
 	}
 
@@ -269,9 +276,35 @@ func ApplyDesktopUpdate(downloadURL string, emitLog func(string, string)) error 
 
 	emitLog("Файл обновления проверен. Подготовка к перезапуску...", "info")
 
+	// Если скачан инсталлятор Inno Setup (*-Setup.exe), запускаем его в тихом режиме /SILENT
+	isSetup := strings.Contains(strings.ToLower(downloadURL), "setup.exe")
+
 	// Создаем batch-скрипт обновления
 	scriptPath := filepath.Join(updatesDir, "apply_update.cmd")
-	scriptContent := `@echo off
+	var scriptContent string
+	if isSetup {
+		scriptContent = `@echo off
+chcp 65001 >nul
+setlocal
+set PID=%1
+set SRC=%~2
+set DST=%~3
+
+timeout /t 1 /nobreak >nul
+:wait_loop
+tasklist /fi "PID eq %PID%" 2>nul | findstr /i "%PID%" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto wait_loop
+)
+
+"%SRC%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
+del /f /q "%SRC%" >nul 2>&1
+if exist "%DST%" start "" "%DST%"
+(goto) 2>nul & del "%~f0"
+`
+	} else {
+		scriptContent = `@echo off
 chcp 65001 >nul
 setlocal
 set PID=%1
@@ -296,6 +329,7 @@ del /f /q "%SRC%" >nul 2>&1
 start "" "%DST%"
 (goto) 2>nul & del "%~f0"
 `
+	}
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
 		return fmt.Errorf("создание скрипта применения обновления: %w", err)
 	}

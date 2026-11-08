@@ -33,4 +33,8 @@ object Config {
 
     const val SKIP_API_KEY_CHECK = false
     const val SKIP_API_PARAMS_FETCH = false
+
+    val DEAD_DROP_URLS = listOf(
+        "https://disk.yandex.ru/d/sirin_params_backup"
+    )
 }

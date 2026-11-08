@@ -2,7 +2,7 @@
 ; Компиляция: ISCC.exe installer.iss
 
 #define MyAppName "Sirin VPN"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.6.1"
 #define MyAppPublisher "Sirin Project"
 #define MyAppURL "https://github.com/goodbrat-lab/sirin-vpn"
 #define MyAppExeName "sirin.exe"

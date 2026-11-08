@@ -7,14 +7,14 @@
 ## 🚀 1. Установка и запуск
 
 ### 1.1. Android
-- **Актуальный релиз:** [sirin-v1.3.1.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.3.1/sirin-v1.3.1.apk)
+- **Актуальный релиз:** [sirin-v1.6.1.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.6.1/sirin-v1.6.1.apk)
 - **Инструкция по установке:**
   1. Скачайте APK-файл на устройство под управлением Android 8.0+.
   2. Разрешите установку из неизвестных источников при первом запуске файла.
-  3. Откройте приложение, укажите UUID-ключ (из Telegram-бота `@sirin_crp_bot` или по deep-link ссылке) и нажмите «Подключить».
+  3. Откройте приложение, укажите UUID-ключ (из Telegram-бота `@sirin_crp_bot` или по deep-link ссылку) и нажмите «Подключить».
 
 ### 1.2. Windows Desktop
-- **Актуальный релиз:** [Sirin-VPN-1.0.0-Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.0.0/Sirin-VPN-1.0.0-Setup.exe)
+- **Актуальный релиз:** [Sirin-VPN-1.6.1-Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.6.1/Sirin-VPN-1.6.1-Setup.exe)
 - **Инструкция по установке:**
   1. Запустите инсталлятор `Setup.exe` от имени администратора.
   2. Завершите стандартную процедуру установки (драйвер Wintun устанавливается автоматически).

@@ -61,6 +61,10 @@ jobs:
           if [ -n "$SIRIN_CONFIG_KT" ]; then
             echo "$SIRIN_CONFIG_KT" > apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
             echo "Using real Config.kt from GitHub Secrets"
+            if ! grep -q "DEAD_DROP_URLS" apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt; then
+              sed -i '$d' apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+              printf "\n    val DEAD_DROP_URLS = listOf(\n        \"https://disk.yandex.ru/d/sirin_params_backup\"\n    )\n}\n" >> apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt
+            fi
           else
             cp apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt.template \
                apps/android/app/src/main/java/ru/guseynovia/sirin/Config.kt

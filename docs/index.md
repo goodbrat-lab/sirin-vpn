@@ -5,9 +5,9 @@
 
   <p>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/v1.3.1"><img src="https://img.shields.io/badge/Android-v1.3.1-brightgreen.svg?logo=android&logoColor=white" alt="Android Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.2.0"><img src="https://img.shields.io/badge/OpenWrt%20Router-v1.2.0-blueviolet.svg?logo=openwrt&logoColor=white" alt="Router Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/desktop-v1.0.0"><img src="https://img.shields.io/badge/Windows-v1.0.0-0078D6.svg?logo=windows&logoColor=white" alt="Windows Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/v1.6.1"><img src="https://img.shields.io/badge/Android-v1.6.1-brightgreen.svg?logo=android&logoColor=white" alt="Android Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.6.1"><img src="https://img.shields.io/badge/OpenWrt%20Router-v1.6.1-blueviolet.svg?logo=openwrt&logoColor=white" alt="Router Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/desktop-v1.6.1"><img src="https://img.shields.io/badge/Windows-v1.6.1-0078D6.svg?logo=windows&logoColor=white" alt="Windows Release" /></a>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/discussions"><img src="https://img.shields.io/badge/GitHub-Discussions-purple.svg?logo=github" alt="Discussions" /></a>
   </p>
 </div>
@@ -24,9 +24,9 @@
 
 | Платформа | Версия | Где скачать | Руководство | Статус |
 |:---|:---:|:---|:---|:---:|
-| **Android** | `1.3.1` | [📦 Скачать APK (22.6 МБ)](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.3.1/sirin-v1.3.1.apk) | [📖 Инструкция для Android](README.md#11-android) | ✅ Стабильный |
-| **Windows Desktop** | `1.0.0` | [📦 Скачать Setup.exe (7.1 МБ)](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.0.0/Sirin-VPN-1.0.0-Setup.exe) | [📖 Инструкция для Windows](README.md#2-windows-desktop) | ✅ Стабильный |
-| **Router (OpenWrt)** | `1.2.0` | [📦 Релиз архивы (5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.2.0) | [📖 Руководство OpenWrt & LuCI](ROUTER.md) | ✅ Стабильный |
+| **Android** | `1.6.1` | [📦 Скачать APK](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.6.1/sirin-v1.6.1.apk) | [📖 Инструкция для Android](README.md#11-android) | ✅ Стабильный |
+| **Windows Desktop** | `1.6.1` | [📦 Скачать Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.6.1/Sirin-VPN-1.6.1-Setup.exe) | [📖 Инструкция для Windows](README.md#2-windows-desktop) | ✅ Стабильный |
+| **Router (OpenWrt)** | `1.6.1` | [📦 Релиз архивы и пакеты (5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.6.1) | [📖 Руководство OpenWrt & LuCI](ROUTER.md) | ✅ Стабильный |
 | **iOS / iPadOS** | — | *В разработке (архитектура NetworkExtension)* | [🔬 Исследование (Spike iOS)](SPIKE_IOS.md) | ⏳ Скоро (Q1 2027) |
 | **macOS / Linux** | — | *Запланировано на базе Wails & core/engine* | [🗺️ Roadmap](ROADMAP.md) | ⏳ Скоро |
 
@@ -35,12 +35,12 @@
 ## 🚀 Быстрый старт
 
 ### 🤖 Android
-1. Загрузите и установите [sirin-v1.3.1.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.3.1/sirin-v1.3.1.apk).
+1. Загрузите и установите [sirin-v1.6.1.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.6.1/sirin-v1.6.1.apk).
 2. Запустите приложение и вставьте персональный ключ (UUID из Telegram-бота `@sirin_crp_bot` или откройте deep-link ссылку).
 3. Нажмите кнопку питания в центре экрана — туннель поднимется автоматически.
 
 ### 💻 Windows Desktop
-1. Скачайте инсталлятор [Sirin-VPN-1.0.0-Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.0.0/Sirin-VPN-1.0.0-Setup.exe) и завершите установку.
+1. Скачайте инсталлятор [Sirin-VPN-1.6.1-Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.6.1/Sirin-VPN-1.6.1-Setup.exe) и завершите установку.
 2. В окне клиента укажите ваш ключ и нажмите **«Подключить»**.
 3. Трафик системы защищён; статус отображается в системном трее.
 
