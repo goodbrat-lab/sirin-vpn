@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"sirin/engine"
-	"sirin/engine/desktop"
 )
 
 func init() {
@@ -60,10 +59,35 @@ func (a *flowAdapter) Close() {
 	}
 }
 
+type logAdapter struct {
+	fn func(string)
+}
+
+func (l logAdapter) Log(line string) {
+	if l.fn != nil {
+		l.fn(line)
+	}
+}
+
+type stateAdapter struct {
+	fn func(string)
+}
+
+func (s stateAdapter) OnStopping(reason string) {
+	if s.fn != nil {
+		s.fn("[stopping] " + reason)
+	}
+}
+
+func (s stateAdapter) OnStopped(reason string) {
+	if s.fn != nil {
+		s.fn("[stopped] " + reason)
+	}
+}
+
 var (
 	mu     sync.Mutex
 	cancel context.CancelFunc
-	handle *desktop.Handle
 )
 
 // ParamsResponse — формат ответа /v1/params
@@ -115,20 +139,25 @@ func SirinStart(uuid string, flow PacketFlow, logger Logger) error {
 
 	ctx, c := context.WithCancel(context.Background())
 	cancel = c
+	go func() {
+		<-ctx.Done()
+		engine.Stop()
+	}()
 
-	cfg := desktop.Config{
-		Gateway:        gateway,
-		CachedFallback: gateway,
-		Ladder:         ladder,
-		Password:       uuid,
-		DeviceID:       "ios-spike-" + fmt.Sprintf("%x", time.Now().UnixNano()&0xFFFFFF),
-		ClampMSS:       true,
-		TunnelDNS:      desktop.DefaultTunnelDNS,
-		LogFunc:        log,
-	}
-
-	log("Sirin iOS Spike: Запуск сессии через desktop.Start...")
-	h, events, err := desktop.Start(ctx, cfg, &flowAdapter{flow: flow})
+	deviceID := "ios-spike-" + fmt.Sprintf("%x", time.Now().UnixNano()&0xFFFFFF)
+	log("Sirin iOS Spike: Запуск сессии через engine.Connect...")
+	assigned, err := engine.Connect(
+		gateway,
+		gateway,
+		ladder,
+		uuid,
+		deviceID,
+		nil,
+		nil,
+		nil,
+		logAdapter{fn: log},
+		stateAdapter{fn: log},
+	)
 	if err != nil {
 		cancel()
 		cancel = nil
@@ -136,15 +165,15 @@ func SirinStart(uuid string, flow PacketFlow, logger Logger) error {
 		return err
 	}
 
-	handle = h
+	if err := engine.StartFlow(&flowAdapter{flow: flow}); err != nil {
+		cancel()
+		cancel = nil
+		engine.Stop()
+		log(fmt.Sprintf("Ошибка запуска потока: %v", err))
+		return err
+	}
 
-	go func() {
-		for ev := range events {
-			log(fmt.Sprintf("[%s] %s", ev.Kind, ev.Reason))
-		}
-	}()
-
-	log("Sirin iOS Spike: Туннель поднят")
+	log("Sirin iOS Spike: Туннель поднят: " + assigned)
 	return nil
 }
 
@@ -157,10 +186,7 @@ func SirinStop() {
 		cancel()
 		cancel = nil
 	}
-	if handle != nil {
-		handle.Stop()
-		handle = nil
-	}
+	engine.Stop()
 	// Принудительный возврат страниц памяти ОС
 	debug.FreeOSMemory()
 }
@@ -174,9 +200,8 @@ func SirinMemoryUsage() int64 {
 
 // SirinStatus возвращает текстовый статус сессии
 func SirinStatus() string {
-	st := desktop.CurrentStatus()
 	return fmt.Sprintf("active=%v winner=%s resolved=%s tx=%d rx=%d",
-		st.Active, st.Winner, st.ResolvedVia, st.LastTx, st.LastRx)
+		engine.Active(), engine.Winner(), engine.ResolvedVia(), engine.LastTx(), engine.LastRx())
 }
 
 func fetchParams(key string) (*ParamsResponse, error) {
