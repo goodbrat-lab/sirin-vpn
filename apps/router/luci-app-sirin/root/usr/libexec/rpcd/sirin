@@ -1479,6 +1479,30 @@ method_upgrade() {
         ret=$?
     fi
 
+    # Fallback для OpenWrt 25.x (apk v3 ADB), где tar.gz-контейнер .apk распаковывается напрямую
+    if [ $ret -ne 0 ]; then
+        extract_dir="/tmp/sirin_pkg_extract.$$"
+        rm -rf "$extract_dir"
+        mkdir -p "$extract_dir"
+        if tar -xzf "$tmp_pkg" -C "$extract_dir" 2>/dev/null && [ -f "$extract_dir/usr/bin/sirin-client" ]; then
+            chmod +x "$extract_dir/usr/bin/sirin-client"
+            mv -f "$extract_dir/usr/bin/sirin-client" /usr/bin/sirin-client
+            [ -f "$extract_dir/etc/init.d/sirin" ] && chmod +x "$extract_dir/etc/init.d/sirin" && cp -f "$extract_dir/etc/init.d/sirin" /etc/init.d/sirin
+            [ -f "$extract_dir/etc/sirin/client.toml.example" ] && mkdir -p /etc/sirin && cp -f "$extract_dir/etc/sirin/client.toml.example" /etc/sirin/client.toml.example
+            [ -d "$extract_dir/usr/share" ] && cp -rf "$extract_dir/usr/share/"* /usr/share/ 2>/dev/null || true
+            [ -d "$extract_dir/www" ] && cp -rf "$extract_dir/www/"* /www/ 2>/dev/null || true
+            if [ -f "$extract_dir/usr/libexec/rpcd/sirin" ]; then
+                chmod +x "$extract_dir/usr/libexec/rpcd/sirin"
+                mv -f "$extract_dir/usr/libexec/rpcd/sirin" /usr/libexec/rpcd/sirin
+            fi
+            rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null || true
+            /etc/init.d/rpcd reload 2>/dev/null || true
+            /etc/init.d/sirin enable 2>/dev/null || true
+            ret=0
+        fi
+        rm -rf "$extract_dir"
+    fi
+
     rm -f "$tmp_pkg"
 
     if [ $ret -eq 0 ]; then
