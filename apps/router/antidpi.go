@@ -186,8 +186,8 @@ func FragmentAndSend(dst net.Conn, data []byte, splitPos int, sniOffset int) err
 		return fmt.Errorf("write frag1: %w", err)
 	}
 
-	// Небольшая задержка между сегментами, чтобы сетевой стек отправил отдельный TCP-пакет
-	time.Sleep(2 * time.Millisecond)
+	// TCP_NODELAY (SetNoDelay выше) обеспечивает немедленную отправку первого сегмента,
+	// поэтому дополнительная задержка не нужна — ядро само разобьёт на два TCP-пакета.
 
 	// 2-й фрагмент
 	if _, err := dst.Write(data[cut:]); err != nil {

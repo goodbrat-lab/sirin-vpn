@@ -170,34 +170,42 @@ func fetchParams(apiBase, key string) (*ParamsResponse, error) {
 
 	var lastErr error
 	for _, u := range urls {
-		resp, err := client.Get(u)
+		paramsResp, err := fetchOneParamsURL(client, u)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("status %d from %s", resp.StatusCode, u)
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		var paramsResp ParamsResponse
-		if err := json.Unmarshal(body, &paramsResp); err != nil {
-			lastErr = err
-			continue
-		}
-
-		return &paramsResp, nil
+		return paramsResp, nil
 	}
 
 	return nil, fmt.Errorf("ошибка запроса к API: %w", lastErr)
+}
+
+// fetchOneParamsURL выполняет один HTTP-запрос к API параметров.
+// Выделена в отдельную функцию, чтобы defer resp.Body.Close() срабатывал
+// немедленно после обработки, а не откладывался до return из fetchParams.
+func fetchOneParamsURL(client *http.Client, u string) (*ParamsResponse, error) {
+	resp, err := client.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d from %s", resp.StatusCode, u)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var paramsResp ParamsResponse
+	if err := json.Unmarshal(body, &paramsResp); err != nil {
+		return nil, err
+	}
+
+	return &paramsResp, nil
 }
 
 func buildFromParams(resp *ParamsResponse, fallbackGw string, wlCfg WhitelistFallbackConfig) (*engine.Ladder, string, []string, error) {

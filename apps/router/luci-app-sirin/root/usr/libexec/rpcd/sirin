@@ -1362,9 +1362,10 @@ method_check_update() {
         asset_name = ""
         asset_url = ""
     }
-    /"tag_name"[ \t]*:[ \t]*"[^"]+"/ {
+    # Берём только тег вида "router-vX.Y.Z" — игнорируем android/desktop/global релизы
+    /"tag_name"[ \t]*:[ \t]*"router-v[^"]+"/ {
         if (tag == "") {
-            match($0, /"tag_name"[ \t]*:[ \t]*"[^"]+"/)
+            match($0, /"tag_name"[ \t]*:[ \t]*"router-v[^"]+"/)
             s = substr($0, RSTART, RLENGTH)
             sub(/^"tag_name"[ \t]*:[ \t]*"/, "", s)
             sub(/"$/, "", s)

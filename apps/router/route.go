@@ -564,10 +564,14 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString("    }\n")
 
 	// Set antidpi_cidrs (для автоматического наполнения через dnsmasq nftset)
+	// timeout 5m + gc-interval 1m — элементы автоматически устаревают,
+	// это предотвращает накопление устаревших CDN-адресов YouTube/Discord.
 	if antidpiOpts.Enabled {
 		b.WriteString("    set antidpi_cidrs {\n")
 		b.WriteString("        type ipv4_addr\n")
 		b.WriteString("        flags interval, timeout\n")
+		b.WriteString("        timeout 5m\n")
+		b.WriteString("        gc-interval 1m\n")
 		b.WriteString("    }\n")
 	}
 
@@ -832,6 +836,10 @@ func cleanupKillSwitch() {
 }
 
 // generateKillSwitchNftablesRules генерирует конфигурацию nftables для Kill Switch.
+// ВАЖНО: priority 10 (выше чем 0 у sirin/forward) гарантирует что kill switch
+// проверяет mark ПОСЛЕ того, как цепочка sirin/prerouting (mangle, priority -150)
+// уже выставила mark 0x1 или 0x2. Без этого возможен race condition между
+// таблицами с одинаковым priority.
 func generateKillSwitchNftablesRules(lanIface, wanIface, mode string, allowedDest []string) string {
 	if lanIface == "" {
 		lanIface = "br-lan"
@@ -853,7 +861,8 @@ func generateKillSwitchNftablesRules(lanIface, wanIface, mode string, allowedDes
 	}
 
 	b.WriteString("    chain forward {\n")
-	b.WriteString("        type filter hook forward priority 0; policy accept;\n")
+	// priority 10: выше чем sirin/forward (priority 0), чтобы mark уже был выставлен
+	b.WriteString("        type filter hook forward priority 10; policy accept;\n")
 	b.WriteString(fmt.Sprintf("        iifname != \"%s\" accept\n", lanIface))
 	b.WriteString(fmt.Sprintf("        oifname != \"%s\" accept\n", wanIface))
 	if len(validDest) > 0 {
