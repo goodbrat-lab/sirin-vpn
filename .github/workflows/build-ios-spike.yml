@@ -45,14 +45,11 @@ jobs:
         run: |
           echo "Проверка компиляции Swift-файлов туннеля..."
           SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          FW_DIR=$(find Mobile.xcframework -type d -name "ios-*simulator" | head -n 1)
-          if [ -z "$FW_DIR" ]; then FW_DIR="."; fi
-          echo "SDK_PATH=$SDK_PATH, FW_DIR=$FW_DIR"
+          echo "=== headers in Mobile.xcframework ==="
+          find Mobile.xcframework -name "*.h" -exec cat {} +
           xcrun --sdk iphonesimulator swiftc \
             -sdk "$SDK_PATH" \
             -target arm64-apple-ios16.0-simulator \
-            -F "$FW_DIR" \
-            -F . \
             -parse-as-library \
             -c SirinSpikeTunnel/PacketTunnelProvider.swift \
             -o /tmp/PacketTunnelProvider.o
