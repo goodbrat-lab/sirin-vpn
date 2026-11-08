@@ -197,3 +197,26 @@ func TestFragmentAndSend(t *testing.T) {
 
 	_ = sni
 }
+
+func TestSplitTLSRecordAndSend(t *testing.T) {
+	sniHost := "www.youtube.com"
+	rawClientHello := makeTestClientHello(sniHost)
+	sni, offset := ExtractSNI(rawClientHello)
+
+	mock := &mockConn{}
+	err := SplitTLSRecordAndSend(mock, rawClientHello, 2, sni, offset)
+	if err != nil {
+		t.Fatalf("SplitTLSRecordAndSend завершился с ошибкой: %v", err)
+	}
+
+	if len(mock.chunks) < 2 {
+		t.Fatalf("Ожидалось минимум 2 TCP-сегмента, получено %d", len(mock.chunks))
+	}
+
+	// Ни один отдельный сегмент не должен содержать полное имя SNI
+	for i, ch := range mock.chunks {
+		if bytes.Contains(ch, []byte(sniHost)) {
+			t.Errorf("Сегмент %d содержит неразбитый SNI %q", i, sniHost)
+		}
+	}
+}

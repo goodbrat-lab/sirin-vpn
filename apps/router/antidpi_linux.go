@@ -54,3 +54,20 @@ func getOriginalDst(conn *net.TCPConn) (*net.TCPAddr, error) {
 
 	return &net.TCPAddr{IP: ip, Port: port}, nil
 }
+
+// markWanSocket устанавливает метку SO_MARK = 0x2 на исходящем сокете Anti-DPI прокси,
+// чтобы соединение шло через физический WAN (таблица 200) в обход VPN.
+func markWanSocket(network, address string, c syscall.RawConn) error {
+	return c.Control(func(fd uintptr) {
+		_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, 0x2)
+	})
+}
+
+// markVpnSocket устанавливает метку SO_MARK = 0x1 на исходящем сокете Anti-DPI прокси,
+// чтобы при блокировке прямого WAN-соединения провайдером трафик автоматически
+// уходил через защищённый VPN-туннель (таблица 100).
+func markVpnSocket(network, address string, c syscall.RawConn) error {
+	return c.Control(func(fd uintptr) {
+		_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, 0x1)
+	})
+}

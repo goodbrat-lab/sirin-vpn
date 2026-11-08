@@ -31,7 +31,7 @@ if [ -z "$ARCH" ]; then
     echo "Detected: $ARCH"
 fi
 
-VERSION=${VERSION:-1.6.0}
+VERSION=${VERSION:-1.6.1}
 URL="https://github.com/goodbrat-lab/sirin-vpn/releases/download/router-v$VERSION/sirin-client-$VERSION-$ARCH.tar.gz"
 
 # Определить пакетный менеджер

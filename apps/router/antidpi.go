@@ -197,14 +197,78 @@ func FragmentAndSend(dst net.Conn, data []byte, splitPos int, sniOffset int) err
 	return nil
 }
 
+// SplitTLSRecordAndSend разбивает один TLS ClientHello Record на две валидные TLS-записи
+// прямо посередине поля SNI (аналог tlsrec + split2 в zapret/byedpi) и отправляет их
+// отдельными TCP-сегментами. Это скрывает доменное имя от анализатора ТСПУ.
+func SplitTLSRecordAndSend(dst net.Conn, data []byte, splitPos int, sni string, sniOffset int) error {
+	if tcpConn, ok := dst.(*net.TCPConn); ok {
+		_ = tcpConn.SetNoDelay(true)
+	}
+
+	if len(data) >= 5 && data[0] == 0x16 {
+		recLen := int(binary.BigEndian.Uint16(data[3:5]))
+		if 5+recLen <= len(data) {
+			cutInData := 0
+			if sniOffset > 5 && len(sni) > 2 && sniOffset+len(sni)/2 < 5+recLen {
+				cutInData = sniOffset + len(sni)/2
+			} else if splitPos > 0 && 5+splitPos < 5+recLen {
+				cutInData = 5 + splitPos
+			}
+			if cutInData > 5 && cutInData < 5+recLen {
+				part1 := data[5:cutInData]
+				part2 := data[cutInData : 5+recLen]
+				tail := data[5+recLen:]
+
+				rec1 := make([]byte, 5+len(part1))
+				rec1[0] = 0x16
+				rec1[1] = data[1]
+				rec1[2] = data[2]
+				binary.BigEndian.PutUint16(rec1[3:5], uint16(len(part1)))
+				copy(rec1[5:], part1)
+
+				rec2 := make([]byte, 5+len(part2)+len(tail))
+				rec2[0] = 0x16
+				rec2[1] = data[1]
+				rec2[2] = data[2]
+				binary.BigEndian.PutUint16(rec2[3:5], uint16(len(part2)))
+				copy(rec2[5:], part2)
+				if len(tail) > 0 {
+					copy(rec2[5+len(part2):], tail)
+				}
+
+				if len(rec1) > 2 {
+					if _, err := dst.Write(rec1[:2]); err != nil {
+						return err
+					}
+					time.Sleep(1 * time.Millisecond)
+					if _, err := dst.Write(rec1[2:]); err != nil {
+						return err
+					}
+				} else {
+					if _, err := dst.Write(rec1); err != nil {
+						return err
+					}
+				}
+				time.Sleep(2 * time.Millisecond)
+				_, err := dst.Write(rec2)
+				return err
+			}
+		}
+	}
+
+	return FragmentAndSend(dst, data, splitPos, sniOffset)
+}
+
 // AntiDPIServer — прозрачный прокси для прямого обхода ТСПУ для выбранных сервисов.
 type AntiDPIServer struct {
-	cfg        AntiDPIConfig
-	listener   net.Listener
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	wanDialer  *net.Dialer
-	bufferPool sync.Pool
+	cfg              AntiDPIConfig
+	listener         net.Listener
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	wanDialer        *net.Dialer
+	vpnDialer        *net.Dialer
+	bufferPool       sync.Pool
+	vpnFallbackCache sync.Map // ключ: sni или IP (string) -> значение: time.Time (время истечения кэша)
 }
 
 // NewAntiDPIServer создаёт сервер Anti-DPI.
@@ -215,8 +279,14 @@ func NewAntiDPIServer(cfg AntiDPIConfig) *AntiDPIServer {
 	return &AntiDPIServer{
 		cfg: cfg,
 		wanDialer: &net.Dialer{
+			Timeout:   3 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Control:   markWanSocket,
+		},
+		vpnDialer: &net.Dialer{
 			Timeout:   5 * time.Second,
 			KeepAlive: 30 * time.Second,
+			Control:   markVpnSocket,
 		},
 		bufferPool: sync.Pool{
 			New: func() interface{} {
@@ -227,9 +297,12 @@ func NewAntiDPIServer(cfg AntiDPIConfig) *AntiDPIServer {
 	}
 }
 
-// Start запускает слушатель transparent proxy на локальном порту.
+// Start запускает слушатель transparent proxy.
+// Важно: слушаем на 0.0.0.0:Port, так как nftables `redirect to :Port` в цепочке
+// prerouting для трафика из LAN (br-lan) переписывает destination IP на адрес
+// входящего интерфейса роутера (например 192.168.1.1:56100), а не на 127.0.0.1.
 func (s *AntiDPIServer) Start(ctx context.Context) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Port)
+	addr := fmt.Sprintf("0.0.0.0:%d", s.cfg.Port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("antidpi listen on %s: %w", addr, err)
@@ -316,35 +389,80 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 		return
 	}
 
-	clientHelloData := buf[:n]
+	// Copy clientHelloData, так как буфер может понадобиться для чтения первого ответа
+	clientHelloData := make([]byte, n)
+	copy(clientHelloData, buf[:n])
 	sni, sniOffset := ExtractSNI(clientHelloData)
+	isTLS := sni != "" || (len(clientHelloData) > 5 && clientHelloData[0] == 0x16 && clientHelloData[5] == 0x01)
 
-	// Подключаемся к реальному серверу напрямую через физический WAN
-	remoteConn, err := s.wanDialer.DialContext(ctx, "tcp", targetAddr.String())
-	if err != nil {
-		log.Printf("[antidpi] Ошибка подключения к %s: %v", targetAddr, err)
+	cacheKey := sni
+	if cacheKey == "" {
+		cacheKey = targetAddr.IP.String()
+	}
+
+	skipDirectWAN := false
+	if expVal, ok := s.vpnFallbackCache.Load(cacheKey); ok {
+		if expTime, ok := expVal.(time.Time); ok && time.Now().Before(expTime) {
+			skipDirectWAN = true
+		} else {
+			s.vpnFallbackCache.Delete(cacheKey)
+		}
+	}
+
+	// 1. Пытаемся подключиться напрямую через физический WAN с разбиением TLS Record + TCP
+	if !skipDirectWAN {
+		remoteConn, err := s.wanDialer.DialContext(ctx, "tcp", targetAddr.String())
+		if err == nil {
+			var sendErr error
+			if isTLS {
+				sendErr = SplitTLSRecordAndSend(remoteConn, clientHelloData, s.cfg.SplitPos, sni, sniOffset)
+			} else {
+				_, sendErr = remoteConn.Write(clientHelloData)
+			}
+
+			if sendErr == nil {
+				// Проверяем, отвечает ли сервер (ServerHello / HTTP response) в течение 1.2 сек.
+				// Если ТСПУ провайдера блокирует IP/SNI (blackhole), запоминаем в кэше на 10 мин и переключаемся на VPN.
+				_ = remoteConn.SetReadDeadline(time.Now().Add(1200 * time.Millisecond))
+				rn, rerr := remoteConn.Read(buf)
+				_ = remoteConn.SetReadDeadline(time.Time{})
+
+				if rn > 0 {
+					if sni != "" {
+						log.Printf("[antidpi] Прямой обход ТСПУ успешен для SNI %q -> %s (WAN)", sni, targetAddr)
+					}
+					if _, werr := clientConn.Write(buf[:rn]); werr != nil {
+						remoteConn.Close()
+						return
+					}
+					pipeConn(clientConn, remoteConn, &s.bufferPool)
+					remoteConn.Close()
+					return
+				}
+				_ = rerr
+			}
+			remoteConn.Close()
+		}
+		// Запоминаем на 10 минут, что этот SNI/IP блокируется ТСПУ напрямую, чтобы следующие потоки шли в VPN мгновенно
+		s.vpnFallbackCache.Store(cacheKey, time.Now().Add(10*time.Minute))
+		if sni != "" {
+			log.Printf("[antidpi] ТСПУ блокирует прямой доступ к %q (%s) -> переключено через VPN-туннель (кэш 10м)", sni, targetAddr)
+		}
+	}
+
+	// 2. Fallback через защищённый VPN-туннель (SO_MARK = 0x1), если провайдер глушит IP/соединение
+	vpnConn, verr := s.vpnDialer.DialContext(ctx, "tcp", targetAddr.String())
+	if verr != nil {
+		log.Printf("[antidpi] Ошибка подключения к %s (WAN и VPN fallback): %v", targetAddr, verr)
 		return
 	}
-	defer remoteConn.Close()
+	defer vpnConn.Close()
 
-	// Если это TLS ClientHello, применяем стратегию фрагментации
-	if sni != "" || (len(clientHelloData) > 5 && clientHelloData[0] == 0x16 && clientHelloData[5] == 0x01) {
-		if sni != "" {
-			log.Printf("[antidpi] Прямой обход ТСПУ для SNI %q -> %s (разбиение ClientHello)", sni, targetAddr)
-		}
-		if err := FragmentAndSend(remoteConn, clientHelloData, s.cfg.SplitPos, sniOffset); err != nil {
-			log.Printf("[antidpi] Ошибка фрагментированной отправки на %s: %v", targetAddr, err)
-			return
-		}
-	} else {
-		// Обычный трафик без TLS SNI отправляем напрямую
-		if _, err := remoteConn.Write(clientHelloData); err != nil {
-			return
-		}
+	if _, err := vpnConn.Write(clientHelloData); err != nil {
+		return
 	}
 
-	// Двунаправленный стриминг на полной скорости провайдера (до 1+ Гбит/с)
-	pipeConn(clientConn, remoteConn, &s.bufferPool)
+	pipeConn(clientConn, vpnConn, &s.bufferPool)
 }
 
 func pipeConn(c1, c2 net.Conn, pool *sync.Pool) {
@@ -367,28 +485,73 @@ func pipeConn(c1, c2 net.Conn, pool *sync.Pool) {
 	<-errCh
 }
 
+// discoverDnsmasqConfDirs находит активные директории conf-dir для dnsmasq на OpenWrt
+// (включая /tmp/dnsmasq.cfg*.d из /var/etc/dnsmasq.conf.* и /tmp/dnsmasq.d).
+func discoverDnsmasqConfDirs() []string {
+	dirSet := map[string]bool{
+		"/tmp/dnsmasq.d": true,
+	}
+
+	if matches, err := filepath.Glob("/var/etc/dnsmasq.conf*"); err == nil {
+		for _, m := range matches {
+			data, err := os.ReadFile(m)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "conf-dir=") {
+					val := strings.TrimPrefix(line, "conf-dir=")
+					if idx := strings.Index(val, ","); idx != -1 {
+						val = val[:idx]
+					}
+					val = strings.TrimSpace(val)
+					if val != "" {
+						dirSet[val] = true
+					}
+				}
+			}
+		}
+	}
+
+	if matches, err := filepath.Glob("/tmp/dnsmasq*.d"); err == nil {
+		for _, m := range matches {
+			dirSet[m] = true
+		}
+	}
+
+	var dirs []string
+	for d := range dirSet {
+		dirs = append(dirs, d)
+	}
+	return dirs
+}
+
 // SetupDnsmasqAntiDPI генерирует конфигурационный файл для dnsmasq,
 // который автоматически добавляет все разрешаемые IP-адреса YouTube и Discord
-// в nftables set @antidpi_cidrs.
+// в nftables set @antidpi_cidrs таблицы ip sirin.
 func SetupDnsmasqAntiDPI(domains []string) error {
 	if len(domains) == 0 {
 		return nil
 	}
-	dir := "/tmp/dnsmasq.d"
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	content := fmt.Sprintf("nftset=/%s/4#ip#sirin#antidpi_cidrs\n", strings.Join(domains, "/"))
+	dirs := discoverDnsmasqConfDirs()
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			continue
+		}
+		confPath := filepath.Join(dir, "sirin-antidpi.conf")
+		_ = os.WriteFile(confPath, []byte(content), 0644)
 	}
-	confPath := filepath.Join(dir, "sirin-antidpi.conf")
-	content := fmt.Sprintf("nftset=/%s/4#sirin#antidpi_cidrs\n", strings.Join(domains, "/"))
-	if err := os.WriteFile(confPath, []byte(content), 0644); err != nil {
-		return err
-	}
-	_ = exec.Command("/etc/init.d/dnsmasq", "reload").Run()
+	// Важно: restart вместо reload, так как SIGHUP в dnsmasq не перечитывает файлы из conf-dir
+	_ = exec.Command("/etc/init.d/dnsmasq", "restart").Run()
 	return nil
 }
 
 // CleanupDnsmasqAntiDPI удаляет конфигурационный файл dnsmasq.
 func CleanupDnsmasqAntiDPI() {
-	_ = os.Remove("/tmp/dnsmasq.d/sirin-antidpi.conf")
-	_ = exec.Command("/etc/init.d/dnsmasq", "reload").Run()
+	for _, dir := range discoverDnsmasqConfDirs() {
+		_ = os.Remove(filepath.Join(dir, "sirin-antidpi.conf"))
+	}
+	_ = exec.Command("/etc/init.d/dnsmasq", "restart").Run()
 }

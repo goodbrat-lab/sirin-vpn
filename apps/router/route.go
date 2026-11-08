@@ -610,6 +610,16 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString("    }\n")
 	}
 
+	// Chain input (защита порта transparent proxy от внешних подключений из WAN)
+	if antidpiOpts.Enabled {
+		b.WriteString("    chain input {\n")
+		b.WriteString("        type filter hook input priority 0; policy accept;\n")
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" tcp dport %d accept\n", lanIface, antidpiOpts.Port))
+		b.WriteString(fmt.Sprintf("        iifname \"lo\" tcp dport %d accept\n", antidpiOpts.Port))
+		b.WriteString(fmt.Sprintf("        tcp dport %d drop\n", antidpiOpts.Port))
+		b.WriteString("    }\n")
+	}
+
 	// Chain prerouting (только для клиентов локальной сети lanIface!)
 	// Входящие пакеты из WAN/PPPoE не должны маркироваться, чтобы ответный трафик
 	// возвращался в LAN через таблицу main, а не отправлялся обратно в WAN/TUN.
@@ -626,7 +636,8 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	// Chain output (для локальных процессов роутера: dnsmasq, curl и т.д.)
 	b.WriteString("    chain output {\n")
 	b.WriteString("        type route hook output priority mangle; policy accept;\n")
-	b.WriteString("        meta mark 0x00000002 return\n") // Protector VPN-сокета уже имеет mark 0x2
+	b.WriteString("        meta mark 0x00000002 return\n") // Protector VPN-сокета и прямой WAN-сокет уже имеют mark 0x2
+	b.WriteString("        meta mark 0x00000001 return\n") // Явный VPN-сокет (fallback) уже имеет mark 0x1
 	b.WriteString("        ip daddr @local_cidrs return\n")
 	if antidpiOpts.Enabled {
 		b.WriteString("        ip daddr @antidpi_cidrs meta mark set 0x00000002 return\n")
