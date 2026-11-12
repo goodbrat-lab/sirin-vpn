@@ -60,6 +60,7 @@ type Config struct {
 	// Split tunneling (обратная совместимость с v1.1.2)
 	RuDirect    *bool              `toml:"ru_direct,omitempty"`
 	SplitTunnel *SplitTunnelConfig `toml:"split_tunnel,omitempty"`
+	ForceVPN    *ForceVPNConfig    `toml:"force_vpn,omitempty"`
 
 	// Kill Switch (блокировка трафика LAN в WAN при обрыве туннеля)
 	KillSwitch           *bool    `toml:"kill_switch,omitempty"`
@@ -184,6 +185,9 @@ func (c *Config) GetAntiDPIConfig() AntiDPIConfig {
 		cfg := *c.AntiDPI
 		if cfg.Port <= 0 {
 			cfg.Port = DefaultAntiDPIPort
+		}
+		if cfg.WanProbeTimeoutMs <= 0 {
+			cfg.WanProbeTimeoutMs = DefaultWanProbeTimeoutMs
 		}
 		return cfg
 	}
@@ -542,6 +546,12 @@ func LoadConfig(path string) (*Config, error) {
 
 	if err := cfg.SplitTunnel.Validate(); err != nil {
 		return nil, fmt.Errorf("ошибка валидации split_tunnel: %w", err)
+	}
+
+	if cfg.ForceVPN != nil {
+		if err := cfg.ForceVPN.Validate(); err != nil {
+			return nil, fmt.Errorf("ошибка валидации force_vpn: %w", err)
+		}
 	}
 
 	return &cfg, nil

@@ -12,7 +12,7 @@ import (
 	"sirin/engine/desktop"
 )
 
-var Version = "1.6.1"
+var Version = "1.6.2"
 
 func main() {
 	configPath := flag.String("config", "/etc/sirin/client.toml", "путь к конфигурационному файлу TOML")
@@ -101,12 +101,23 @@ func main() {
 
 	doneCh := make(chan struct{})
 	var antiDPIServer *AntiDPIServer
+	var forceVPNActive bool
 
-	stopAntiDPI := func() {
+	stopDnsExtensions := func() {
+		changed := false
 		if antiDPIServer != nil {
 			antiDPIServer.Stop()
-			CleanupDnsmasqAntiDPI()
+			removeDnsmasqDropIn(antiDPIDnsmasqFilename)
 			antiDPIServer = nil
+			changed = true
+		}
+		if forceVPNActive {
+			removeDnsmasqDropIn(forceVPNDnsmasqFilename)
+			forceVPNActive = false
+			changed = true
+		}
+		if changed {
+			restartDnsmasq()
 		}
 	}
 
@@ -118,14 +129,35 @@ func main() {
 				if err := setupRouting(cfg, tun, handle.Info(), serverHosts, wan); err != nil {
 					log.Printf("[route] Ошибка настройки маршрутов: %v", err)
 				}
+				needDnsmasqRestart := false
 				if cfg.IsAntiDPIEnabled() {
 					adCfg := cfg.GetAntiDPIConfig()
 					antiDPIServer = NewAntiDPIServer(adCfg)
 					if err := antiDPIServer.Start(ctx); err != nil {
 						log.Printf("[antidpi] Внимание: не удалось запустить Anti-DPI сервер: %v", err)
 					} else {
-						_ = SetupDnsmasqAntiDPI(adCfg.GetTargetDomains())
+						_ = WriteDnsmasqAntiDPI(adCfg.GetTargetDomains())
+						needDnsmasqRestart = true
 					}
+				}
+				if cfg.IsForceVPNEnabled() {
+					fvOpts := cfg.GetForceVPNOptions()
+					fvDomains := cfg.ForceVPN.ResolveTargetDomains()
+					if len(fvDomains) > 0 {
+						_ = SetupDnsmasqForceVPN(fvDomains, fvOpts.DNSServer, false)
+						forceVPNActive = true
+						needDnsmasqRestart = true
+					}
+					log.Printf("[forcevpn] Активирован принудительный VPN (доменов: %d, статических CIDR: %d, DNS: %s)",
+						len(fvDomains), len(fvOpts.StaticCIDRs), fvOpts.DNSServer)
+					if needDnsmasqRestart {
+						restartDnsmasq()
+						needDnsmasqRestart = false
+					}
+					go warmForceVPNDomains(ctx, fvDomains)
+				}
+				if needDnsmasqRestart {
+					restartDnsmasq()
 				}
 			case "log":
 				// Логи выводятся в реальном времени через desktopCfg.LogFunc
@@ -133,7 +165,7 @@ func main() {
 				log.Printf("[engine] Остановка: %s", ev.Reason)
 			case "stopped":
 				log.Printf("[engine] Завершено: %s", ev.Reason)
-				stopAntiDPI()
+				stopDnsExtensions()
 				cleanupRouting(cfg, tun, serverHosts, wan)
 				close(doneCh)
 				return
@@ -144,7 +176,7 @@ func main() {
 	select {
 	case sig := <-sigCh:
 		log.Printf("Получен сигнал %s, завершение работы...", sig)
-		stopAntiDPI()
+		stopDnsExtensions()
 		cleanupRouting(cfg, tun, serverHosts, wan)
 		handle.Stop()
 		cancel()

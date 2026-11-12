@@ -46,6 +46,7 @@ split_pos = 2        # разбиение TLS ClientHello (2 байта — оп
 quic_reject = true   # блокировка QUIC (UDP 443), заставляет браузер мгновенно перейти на TCP/HTTP2
 youtube = true       # прямой доступ к YouTube / GoogleVideo
 discord = true       # прямой доступ к Discord (веб, шлюз, голосовые CDN)
+wan_probe_timeout_ms = 500 # таймаут WAN-пробы (500 мс по умолчанию; адаптивно подстраивается под RTT)
 # custom_domains = ["example.org"]
 
 # Whitelist Fallback: аварийный резервный канал через разрешённые отечественные сервисы
@@ -115,6 +116,18 @@ domains = [
 #   "only"   — только трафик на указанные порты направляется через VPN, всё остальное (игры, торренты, прочие порты) идёт напрямую через WAN (по умолчанию при наличии ports).
 #   "bypass" — указанные порты направляются напрямую через WAN в обход VPN (Gaming Bypass для онлайн-игр), а остальные порты обрабатываются стандартно.
 # port_mode = "only"
+
+# Принудительный VPN для сервисов с геоблокировкой для РФ (Autodesk Fusion 360, AI-платформы и др.)
+# Имеет высший приоритет над RuDirect/split_cidrs и Anti-DPI: домены резолвятся через чистый DNS поверх VPN
+# и динамически заносятся в nftables @force_vpn_cidrs (0x1 -> sirin0).
+# [force_vpn]
+# enabled = true
+# # Доступные пресеты: "autodesk", "ai", "adobe", "jetbrains", "figma", "notion", "canva", "spotify", "nvidia", "all"
+# services = ["autodesk", "ai"]
+# # Дополнительные домены (включая все поддомены) и/или статические CIDR:
+# domains = []
+# cidrs = []
+# dns_server = "1.1.1.1"
 
 # Fallback: если API недоступен, использовать статический пул узлов
 [[ladder]]

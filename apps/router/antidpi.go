@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,27 +16,51 @@ import (
 )
 
 // DefaultAntiDPIPort — стандартный локальный порт transparent proxy для Anti-DPI.
-const DefaultAntiDPIPort = 56100
+const (
+	DefaultAntiDPIPort       = 56100
+	DefaultWanProbeTimeoutMs = 500
+	ExactHostBlockedTTL      = 60 * time.Minute
+	WildcardBlockedTTL       = 20 * time.Minute
+	WildcardFailThreshold    = 2
+)
+
+// DefaultBaseDomains — список базовых доменных зон сервисов для wildcard кэширования блокировок ТСПУ.
+var DefaultBaseDomains = []string{
+	"googlevideo.com",
+	"youtube.com",
+	"ytimg.com",
+	"ggpht.com",
+	"youtu.be",
+	"youtubei.googleapis.com",
+	"discord.com",
+	"discordapp.com",
+	"discord.gg",
+	"discordapp.net",
+	"instagram.com",
+	"cdninstagram.com",
+}
 
 // AntiDPIConfig определяет параметры прямого обхода DPI (ТСПУ) без прогона через VPN.
 type AntiDPIConfig struct {
-	Enabled       bool     `toml:"enabled"`
-	Port          int      `toml:"port"`           // локальный порт слушателя (по умолчанию 56100)
-	SplitPos      int      `toml:"split_pos"`      // позиция разбиения: 1, 2 или 0 (split по SNI)
-	QUICReject    bool     `toml:"quic_reject"`    // блокировать QUIC (UDP 443), принуждая браузер к TCP 443 HTTP/2
-	YouTube       bool     `toml:"youtube"`        // включить для YouTube / GoogleVideo
-	Discord       bool     `toml:"discord"`        // включить для Discord (веб, шлюз, CDN)
-	CustomDomains []string `toml:"custom_domains"` // пользовательские домены
+	Enabled           bool     `toml:"enabled"`
+	Port              int      `toml:"port"`                 // локальный порт слушателя (по умолчанию 56100)
+	SplitPos          int      `toml:"split_pos"`            // позиция разбиения: 1, 2 или 0 (split по SNI)
+	QUICReject        bool     `toml:"quic_reject"`          // блокировать QUIC (UDP 443), принуждая браузер к TCP 443 HTTP/2
+	YouTube           bool     `toml:"youtube"`              // включить для YouTube / GoogleVideo
+	Discord           bool     `toml:"discord"`              // включить для Discord (веб, шлюз, CDN)
+	WanProbeTimeoutMs int      `toml:"wan_probe_timeout_ms"` // таймаут ожидания первого ответа WAN (по умолчанию 500 мс)
+	CustomDomains     []string `toml:"custom_domains"`       // пользовательские домены
 }
 
 func DefaultAntiDPIConfig() AntiDPIConfig {
 	return AntiDPIConfig{
-		Enabled:    true,
-		Port:       DefaultAntiDPIPort,
-		SplitPos:   2,
-		QUICReject: true,
-		YouTube:    true,
-		Discord:    true,
+		Enabled:           true,
+		Port:              DefaultAntiDPIPort,
+		SplitPos:          2,
+		QUICReject:        true,
+		YouTube:           true,
+		Discord:           true,
+		WanProbeTimeoutMs: DefaultWanProbeTimeoutMs,
 	}
 }
 
@@ -268,7 +291,98 @@ type AntiDPIServer struct {
 	wanDialer        *net.Dialer
 	vpnDialer        *net.Dialer
 	bufferPool       sync.Pool
-	vpnFallbackCache sync.Map // ключ: sni или IP (string) -> значение: time.Time (время истечения кэша)
+	vpnFallbackCache sync.Map // ключ: sni или IP или "*.basedomain" (string) -> значение: time.Time (время истечения кэша)
+	wildcardFails    sync.Map // ключ: baseDomain (string) -> значение: *failCounter
+}
+
+type failCounter struct {
+	mu        sync.Mutex
+	count     int
+	lastFail  time.Time
+}
+
+func (fc *failCounter) inc() int {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	now := time.Now()
+	// Сбрасываем окно сбоев, если с прошлого сбоя прошло больше 10 минут
+	if now.Sub(fc.lastFail) > 10*time.Minute {
+		fc.count = 0
+	}
+	fc.count++
+	fc.lastFail = now
+	return fc.count
+}
+
+// matchBaseDomain возвращает базовый домен из DefaultBaseDomains, если sni оканчивается на него.
+func matchBaseDomain(sni string) string {
+	sni = strings.ToLower(strings.TrimSpace(sni))
+	if sni == "" {
+		return ""
+	}
+	for _, base := range DefaultBaseDomains {
+		if sni == base || strings.HasSuffix(sni, "."+base) {
+			return base
+		}
+	}
+	return ""
+}
+
+// isFallbackActive проверяет, находится ли точный хост или базовый wildcard в состоянии fallback (заблокирован ТСПУ).
+func (s *AntiDPIServer) isFallbackActive(exactKey string, baseDomain string) bool {
+	now := time.Now()
+
+	// 1. Проверяем точный SNI или IP (per-host кэш)
+	if exactKey != "" {
+		if expVal, ok := s.vpnFallbackCache.Load(exactKey); ok {
+			if expTime, ok := expVal.(time.Time); ok {
+				if now.Before(expTime) {
+					return true
+				}
+				s.vpnFallbackCache.Delete(exactKey)
+			}
+		}
+	}
+
+	// 2. Проверяем wildcard базу (например, "*.googlevideo.com")
+	if baseDomain != "" {
+		wildcardKey := "*." + baseDomain
+		if expVal, ok := s.vpnFallbackCache.Load(wildcardKey); ok {
+			if expTime, ok := expVal.(time.Time); ok {
+				if now.Before(expTime) {
+					return true
+				}
+				s.vpnFallbackCache.Delete(wildcardKey)
+			}
+		}
+	}
+
+	return false
+}
+
+// recordFailure фиксирует сбой прямого доступа через WAN для точного хоста и базового домена.
+func (s *AntiDPIServer) recordFailure(exactKey string, baseDomain string) {
+	now := time.Now()
+
+	// 1. Записываем точный SNI/IP на ExactHostBlockedTTL (60 минут)
+	if exactKey != "" {
+		s.vpnFallbackCache.Store(exactKey, now.Add(ExactHostBlockedTTL))
+	}
+
+	// 2. Если есть базовый домен — инкрементируем счетчик сбоев
+	if baseDomain != "" {
+		val, _ := s.wildcardFails.LoadOrStore(baseDomain, &failCounter{})
+		fc := val.(*failCounter)
+		fails := fc.inc()
+
+		// Если сбоев >= WildcardFailThreshold (2 независимых сбоя) — активируем wildcard блокировку на WildcardBlockedTTL (20 минут)
+		if fails >= WildcardFailThreshold {
+			wildcardKey := "*." + baseDomain
+			s.vpnFallbackCache.Store(wildcardKey, now.Add(WildcardBlockedTTL))
+			log.Printf("[antidpi] Зафиксировано %d сбоев для %s -> активирован wildcard fallback %q на %v",
+				fails, baseDomain, wildcardKey, WildcardBlockedTTL)
+		}
+	}
 }
 
 // NewAntiDPIServer создаёт сервер Anti-DPI.
@@ -395,24 +509,22 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 	sni, sniOffset := ExtractSNI(clientHelloData)
 	isTLS := sni != "" || (len(clientHelloData) > 5 && clientHelloData[0] == 0x16 && clientHelloData[5] == 0x01)
 
-	cacheKey := sni
-	if cacheKey == "" {
-		cacheKey = targetAddr.IP.String()
+	exactKey := sni
+	if exactKey == "" {
+		exactKey = targetAddr.IP.String()
 	}
+	baseDomain := matchBaseDomain(sni)
 
-	skipDirectWAN := false
-	if expVal, ok := s.vpnFallbackCache.Load(cacheKey); ok {
-		if expTime, ok := expVal.(time.Time); ok && time.Now().Before(expTime) {
-			skipDirectWAN = true
-		} else {
-			s.vpnFallbackCache.Delete(cacheKey)
-		}
-	}
+	// Проверяем статус в иерархическом кэше: точный SNI -> wildcard (*.basedomain)
+	skipDirectWAN := s.isFallbackActive(exactKey, baseDomain)
 
 	// 1. Пытаемся подключиться напрямую через физический WAN с разбиением TLS Record + TCP
 	if !skipDirectWAN {
+		dialStart := time.Now()
 		remoteConn, err := s.wanDialer.DialContext(ctx, "tcp", targetAddr.String())
 		if err == nil {
+			synRTT := time.Since(dialStart)
+
 			var sendErr error
 			if isTLS {
 				sendErr = SplitTLSRecordAndSend(remoteConn, clientHelloData, s.cfg.SplitPos, sni, sniOffset)
@@ -421,15 +533,24 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 			}
 
 			if sendErr == nil {
-				// Проверяем, отвечает ли сервер (ServerHello / HTTP response) в течение 1.2 сек.
-				// Если ТСПУ провайдера блокирует IP/SNI (blackhole), запоминаем в кэше на 10 мин и переключаемся на VPN.
-				_ = remoteConn.SetReadDeadline(time.Now().Add(1200 * time.Millisecond))
+				// Динамический таймаут: не менее сконфигурированного (по умолчанию 500мс)
+				// и не менее 2.5 * RTT до сервера для пользователей с высоким пингом (Сибирь, ДВ, мобильные)
+				baseTimeout := time.Duration(s.cfg.WanProbeTimeoutMs) * time.Millisecond
+				if baseTimeout <= 0 {
+					baseTimeout = DefaultWanProbeTimeoutMs * time.Millisecond
+				}
+				adaptiveTimeout := baseTimeout
+				if minAdaptive := time.Duration(float64(synRTT) * 2.5); minAdaptive > adaptiveTimeout {
+					adaptiveTimeout = minAdaptive
+				}
+
+				_ = remoteConn.SetReadDeadline(time.Now().Add(adaptiveTimeout))
 				rn, rerr := remoteConn.Read(buf)
 				_ = remoteConn.SetReadDeadline(time.Time{})
 
 				if rn > 0 {
 					if sni != "" {
-						log.Printf("[antidpi] Прямой обход ТСПУ успешен для SNI %q -> %s (WAN)", sni, targetAddr)
+						log.Printf("[antidpi] Прямой обход ТСПУ успешен для SNI %q -> %s (WAN, RTT=%v)", sni, targetAddr, synRTT)
 					}
 					if _, werr := clientConn.Write(buf[:rn]); werr != nil {
 						remoteConn.Close()
@@ -443,10 +564,11 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 			}
 			remoteConn.Close()
 		}
-		// Запоминаем на 10 минут, что этот SNI/IP блокируется ТСПУ напрямую, чтобы следующие потоки шли в VPN мгновенно
-		s.vpnFallbackCache.Store(cacheKey, time.Now().Add(10*time.Minute))
+
+		// Фиксируем сбой: точный SNI попадает в кэш на 60м, а при 2+ сбоях активируется wildcard (*.basedomain) на 20м
+		s.recordFailure(exactKey, baseDomain)
 		if sni != "" {
-			log.Printf("[antidpi] ТСПУ блокирует прямой доступ к %q (%s) -> переключено через VPN-туннель (кэш 10м)", sni, targetAddr)
+			log.Printf("[antidpi] ТСПУ блокирует прямой доступ к %q (%s, base=%q) -> переключено через VPN-туннель", sni, targetAddr, baseDomain)
 		}
 	}
 
@@ -531,27 +653,26 @@ func discoverDnsmasqConfDirs() []string {
 // который автоматически добавляет все разрешаемые IP-адреса YouTube и Discord
 // в nftables set @antidpi_cidrs таблицы ip sirin.
 func SetupDnsmasqAntiDPI(domains []string) error {
+	if err := WriteDnsmasqAntiDPI(domains); err != nil {
+		return err
+	}
+	if len(domains) > 0 {
+		restartDnsmasq()
+	}
+	return nil
+}
+
+// WriteDnsmasqAntiDPI записывает конфиг AntiDPI для dnsmasq без немедленного рестарта.
+func WriteDnsmasqAntiDPI(domains []string) error {
 	if len(domains) == 0 {
 		return nil
 	}
 	content := fmt.Sprintf("nftset=/%s/4#ip#sirin#antidpi_cidrs\n", strings.Join(domains, "/"))
-	dirs := discoverDnsmasqConfDirs()
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			continue
-		}
-		confPath := filepath.Join(dir, "sirin-antidpi.conf")
-		_ = os.WriteFile(confPath, []byte(content), 0644)
-	}
-	// Важно: restart вместо reload, так как SIGHUP в dnsmasq не перечитывает файлы из conf-dir
-	_ = exec.Command("/etc/init.d/dnsmasq", "restart").Run()
-	return nil
+	return writeDnsmasqDropIn(antiDPIDnsmasqFilename, content)
 }
 
 // CleanupDnsmasqAntiDPI удаляет конфигурационный файл dnsmasq.
 func CleanupDnsmasqAntiDPI() {
-	for _, dir := range discoverDnsmasqConfDirs() {
-		_ = os.Remove(filepath.Join(dir, "sirin-antidpi.conf"))
-	}
-	_ = exec.Command("/etc/init.d/dnsmasq", "restart").Run()
+	removeDnsmasqDropIn(antiDPIDnsmasqFilename)
+	restartDnsmasq()
 }

@@ -220,3 +220,64 @@ func TestSplitTLSRecordAndSend(t *testing.T) {
 		}
 	}
 }
+
+func TestAntiDPI_WildcardAndBaseDomain(t *testing.T) {
+	// 1. Проверка сопоставления базового домена
+	cases := []struct {
+		sni      string
+		expected string
+	}{
+		{"rr1---sn-ax87enel.googlevideo.com", "googlevideo.com"},
+		{"googlevideo.com", "googlevideo.com"},
+		{"m.youtube.com", "youtube.com"},
+		{"youtube.com", "youtube.com"},
+		{"cdn.discordapp.com", "discordapp.com"},
+		{"unrelated.example.com", ""},
+	}
+
+	for _, c := range cases {
+		got := matchBaseDomain(c.sni)
+		if got != c.expected {
+			t.Errorf("matchBaseDomain(%q): ожидалось %q, получено %q", c.sni, c.expected, got)
+		}
+	}
+
+	// 2. Проверка иерархического кэша и порога 2 сбоев
+	server := NewAntiDPIServer(DefaultAntiDPIConfig())
+
+	sni1 := "rr1---sn-1.googlevideo.com"
+	sni2 := "rr2---sn-2.googlevideo.com"
+	base := "googlevideo.com"
+
+	// Изначально fallback не активен
+	if server.isFallbackActive(sni1, base) {
+		t.Fatalf("isFallbackActive не должен быть активен изначально")
+	}
+
+	// 1-й сбой: точный хост sni1 должен стать активным (на 60м), но wildcard еще нет (нужно 2 сбоя)
+	server.recordFailure(sni1, base)
+
+	if !server.isFallbackActive(sni1, base) {
+		t.Errorf("После 1-го сбоя exactKey %s должен быть активен", sni1)
+	}
+	// sni2 еще не падал, и wildcard не должен быть активен при 1 сбое
+	if server.isFallbackActive(sni2, base) {
+		t.Errorf("После 1-го сбоя wildcard *.googlevideo.com не должен быть активен для %s", sni2)
+	}
+
+	// 2-й сбой (другой субдомен sni2)
+	server.recordFailure(sni2, base)
+
+	// Теперь wildcard *.googlevideo.com активен!
+	// Любой новый субдомен должен определяться как fallback (в туннель)
+	sni3 := "rr3---sn-3.googlevideo.com"
+	if !server.isFallbackActive(sni3, base) {
+		t.Errorf("После 2 сбоев wildcard *.googlevideo.com должен быть активен для нового субдомена %s", sni3)
+	}
+
+	// Несвязанный домен не должен страдать
+	otherSNI := "api.github.com"
+	if server.isFallbackActive(otherSNI, matchBaseDomain(otherSNI)) {
+		t.Errorf("Несвязанный домен %s не должен быть затронут wildcard кэшем", otherSNI)
+	}
+}
