@@ -980,7 +980,8 @@ return view.extend({
 					btnTestConn.disabled = false;
 					res = res || {};
 					var ruOk = !res.rudirect_via_tunnel;
-					var zapOk = res.zapret_enabled !== false;
+					var zapEnabled = res.zapret_enabled !== false;
+					var zapOk = (res.zapret_ok !== undefined) ? !!res.zapret_ok : zapEnabled;
 					var vpnOk = !!res.ip_ok;
 
 					function makeRow(dot, title, statusText, desc) {
@@ -1003,9 +1004,9 @@ return view.extend({
 						res.ru_status || res.raw || 'Маршрут проверен по ядерной таблице маршрутизации (77.88.8.8)'
 					));
 					diagTrafficLights.appendChild(makeRow(
-						zapOk ? '🟢' : '⚪',
+						!zapEnabled ? '⚪' : (zapOk ? '🟢' : '🔴'),
 						'2. YouTube, Instagram, Discord и X (Движок Zapret 2)',
-						zapOk ? 'Ускорение активно (0 Байт нагрузки на VPS)' : 'Прямой обход отключён',
+						!zapEnabled ? 'Прямой обход отключён' : (zapOk ? 'Доступ подтверждён (DNS + HTTPS OK)' : 'Обнаружена проблема доступа!'),
 						res.zapret_status || 'Адаптивная десинхронизация пакетов ТСПУ РКН (4 стратегии)'
 					));
 					diagTrafficLights.appendChild(makeRow(

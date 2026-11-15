@@ -1463,14 +1463,26 @@ method_test_connection() {
         [ "$ze" = "false" ] && zapret_enabled=false
     fi
 
+    zapret_ok=false
     if [ "$zapret_enabled" = "true" ]; then
-        zapret_status="Активен (YouTube, Instagram, Discord, X напрямую — 0 Байт на VPS)"
+        yt_dns_ok=false
+        if nslookup -type=A www.youtube.com 127.0.0.1 2>/dev/null | grep -qE "Address: [0-9]+\."; then
+            yt_dns_ok=true
+        fi
+        if [ "$yt_dns_ok" = "false" ]; then
+            zapret_status="ОШИБКА DNS: www.youtube.com не резолвится (возможен перехват DNS провайдером)"
+        elif wget -q -O /dev/null --timeout=4 https://www.youtube.com/generate_204 2>/dev/null || wget -q -O /dev/null --timeout=6 https://rutracker.org 2>/dev/null || curl -s -I --max-time 6 https://rutracker.org >/dev/null 2>&1; then
+            zapret_ok=true
+            zapret_status="Проверено: DNS и доступ к заблокированным сайтам работают (OK)"
+        else
+            zapret_status="ОШИБКА HTTPS: DNS работает, но нет ответа от www.youtube.com"
+        fi
     else
         zapret_status="Отключен (трафик идёт по основным правилам маршрутизации)"
     fi
 
-    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"split_mode":"%s","raw":"%s","ru_status":"%s","zapret_enabled":%s,"zapret_status":"%s"}\n' \
-        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$split_mode" "$raw" "$ru_status" "$zapret_enabled" "$zapret_status"
+    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"split_mode":"%s","raw":"%s","ru_status":"%s","zapret_enabled":%s,"zapret_ok":%s,"zapret_status":"%s"}\n' \
+        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$split_mode" "$raw" "$ru_status" "$zapret_enabled" "$zapret_ok" "$zapret_status"
 }
 
 detect_pkg_mgr() {

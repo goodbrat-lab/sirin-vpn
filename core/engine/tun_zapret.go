@@ -333,7 +333,13 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 			return true
 		}
 
-		// Остальной UDP (DNS :53, NTP :123, STUN / Discord Voice и т.д.) при спящем VPS
+		// DNS (UDP :53) ВСЕГДА отправляем через зашифрованный VPS-туннель (return false),
+		// чтобы провайдер/ТСПУ РКН на WAN не подменял ответы (фейковый NXDOMAIN / DNS poisoning).
+		if dstPort == 53 {
+			return false
+		}
+
+		// Остальной UDP (NTP :123, STUN / Discord Voice и т.д.) при спящем VPS
 		// отправляем напрямую через защищённый WAN UDP-сокет с техникой Zapret 2 UDP Fake Burst!
 		payload := l4[8:]
 		if tz.handleOutboundUDP(srcIP, srcPort, dstIP, dstPort, payload) {
