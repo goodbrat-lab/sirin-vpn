@@ -250,6 +250,7 @@ func fetchParams(key string) (*ParamsResponse, error) {
 
 func buildLadder(resp *ParamsResponse) (*engine.Ladder, string, error) {
 	ladder := engine.NewLadder()
+	ladder.SetLazyZapret(false)
 	if resp.Ladder.SecondRoundMs > 0 {
 		ladder.SetSecondRoundMs(int32(resp.Ladder.SecondRoundMs))
 	} else {

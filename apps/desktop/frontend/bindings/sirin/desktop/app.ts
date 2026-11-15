@@ -8,7 +8,18 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
+/**
+ * CheckForUpdate проверяет наличие обновлений на GitHub Releases
+ */
+export function CheckForUpdate(): $CancellablePromise<$models.UpdateInfo | null> {
+    return $Call.ByID(2347956003);
+}
 
 /**
  * Connect инициирует подключение
@@ -25,6 +36,13 @@ export function Disconnect(): $CancellablePromise<void> {
 }
 
 /**
+ * GetAppVersion возвращает текущую версию десктопного приложения
+ */
+export function GetAppVersion(): $CancellablePromise<string> {
+    return $Call.ByID(1780012486);
+}
+
+/**
  * GetKey возвращает сохранённый ключ из конфигурации
  */
 export function GetKey(): $CancellablePromise<string> {
@@ -34,28 +52,36 @@ export function GetKey(): $CancellablePromise<string> {
 /**
  * GetLogs возвращает накопленный журнал сообщений
  */
-export function GetLogs(): $CancellablePromise<string[]> {
-    return $Call.ByID(1743981476).then(($result: any) => {
-        return $$createType0($result);
-    });
+export function GetLogs(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1743981476);
 }
 
 /**
  * GetRoutingConfig возвращает настройки раздельного туннелирования
  */
-export function GetRoutingConfig(): $CancellablePromise<{ [_ in string]?: any }> {
-    return $Call.ByID(1598044837).then(($result: any) => {
-        return $$createType1($result);
-    });
+export function GetRoutingConfig(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1598044837);
 }
 
 /**
  * GetStatus возвращает текущий статус туннеля
  */
-export function GetStatus(): $CancellablePromise<{ [_ in string]?: any }> {
-    return $Call.ByID(1043986649).then(($result: any) => {
-        return $$createType1($result);
-    });
+export function GetStatus(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1043986649);
+}
+
+/**
+ * InstallUpdate скачивает и применяет обновление
+ */
+export function InstallUpdate(downloadURL: string): $CancellablePromise<void> {
+    return $Call.ByID(2443992793, downloadURL);
+}
+
+/**
+ * SaveAdvancedConfig сохраняет настройки Dead Drop и Whitelist Fallback
+ */
+export function SaveAdvancedConfig(deadDropURLs: string[] | null, wlEnabled: boolean, wlMode: string, vkHashes: string[] | null, dionSlugs: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(1703691324, deadDropURLs, wlEnabled, wlMode, vkHashes, dionSlugs);
 }
 
 /**
@@ -68,31 +94,6 @@ export function SaveKey(key: string): $CancellablePromise<void> {
 /**
  * SaveRoutingConfig сохраняет настройки раздельного туннелирования
  */
-export function SaveRoutingConfig(ruDirect: boolean, mode: string, cidrs: string[], domains: string[]): $CancellablePromise<void> {
+export function SaveRoutingConfig(ruDirect: boolean, mode: string, cidrs: string[] | null, domains: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(1938470448, ruDirect, mode, cidrs, domains);
 }
-
-/**
- * CheckForUpdate проверяет наличие обновлений на GitHub Releases
- */
-export function CheckForUpdate(): $CancellablePromise<any> {
-    return $Call.ByName("main.App.CheckForUpdate");
-}
-
-/**
- * InstallUpdate скачивает и применяет обновление
- */
-export function InstallUpdate(downloadURL: string): $CancellablePromise<void> {
-    return $Call.ByName("main.App.InstallUpdate", downloadURL);
-}
-
-/**
- * GetAppVersion возвращает текущую версию десктопного приложения
- */
-export function GetAppVersion(): $CancellablePromise<string> {
-    return $Call.ByName("main.App.GetAppVersion");
-}
-
-// Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $Create.Map($Create.Any, $Create.Any);

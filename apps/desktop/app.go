@@ -604,6 +604,7 @@ func cleanDionSlug(raw string) string {
 func buildLadder(resp *ParamsResponse, key string, wlCfg *WhitelistFallbackConfig) (*engine.Ladder, string, error) {
 	if wlCfg != nil && wlCfg.Enabled && strings.ToLower(wlCfg.Mode) == "always" {
 		ladder := engine.NewLadder()
+		ladder.SetLazyZapret(false)
 		ladder.SetSecondRoundMs(3000)
 		turn := wlCfg.TurnBackup
 		if turn == "" {
@@ -645,6 +646,7 @@ func buildLadder(resp *ParamsResponse, key string, wlCfg *WhitelistFallbackConfi
 	}
 
 	ladder := engine.NewLadder()
+	ladder.SetLazyZapret(false)
 	if resp.Ladder.SecondRoundMs > 0 {
 		ladder.SetSecondRoundMs(int32(resp.Ladder.SecondRoundMs))
 	} else {

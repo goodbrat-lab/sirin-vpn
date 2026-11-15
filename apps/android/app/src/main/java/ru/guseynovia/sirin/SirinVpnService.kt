@@ -2370,6 +2370,7 @@ class SirinVpnService : VpnService() {
         avoidHosts: Set<String> = emptySet(),
     ): Ladder {
         val ladder = Engine.newLadder()
+        ladder.setLazyZapret(false)
 
         // Срок второго круга гонки из настройки сервера. Ноль движок
         // читает как «оставить зашитое умолчание».
