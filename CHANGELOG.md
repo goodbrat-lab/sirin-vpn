@@ -1,5 +1,30 @@
 # Changelog
 
+## [v1.7.0 / router-v1.7.0 / desktop-v1.7.0 / android-v1.7.0] - 2026-11-15
+
+### Added
+- **Гибридный движок Zapret 2 + Спящий по требованию VPS VPN-туннель (Zero-Idle-Traffic Architecture)**:
+  - **Нативный кроссплатформенный пакет `core/engine/zapret` (Android, Windows Desktop, OpenWrt Router)**:
+    - Реализована многоступенчатая адаптивная десинхронизация ТСПУ РКН в стиле `zapret2 / nfqws2` (`zapret-auto`) с автообучением и кешированием рабочей фазы для каждого домена на 6 часов (`WinnerStrategyTTL`):
+      1. `StrategyTLSRecSplit` (`tlsrec_sni_split`) — разрезание TLS Record `ClientHello` на две легитимные записи точно посередине имени домена `SNI`.
+      2. `StrategyOOBSplit` (`oob_tlsrec_split`) — инъекция TCP Urgent (`MSG_OOB`) байта между фрагментированными TLS-записями (ТСПУ включает его в буфер реассемблирования и теряет сигнатуру `SNI`, а целевой веб-сервер отбрасывает внеполосный байт по стандарту TCP).
+      3. `StrategyFakeLowTTLSplit` (`fake_lowttl_multisplit`) — отправка фейкового пакета `ClientHello` (`www.microsoft.com`) с заведомо битой контрольной суммой TCP (`0xDEAD`) и малым `TTL=4` через `AF_INET, SOCK_RAW, IPPROTO_RAW` (пакет доходит до ТСПУ провайдера, отравляет его конечный автомат и умирает по TTL до целевого сервера) + 3-частная нарезка реального `ClientHello` с `MSG_OOB`.
+      4. `StrategyMultiSplit` (`tlsrec_multisplit`) — 3-частная нарезка `ClientHello` на отдельные TLS-записи.
+    - Десинхронизация HTTP (`:80`) за счёт перемешивания регистра заголовка `hOsT:` и разбиения имени хоста на два TCP-сегмента.
+    - Обход блокировок UDP/QUIC и голосовых каналов Discord (`SendUDPWithFakeBurst` — отправка серии фейковых UDP-пакетов с `IP_TTL=3` перед реальным датаграммом).
+  - **Перехватчик `tunZapretInterceptor` в ядре `core/engine` (`tun_zapret.go`)**:
+    - Встроенный пользовательский стек TCP/UDP поверх TUN-интерфейса для прямого обхода блокировок на Android и Windows Desktop без прогона гигабайтов видеопотока YouTube/Instagram/Discord через зарубежный VPS.
+    - Автоматическое распознавание гео-заблокированных сервисов (`IsGeoBlockedSNI` — ChatGPT/OpenAI, Claude/Anthropic, Gemini, Grok, Copilot, Spotify, Autodesk, Canva, Notion, JetBrains) и мгновенное направление их в защищённый VPN-туннель с зарубежным IP (исключает ошибку `HTTP 403 Region Not Supported` при прямом российском IP).
+  - **Спящий (Lazy On-Demand) VPS VPN-туннель (`session.go`, `engine.go`, `candidate.go`)**:
+    - При старте клиент мгновенно переходит в режим `zapret2-direct` (`Z2`), не открывая постоянную сессию к VPS (`0 Байт` трафика на VPS в покое и при просмотре YouTube/Instagram/Discord/Рунета — полная защита VPS от обнаружения и блокировки со стороны ТСПУ РКН).
+    - При обнаружении недоступного напрямую ресурса (отказ всех 4 стратегий Zapret 2 или запрос к гео-заблокированному ИИ-сервису) клиент автоматически и бесшовно за миллисекунды поднимает зашифрованный туннель (`VLESS Reality` / `XHTTP` / `Noise UDP` / `VK Calls TURN`) со встроенным stateless 1:1 NAT (`10.77.77.2 <-> upstreamTunIP`).
+    - Автоматическая парковка (перевод обратно в спящий режим) VPS-туннеля после 10 минут отсутствия трафика (`upstreamIdleTimeout = 10m`).
+- **OpenWrt Router (`apps/router` & `luci-app-sirin`)**:
+  - Прозрачный прокси `antidpi.go` переведён на многоступенчатый движок `zapret.GlobalEngine.DialAndDesync`.
+  - Добавлена встроенная категория доменов **Instagram / Meta / X (Twitter)** (`instagram = true` по умолчанию в `[antidpi]`) как в демоне, так и в веб-интерфейсе LuCI.
+- **Документация и визуальные материалы**:
+  - Полностью обновлены логотип (Cyber-Neon Sirin), скриншоты всех платформ (Android, Windows Desktop, OpenWrt LuCI `v1.7.0`), описания архитектуры и дорожные карты (`README.md`, `docs/index.md`, `docs/ROUTER.md`, `docs/ROADMAP.md`, `docs/ROADMAP_INVISIBLE_VEIL.md`).
+
 ## [v1.6.2 / android-v1.6.2] - 2026-11-08
 
 ### Fixed

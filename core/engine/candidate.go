@@ -232,6 +232,10 @@ type Ladder struct {
 	// зашитое умолчание rerunHandshakeBudget. Проверку на вменяемость
 	// делает приложение, движку сюда попадает уже разумное число.
 	secondRoundMs int32
+
+	// disableLazyZapret отключает гибридный режим «сначала прямой Zapret 2,
+	// ленивый подъём VPN по требованию» (по умолчанию гибридный режим включён).
+	disableLazyZapret bool
 }
 
 // NewLadder создаёт пустую лестницу.
@@ -548,6 +552,12 @@ func (l *Ladder) SetSlots(start, upper int32, enabled bool) {
 // забота приложения; движок доверяет тому, что ему передали.
 func (l *Ladder) SetSecondRoundMs(ms int32) {
 	l.secondRoundMs = ms
+}
+
+// SetLazyZapret включает или выключает гибридный режим «Zapret 2 + ленивый VPN по требованию».
+// По умолчанию включён (true).
+func (l *Ladder) SetLazyZapret(enabled bool) {
+	l.disableLazyZapret = !enabled
 }
 
 func clampSlots(n int32) int {

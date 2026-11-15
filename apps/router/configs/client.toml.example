@@ -35,16 +35,17 @@ api_url = "https://crp.guseynovia.ru"
 #     "https://my-backup-bucket.storage.yandexcloud.net/ladder.json"
 # ]
 
-# Anti-DPI: прямой доступ к YouTube и Discord без использования VPN
-# Трафик YouTube (GoogleVideo) и Discord направляется напрямую через вашего интернет-провайдера
+# Anti-DPI (Zapret 2): прямой доступ к YouTube, Instagram, Discord и X без использования VPN
+# Трафик YouTube (GoogleVideo), Instagram/Meta, Discord и X направляется напрямую через вашего интернет-провайдера
 # на максимальной скорости домашнего канала (100–500+ Мбит/с) без задержек и расхода VPN-трафика.
-# Обход блокировок ТСПУ осуществляется локальным transparent proxy за счёт фрагментации TLS ClientHello и отклонения QUIC.
+# При блокировке конкретного узла ТСПУ роутер бесшовно поднимает ленивый VPN-туннель до VPS и переключает поток в него.
 [antidpi]
 enabled = true
 port = 56100
 split_pos = 2        # разбиение TLS ClientHello (2 байта — оптимально против ТСПУ)
 quic_reject = true   # блокировка QUIC (UDP 443), заставляет браузер мгновенно перейти на TCP/HTTP2
 youtube = true       # прямой доступ к YouTube / GoogleVideo
+instagram = true     # прямой доступ к Instagram / Meta / X (Twitter)
 discord = true       # прямой доступ к Discord (веб, шлюз, голосовые CDN)
 wan_probe_timeout_ms = 500 # таймаут WAN-пробы (500 мс по умолчанию; адаптивно подстраивается под RTT)
 # custom_domains = ["example.org"]

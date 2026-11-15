@@ -40,6 +40,7 @@ object Paths {
      */
     fun letterOf(winner: String): String = when {
         winner.isEmpty() -> "?"
+        winner == "zapret2-direct" -> "Z2"
         winner.length <= 2 -> winner
         else -> "?"
     }

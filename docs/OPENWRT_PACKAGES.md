@@ -32,12 +32,12 @@
 opkg update
 opkg install kmod-tun ca-bundle nftables ip-full
 
-# 2. Установка готового бандла (на примере популярного MIPSLE)
-opkg install /tmp/sirin-full_1.4.0-1_mipsle.ipk
+# 2. Установка готового бандла (на примере популярного MIPSLE / ARM64)
+opkg install /tmp/sirin-full_1.7.0-1_arm64.ipk
 
 # Либо раздельная установка демона и LuCI:
-opkg install /tmp/sirin-client_1.4.0-1_mipsle.ipk
-opkg install /tmp/luci-app-sirin_1.4.0-1_all.ipk
+opkg install /tmp/sirin-client_1.7.0-1_arm64.ipk
+opkg install /tmp/luci-app-sirin_1.7.0-1_all.ipk
 ```
 
 После установки:
@@ -56,11 +56,11 @@ apk update
 apk add kmod-tun ca-certificates nftables
 
 # 2. Установка пакета (--allow-untrusted для локальных неподписанных пакетов)
-apk add --allow-untrusted /tmp/sirin-full-1.4.0-r1-mipsle.apk
+apk add --allow-untrusted /tmp/sirin-full-1.7.0-r1-arm64.apk
 
 # Либо раздельно:
-apk add --allow-untrusted /tmp/sirin-client-1.4.0-r1-mipsle.apk
-apk add --allow-untrusted /tmp/luci-app-sirin-1.4.0-r1.apk
+apk add --allow-untrusted /tmp/sirin-client-1.7.0-r1-arm64.apk
+apk add --allow-untrusted /tmp/luci-app-sirin-1.7.0-r1.apk
 ```
 
 ---

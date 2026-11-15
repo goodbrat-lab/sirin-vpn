@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"sirin/engine/zapret"
 )
 
 // DefaultAntiDPIPort — стандартный локальный порт transparent proxy для Anti-DPI.
@@ -25,79 +27,46 @@ const (
 )
 
 // DefaultBaseDomains — список базовых доменных зон сервисов для wildcard кэширования блокировок ТСПУ.
-var DefaultBaseDomains = []string{
-	"googlevideo.com",
-	"youtube.com",
-	"ytimg.com",
-	"ggpht.com",
-	"youtu.be",
-	"youtubei.googleapis.com",
-	"discord.com",
-	"discordapp.com",
-	"discord.gg",
-	"discordapp.net",
-	"instagram.com",
-	"cdninstagram.com",
-}
+var DefaultBaseDomains = zapret.DefaultBaseDomains
 
-// AntiDPIConfig определяет параметры прямого обхода DPI (ТСПУ) без прогона через VPN.
+// AntiDPIConfig определяет параметры прямого обхода DPI (ТСПУ) по технологиям Zapret 2 без прогона через VPN.
 type AntiDPIConfig struct {
 	Enabled           bool     `toml:"enabled"`
 	Port              int      `toml:"port"`                 // локальный порт слушателя (по умолчанию 56100)
 	SplitPos          int      `toml:"split_pos"`            // позиция разбиения: 1, 2 или 0 (split по SNI)
 	QUICReject        bool     `toml:"quic_reject"`          // блокировать QUIC (UDP 443), принуждая браузер к TCP 443 HTTP/2
 	YouTube           bool     `toml:"youtube"`              // включить для YouTube / GoogleVideo
+	Instagram         *bool    `toml:"instagram,omitempty"`  // включить для Instagram / Meta / X (по умолчанию true)
 	Discord           bool     `toml:"discord"`              // включить для Discord (веб, шлюз, CDN)
 	WanProbeTimeoutMs int      `toml:"wan_probe_timeout_ms"` // таймаут ожидания первого ответа WAN (по умолчанию 500 мс)
 	CustomDomains     []string `toml:"custom_domains"`       // пользовательские домены
 }
 
 func DefaultAntiDPIConfig() AntiDPIConfig {
+	igTrue := true
 	return AntiDPIConfig{
 		Enabled:           true,
 		Port:              DefaultAntiDPIPort,
 		SplitPos:          2,
 		QUICReject:        true,
 		YouTube:           true,
+		Instagram:         &igTrue,
 		Discord:           true,
 		WanProbeTimeoutMs: DefaultWanProbeTimeoutMs,
 	}
 }
 
-// GetTargetDomains возвращает итоговый список доменов для прямого Anti-DPI.
+// IsInstagramEnabled возвращает true, если обход для Instagram / Meta / X активен (по умолчанию true).
+func (c *AntiDPIConfig) IsInstagramEnabled() bool {
+	if c.Instagram == nil {
+		return true
+	}
+	return *c.Instagram
+}
+
+// GetTargetDomains возвращает итоговый список доменов для прямого Anti-DPI (Zapret 2).
 func (c *AntiDPIConfig) GetTargetDomains() []string {
-	var domains []string
-	if c.YouTube {
-		domains = append(domains,
-			"googlevideo.com",
-			"youtube.com",
-			"www.youtube.com",
-			"m.youtube.com",
-			"ytimg.com",
-			"ggpht.com",
-			"youtu.be",
-			"youtubei.googleapis.com",
-		)
-	}
-	if c.Discord {
-		domains = append(domains,
-			"discord.com",
-			"www.discord.com",
-			"discordapp.com",
-			"discord.gg",
-			"discordapp.net",
-			"gateway.discord.gg",
-			"cdn.discordapp.com",
-			"status.discord.com",
-		)
-	}
-	for _, d := range c.CustomDomains {
-		d = strings.TrimSpace(d)
-		if d != "" {
-			domains = append(domains, d)
-		}
-	}
-	return domains
+	return zapret.DefaultTargetDomains(c.YouTube, c.IsInstagramEnabled(), c.Discord, c.CustomDomains)
 }
 
 // ExtractSNI парсит ClientHello и извлекает Server Name Indication (SNI) и его смещение в байтовом потоке.
@@ -506,8 +475,10 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 	// Copy clientHelloData, так как буфер может понадобиться для чтения первого ответа
 	clientHelloData := make([]byte, n)
 	copy(clientHelloData, buf[:n])
-	sni, sniOffset := ExtractSNI(clientHelloData)
-	isTLS := sni != "" || (len(clientHelloData) > 5 && clientHelloData[0] == 0x16 && clientHelloData[5] == 0x01)
+	sni, _ := ExtractSNI(clientHelloData)
+	if sni == "" {
+		sni, _ = zapret.ExtractHTTPHost(clientHelloData)
+	}
 
 	exactKey := sni
 	if exactKey == "" {
@@ -516,59 +487,47 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 	baseDomain := matchBaseDomain(sni)
 
 	// Проверяем статус в иерархическом кэше: точный SNI -> wildcard (*.basedomain)
-	skipDirectWAN := s.isFallbackActive(exactKey, baseDomain)
+	skipDirectWAN := s.isFallbackActive(exactKey, baseDomain) ||
+		zapret.GlobalEngine.IsFallbackActive(sni, targetAddr.IP.String(), baseDomain)
 
-	// 1. Пытаемся подключиться напрямую через физический WAN с разбиением TLS Record + TCP
+	// 1. Пытаемся подключиться напрямую через физический WAN с каскадом стратегий Zapret 2
+	// (tlsrec_sni_split -> oob_tlsrec_split -> fake_lowttl_multisplit -> tlsrec_multisplit)
 	if !skipDirectWAN {
-		dialStart := time.Now()
-		remoteConn, err := s.wanDialer.DialContext(ctx, "tcp", targetAddr.String())
-		if err == nil {
-			synRTT := time.Since(dialStart)
+		probeTimeout := time.Duration(s.cfg.WanProbeTimeoutMs) * time.Millisecond
+		if probeTimeout <= 0 {
+			probeTimeout = DefaultWanProbeTimeoutMs * time.Millisecond
+		}
+		if zapret.GlobalEngine.Logf == nil {
+			zapret.GlobalEngine.Logf = log.Printf
+		}
 
-			var sendErr error
-			if isTLS {
-				sendErr = SplitTLSRecordAndSend(remoteConn, clientHelloData, s.cfg.SplitPos, sni, sniOffset)
-			} else {
-				_, sendErr = remoteConn.Write(clientHelloData)
-			}
-
-			if sendErr == nil {
-				// Динамический таймаут: не менее сконфигурированного (по умолчанию 500мс)
-				// и не менее 2.5 * RTT до сервера для пользователей с высоким пингом (Сибирь, ДВ, мобильные)
-				baseTimeout := time.Duration(s.cfg.WanProbeTimeoutMs) * time.Millisecond
-				if baseTimeout <= 0 {
-					baseTimeout = DefaultWanProbeTimeoutMs * time.Millisecond
-				}
-				adaptiveTimeout := baseTimeout
-				if minAdaptive := time.Duration(float64(synRTT) * 2.5); minAdaptive > adaptiveTimeout {
-					adaptiveTimeout = minAdaptive
-				}
-
-				_ = remoteConn.SetReadDeadline(time.Now().Add(adaptiveTimeout))
-				rn, rerr := remoteConn.Read(buf)
-				_ = remoteConn.SetReadDeadline(time.Time{})
-
-				if rn > 0 {
-					if sni != "" {
-						log.Printf("[antidpi] Прямой обход ТСПУ успешен для SNI %q -> %s (WAN, RTT=%v)", sni, targetAddr, synRTT)
-					}
-					if _, werr := clientConn.Write(buf[:rn]); werr != nil {
-						remoteConn.Close()
-						return
-					}
-					pipeConn(clientConn, remoteConn, &s.bufferPool)
+		remoteConn, firstReply, desyncErr := zapret.GlobalEngine.DialAndDesync(
+			ctx,
+			s.wanDialer.DialContext,
+			targetAddr.String(),
+			clientHelloData,
+			s.cfg.SplitPos,
+			probeTimeout,
+		)
+		if desyncErr == nil && remoteConn != nil {
+			if len(firstReply) > 0 {
+				if _, werr := clientConn.Write(firstReply); werr != nil {
 					remoteConn.Close()
 					return
 				}
-				_ = rerr
 			}
+			pipeConn(clientConn, remoteConn, &s.bufferPool)
 			remoteConn.Close()
+			return
 		}
 
-		// Фиксируем сбой: точный SNI попадает в кэш на 60м, а при 2+ сбоях активируется wildcard (*.basedomain) на 20м
+		// Фиксируем сбой: точный SNI/IP попадает в кэш на 60м (также помечается в zapret.GlobalEngine,
+		// чтобы ленивый туннель sirin0 в core/engine сразу пропустил пакеты через VPS),
+		// а при 2+ сбоях активируется wildcard (*.basedomain) на 20м
 		s.recordFailure(exactKey, baseDomain)
 		if sni != "" {
-			log.Printf("[antidpi] ТСПУ блокирует прямой доступ к %q (%s, base=%q) -> переключено через VPN-туннель", sni, targetAddr, baseDomain)
+			log.Printf("[antidpi] ТСПУ блокирует прямой доступ к %q (%s, base=%q: %v) -> бесшовное переключение на VPS VPN",
+				sni, targetAddr, baseDomain, desyncErr)
 		}
 	}
 

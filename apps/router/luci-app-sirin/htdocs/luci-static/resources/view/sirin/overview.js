@@ -44,7 +44,7 @@ var callGetAntiDPIConfig = rpc.declare({
 var callSetAntiDPIConfig = rpc.declare({
 	object: 'sirin',
 	method: 'set_antidpi_config',
-	params: ['enabled', 'port', 'split_pos', 'quic_reject', 'youtube', 'discord', 'custom_domains'],
+	params: ['enabled', 'port', 'split_pos', 'quic_reject', 'youtube', 'instagram', 'discord', 'custom_domains'],
 	expect: {}
 });
 
@@ -170,7 +170,7 @@ return view.extend({
 				E('table', { class: 'table', style: 'margin: 10px 0;' }, [
 					E('tr', { class: 'tr' }, [
 						E('td', { class: 'td', style: 'width: 35%; font-weight: bold;' }, 'Текущая версия:'),
-						E('td', { class: 'td' }, info.current_version || '1.6.0')
+						E('td', { class: 'td' }, info.current_version || '1.7.0')
 					]),
 					E('tr', { class: 'tr' }, [
 						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Новая версия:'),
@@ -290,7 +290,7 @@ return view.extend({
 			E('tr', { class: 'tr' }, [
 				E('td', { class: 'td' }, 'Версия клиента:'),
 				E('td', { class: 'td' }, [
-					E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '1.6.0'),
+					E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '1.7.0'),
 					btnCheckUpdate,
 					updateStatusSpan
 				])
@@ -394,7 +394,7 @@ return view.extend({
 			statusNode.textContent = isRunning ? ('Работает (PID: ' + (currentStatus.pid || '—') + ')') : 'Остановлен';
 
 			var elVer = document.getElementById('sirin-version');
-			if (elVer) elVer.textContent = currentStatus.version || '1.2.0';
+			if (elVer) elVer.textContent = currentStatus.version || '1.7.0';
 
 			var elTrans = document.getElementById('sirin-transport');
 			if (elTrans) elTrans.textContent = isRunning ? (currentStatus.transport ? currentStatus.transport.toUpperCase() : 'Определение...') : '—';
@@ -847,6 +847,11 @@ return view.extend({
 			checked: (antiDPI.youtube !== undefined ? !!antiDPI.youtube : true)
 		});
 
+		var chkADInstagram = E('input', {
+			type: 'checkbox',
+			checked: (antiDPI.instagram !== undefined ? !!antiDPI.instagram : true)
+		});
+
 		var chkADDiscord = E('input', {
 			type: 'checkbox',
 			checked: (antiDPI.discord !== undefined ? !!antiDPI.discord : true)
@@ -888,6 +893,7 @@ return view.extend({
 			click: function() {
 				var enabled = chkADEnabled.checked;
 				var yt = chkADYouTube.checked;
+				var ig = chkADInstagram.checked;
 				var dc = chkADDiscord.checked;
 				var quic = chkADQUICReject.checked;
 				var sp = parseInt(inADSplitPos.value, 10);
@@ -915,7 +921,7 @@ return view.extend({
 				}
 
 				btnSaveAntiDPI.disabled = true;
-				return callSetAntiDPIConfig(enabled, port, sp, quic, yt, dc, validDomains).then(function(res) {
+				return callSetAntiDPIConfig(enabled, port, sp, quic, yt, ig, dc, validDomains).then(function(res) {
 					btnSaveAntiDPI.disabled = false;
 					if (res && res.ok) {
 						ui.addNotification(null, E('p', {}, 'Параметры Anti-DPI сохранены'), 'info');
@@ -960,6 +966,7 @@ return view.extend({
 					ad = ad || {};
 					chkADEnabled.checked = (ad.enabled !== undefined ? !!ad.enabled : true);
 					chkADYouTube.checked = (ad.youtube !== undefined ? !!ad.youtube : true);
+					chkADInstagram.checked = (ad.instagram !== undefined ? !!ad.instagram : true);
 					chkADDiscord.checked = (ad.discord !== undefined ? !!ad.discord : true);
 					chkADQUICReject.checked = (ad.quic_reject !== undefined ? !!ad.quic_reject : true);
 					inADSplitPos.value = ad.split_pos || 2;
@@ -1384,16 +1391,16 @@ return view.extend({
 			]),
 
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '4. Обход замедления без VPN (Anti-DPI: YouTube / Discord)'),
-				E('p', { class: 'cbi-section-descr' }, 'Фрагментация TLS ClientHello и блокировка QUIC (UDP 443) на уровне роутера. Позволяет смотреть YouTube в 4K/8K и пользоваться Discord на максимальной скорости провайдера напрямую через WAN, без нагрузки на внешний VPN-сервер.'),
+				E('h3', {}, '4. Обход замедления без VPN (Zapret 2: YouTube / Instagram / Discord / X)'),
+				E('p', { class: 'cbi-section-descr' }, 'Нативный модуль десинхронизации ТСПУ по технологиям Zapret 2 (Multi-Split TLS Record, TCP OOB, Low-TTL Fake) и блокировка QUIC (UDP 443). Позволяет пользоваться YouTube (4K/8K), Instagram, Discord и X напрямую через провайдера без нагрузки на VPS, а при жесткой блокировке узла бесшовно поднимает резервный VPN-туннель.'),
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title' }, 'Активация Anti-DPI'),
 					E('div', { class: 'cbi-value-field' }, [
 						E('label', { style: 'cursor: pointer;' }, [
 							chkADEnabled,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Включить встроенный модуль Anti-DPI'))
+							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Включить встроенный модуль Anti-DPI (Zapret 2)'))
 						]),
-						E('div', { class: 'cbi-value-description' }, 'Автоматически перенаправляет TCP 80/443 целевых сервисов на локальный прозрачный прокси фрагментации пакетов.')
+						E('div', { class: 'cbi-value-description' }, 'Автоматически перенаправляет TCP 80/443 целевых сервисов на локальный прозрачный прокси десинхронизации пакетов с бесшовным фоллбэком на VPS.')
 					])
 				]),
 				E('div', { class: 'cbi-value' }, [
@@ -1402,6 +1409,11 @@ return view.extend({
 						E('label', { style: 'cursor: pointer; margin-right: 16px;' }, [
 							chkADYouTube,
 							E('span', { style: 'margin-left: 6px;' }, 'YouTube & Google Video CDN (googlevideo.com, ytimg.com, etc.)')
+						]),
+						E('br'),
+						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
+							chkADInstagram,
+							E('span', { style: 'margin-left: 6px;' }, 'Instagram, Meta & X / Twitter (instagram.com, cdninstagram.com, fbcdn.net, x.com, twimg.com)')
 						]),
 						E('br'),
 						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [

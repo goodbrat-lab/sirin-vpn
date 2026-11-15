@@ -1306,9 +1306,10 @@ class SirinVpnService : VpnService() {
                 // это и уведёт лестницу сразу на поток+релей, минуя
                 // заведомо мёртвый UDP-перебор.
                 val winner = Engine.winner()
-                val winnerIsUdpDirect = winner.isNotEmpty() &&
+                val winnerIsZapret = winner == "zapret2-direct"
+                val winnerIsUdpDirect = winner.isNotEmpty() && !winnerIsZapret &&
                     winner != Paths.RELAY && winner !in streamCodes
-                if (winner.isNotEmpty() && !winnerIsUdpDirect) {
+                if (winner.isNotEmpty() && !winnerIsZapret && !winnerIsUdpDirect) {
                     // Поток или релей — счётчик вверх: UDP-прямой не
                     // держится, сеть набирает вес в сторону «мимо UDP».
                     PathMemory.noteRelayWon(this, netKey)

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -534,6 +535,17 @@ type session struct {
 	slotsMax  int
 	slotsAuto bool
 
+	// Гибридный режим Zapret 2 + ленивый VPN-туннель по требованию:
+	tz            *tunZapret
+	lazyMode      bool
+	lazyLadder    *Ladder
+	lazyMu        sync.Mutex
+	upstreamReady atomic.Bool
+	localTunIP    [4]byte
+	upstreamTunIP [4]byte
+	lastUpstream  atomic.Int64
+	upCancel      context.CancelFunc
+
 	// wg — три насоса перекачки. Пока хоть один жив, сессия не считается
 	// остановленной: закрытый сокет ещё не значит завершённую горутину.
 	wg sync.WaitGroup
@@ -545,7 +557,13 @@ type session struct {
 }
 
 func newSession(log Logger) *session {
-	return &session{log: log, done: make(chan struct{}), vk: newVKCache()}
+	return &session{
+		log:           log,
+		done:          make(chan struct{}),
+		vk:            newVKCache(),
+		localTunIP:    [4]byte{10, 77, 77, 2},
+		upstreamTunIP: [4]byte{10, 77, 77, 2},
+	}
 }
 
 // Приём ресурсов поднявшейся ступени в собственность сессии — в
@@ -618,7 +636,49 @@ func (s *session) logf(format string, args ...interface{}) {
 // AUTH, а не рукопожатие: путь к register() и assignClientIP() на шлюзе
 // открывается только после завершённого AUTH.
 func (s *session) climb(gateway string, ladder *Ladder, password, deviceID string, prot Protector) (string, error) {
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	if s.ctx == nil {
+		s.ctx, s.cancel = context.WithCancel(context.Background())
+	}
+	s.gateway = gateway
+	s.password = password
+	s.deviceID = deviceID
+	s.prot = prot
+	s.lazyLadder = ladder
+
+	if !ladder.disableLazyZapret && gateway != "192.0.2.1" {
+		s.lazyMode = true
+		s.winner = "zapret2-direct"
+		s.mtu = rawTunMTU
+		s.localTunIP = [4]byte{10, 77, 77, 2}
+		s.upstreamTunIP = [4]byte{10, 77, 77, 2}
+		lastAuthGateway.Store("10.77.77.1")
+		lastAuthIP.Store("10.77.77.2")
+		lastAuthMaskHex.Store("ffff0000")
+		s.logf("[zapret2] активирован гибридный режим: сначала прямой обход DPI (Zapret 2), ленивый подъём VPN до VPS по требованию (трафик на VPS = 0)")
+		return "10.77.77.2/16", nil
+	}
+
+	addr, err := s.climbUpstream(gateway, ladder, password, deviceID, prot)
+	if err == nil {
+		if ipStr, _, splitErr := net.SplitHostPort(addr); splitErr != nil {
+			parts := strings.Split(addr, "/")
+			if ip := net.ParseIP(parts[0]).To4(); ip != nil {
+				copy(s.localTunIP[:], ip)
+				copy(s.upstreamTunIP[:], ip)
+			}
+		} else if ip := net.ParseIP(ipStr).To4(); ip != nil {
+			copy(s.localTunIP[:], ip)
+			copy(s.upstreamTunIP[:], ip)
+		}
+		s.upstreamReady.Store(true)
+	}
+	return addr, err
+}
+
+func (s *session) climbUpstream(gateway string, ladder *Ladder, password, deviceID string, prot Protector) (string, error) {
+	if s.ctx == nil {
+		s.ctx, s.cancel = context.WithCancel(context.Background())
+	}
 
 	// Устройство для запросов VK — одно на сессию, берём то же, что
 	// уходит в AUTH: заводить второй идентификатор незачем.
@@ -1875,8 +1935,17 @@ func (s *session) startPumps() error {
 	if speedProbeOn.Load() {
 		s.probe = &speedProbe{}
 	}
+	if s.lazyMode {
+		s.tz = newTunZapret(s)
+	}
 
 	list := s.slotList()
+	if s.lazyMode && len(list) == 0 {
+		s.wg.Add(1)
+		go func() { defer s.wg.Done(); s.tunToNet() }()
+		return nil
+	}
+
 	s.armStun()
 	s.wg.Add(2 + len(list))
 	go func() { defer s.wg.Done(); s.tunToNet() }()
@@ -1911,6 +1980,139 @@ func (s *session) startPumps() error {
 	return nil
 }
 
+func (s *session) hasActiveUpstream() bool {
+	return s.upstreamReady.Load() && len(s.slotList()) > 0
+}
+
+func (s *session) localTunIPBytes() [4]byte {
+	return s.localTunIP
+}
+
+const lazyIdleLimit = 10 * time.Minute
+
+func (s *session) ensureUpstream() error {
+	if s.hasActiveUpstream() {
+		s.lastUpstream.Store(time.Now().UnixNano())
+		return nil
+	}
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+
+	if s.hasActiveUpstream() {
+		s.lastUpstream.Store(time.Now().UnixNano())
+		return nil
+	}
+	if s.stopped || s.lazyLadder == nil {
+		return errors.New("сессия остановлена или лестница не задана")
+	}
+
+	s.logf("[zapret2] пробуждение VPN-туннеля до VPS по требованию...")
+	assigned, err := s.climbUpstream(s.gateway, s.lazyLadder, s.password, s.deviceID, s.prot)
+	if err != nil {
+		return err
+	}
+
+	parts := strings.Split(assigned, "/")
+	if ip := net.ParseIP(parts[0]).To4(); ip != nil {
+		copy(s.upstreamTunIP[:], ip)
+	}
+
+	s.upAt = time.Now()
+	s.lastUpstream.Store(time.Now().UnixNano())
+	s.upstreamReady.Store(true)
+
+	upCtx, upCancel := context.WithCancel(s.ctx)
+	s.upCancel = upCancel
+
+	list := s.slotList()
+	s.wg.Add(1 + len(list))
+	go func() { defer s.wg.Done(); s.keepaliveWithCtx(upCtx) }()
+	for _, r := range list {
+		r := r
+		go func() { defer s.wg.Done(); s.netToTun(r) }()
+	}
+	go s.lazyIdleWatch(upCtx)
+
+	s.logf("[zapret2] VPN-туннель до VPS поднят (ступень %s, адрес %s)", s.winner, assigned)
+	return nil
+}
+
+func (s *session) parkUpstream(reason string) {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if !s.upstreamReady.Load() {
+		return
+	}
+	s.upstreamReady.Store(false)
+	if s.upCancel != nil {
+		s.upCancel()
+		s.upCancel = nil
+	}
+	for _, r := range s.slotList() {
+		r.retired.Store(true)
+		r.close()
+	}
+	s.slots.Store(nil)
+	s.winner = "zapret2-direct"
+	s.logf("[zapret2] VPN-туннель до VPS переведён в спящий режим (%s) — трафик на VPS = 0", reason)
+}
+
+func (s *session) lazyIdleWatch(ctx context.Context) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			last := s.lastUpstream.Load()
+			if last > 0 && time.Since(time.Unix(0, last)) > lazyIdleLimit {
+				s.parkUpstream("простой более 10 минут без VPN-трафика")
+				return
+			}
+		}
+	}
+}
+
+func (s *session) writeRawToUpstream(pkt []byte) error {
+	if err := s.ensureUpstream(); err != nil {
+		return err
+	}
+	s.lastUpstream.Store(time.Now().UnixNano())
+
+	out := pkt
+	if s.localTunIP != s.upstreamTunIP && len(pkt) >= 20 && pkt[0]>>4 == 4 && bytes.Equal(pkt[12:16], s.localTunIP[:]) {
+		out = make([]byte, len(pkt))
+		copy(out, pkt)
+		copy(out[12:16], s.upstreamTunIP[:])
+		recomputeIPv4Checksums(out)
+	}
+
+	r := s.nextSlot()
+	if r == nil {
+		return errors.New("нет слотов")
+	}
+	if _, err := r.link.Write(out); err != nil {
+		if r.retired.Load() {
+			return nil
+		}
+		return err
+	}
+	s.txBytes.Add(uint64(len(out)))
+	if s.txCount.Add(1) == 1 {
+		s.logf("первый пакет ушёл в туннель, %d байт", len(out))
+	}
+	return nil
+}
+
+func (s *session) writeTunSafe(pkt []byte) error {
+	if s.tz != nil {
+		return s.tz.writeTun(pkt)
+	}
+	_, err := s.tun.Write(pkt)
+	return err
+}
+
 func (s *session) tunToNet() {
 	buf := make([]byte, tunMTU+80)
 	for {
@@ -1941,27 +2143,21 @@ func (s *session) tunToNet() {
 			}
 			continue
 		}
-		// Раздача вверх: round-robin пачками по slotChunk. При одном
-		// слоте это просто он сам.
-		r := s.nextSlot()
-		if r == nil {
-			s.logf("слотов не осталось, перекачка вверх прекращена")
-			s.stop("нет слотов")
-			return
+
+		// Гибридный перехватчик Zapret 2: сначала пробуем прямой выход в WAN с десинхронизацией DPI.
+		if s.tz != nil && (s.probe == nil || !s.probe.active.Load()) && s.tz.handleOutbound(buf[:n]) {
+			s.txBytes.Add(uint64(n))
+			s.txCount.Add(1)
+			continue
 		}
-		if _, err := r.link.Write(buf[:n]); err != nil {
-			if r.retired.Load() {
-				// Слот сняли планово прямо во время записи.
-				// Пакет теряем, сессию не трогаем.
+
+		if err := s.writeRawToUpstream(buf[:n]); err != nil {
+			if s.lazyMode {
 				continue
 			}
 			s.logf("запись в туннель прекращена: %v", err)
 			s.stop("ошибка записи в туннель")
 			return
-		}
-		s.txBytes.Add(uint64(n))
-		if s.txCount.Add(1) == 1 {
-			s.logf("первый пакет ушёл в туннель, %d байт", n)
 		}
 	}
 }
@@ -1986,39 +2182,26 @@ func (s *session) netToTun(r *rung) {
 		}
 		n, err := r.link.Read(buf)
 		if err != nil {
+			if r.retired.Load() {
+				// Плановое снятие слота: насос уходит тихо.
+				return
+			}
+			if s.lazyMode {
+				s.parkUpstream("обрыв или таймаут канала VPS")
+				return
+			}
 			if isTimeout(err) {
 				s.logf("тишина в туннеле дольше %s", limit)
 				s.stop("канал молчит")
-				return
-			}
-			if r.retired.Load() {
-				// Плановое снятие слота: насос уходит тихо.
 				return
 			}
 			s.logf("чтение туннеля прекращено: %v", err)
 			s.stop("ошибка чтения туннеля")
 			return
 		}
+		s.lastUpstream.Store(time.Now().UnixNano())
 		// Всё короче 20 байт — не IP-пакет: это эхо keepalive.
 		if n < 20 {
-			// ЭХО ЗАСЧИТЫВАЕТСЯ ТОЛЬКО ПОСЛЕ ТОГО, КАК УШЛА НАША МЕТКА.
-			//
-			// Смысл счётчика — ответить на вопрос «слышит ли нас шлюз
-			// СЕЙЧАС». Ответить на него может только отклик на то, что
-			// мы сами послали ПОСЛЕ подъёма туннеля. Короткий пакет,
-			// прилетевший раньше первой метки, на этот вопрос не
-			// отвечает: он мог остаться в буфере сокета от проверки
-			// ступени, которая шлёт свои метки ещё в лестнице.
-			//
-			// Разница не умозрительная. Сторож немоты судит по
-			// echoCount, и засчитанный ранний пакет заставил бы его
-			// промолчать на туннеле, который умер сразу после подъёма,
-			// — то есть ровно в том случае, ради которого он и заведён.
-			//
-			// Ранние считаем отдельно и говорим о первом вслух: именно
-			// они объясняют, почему эхо стало возвращаться за 66-96 мс
-			// вместо трёх секунд. Ответ на этот вопрос — в логе, а не в
-			// рассуждении.
 			if !s.echoArmed.Load() {
 				if s.echoEarly.Add(1) == 1 {
 					s.logf("короткий пакет ДО первой метки, через %s, %d байт — "+
@@ -2037,11 +2220,20 @@ func (s *session) netToTun(r *rung) {
 		if p := s.probe; p != nil && p.active.Load() && p.take(buf[:n]) {
 			continue
 		}
+		if s.localTunIP != s.upstreamTunIP && buf[0]>>4 == 4 && bytes.Equal(buf[16:20], s.upstreamTunIP[:]) {
+			copy(buf[16:20], s.localTunIP[:])
+			recomputeIPv4Checksums(buf[:n])
+		}
+		if s.tz != nil && s.tz.handleInboundFromUpstream(buf[:n]) {
+			s.rxBytes.Add(uint64(n))
+			s.rxCount.Add(1)
+			continue
+		}
 		s.rxBytes.Add(uint64(n))
 		if s.rxCount.Add(1) == 1 {
 			s.logf("первый пакет пришёл из туннеля, %d байт", n)
 		}
-		if _, err := s.tun.Write(buf[:n]); err != nil {
+		if err := s.writeTunSafe(buf[:n]); err != nil {
 			s.logf("запись в TUN прекращена: %v", err)
 			s.stop("ошибка записи в TUN")
 			return
@@ -2361,6 +2553,10 @@ func (s *session) probeNow(why string) bool {
 }
 
 func (s *session) keepalive() {
+	s.keepaliveWithCtx(s.ctx)
+}
+
+func (s *session) keepaliveWithCtx(ctx context.Context) {
 	// Первая метка уходит рано — см. keepaliveFirst. Дальше обычный шаг.
 	first := time.NewTimer(keepaliveFirst)
 	defer first.Stop()
@@ -2368,7 +2564,7 @@ func (s *session) keepalive() {
 	defer t.Stop()
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-first.C:
 			// ВЗВОДИМ СЧЁТЧИК ЭХА ДО ОТПРАВКИ, а не после.
@@ -2442,8 +2638,14 @@ func (s *session) stop(reason string) {
 	if reason != "" {
 		s.logf("сессия остановлена: %s", reason)
 	}
+	if s.upCancel != nil {
+		s.upCancel()
+	}
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.tz != nil {
+		s.tz.closeAll()
 	}
 	for _, r := range s.slotList() {
 		r.close()

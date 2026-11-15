@@ -139,6 +139,14 @@ func Connect(gateway string, cachedFallback string, ladder *Ladder, password str
 		return "", errors.New("лестница пуста: ни одной ступени")
 	}
 
+	if cachedFallback == "" && !ladder.disableLazyZapret {
+		for _, item := range ladder.items {
+			if item.host != "" {
+				cachedFallback = item.host
+				break
+			}
+		}
+	}
 	resolved, via, err := resolveGateway(gateway, cachedFallback, prot, log)
 	if err != nil {
 		setFailure(FailResolve)
