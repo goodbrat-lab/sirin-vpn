@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/v1.7.0"><img src="https://img.shields.io/badge/Android-v1.7.0-brightgreen.svg?logo=android&logoColor=white" alt="Android Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.7.0"><img src="https://img.shields.io/badge/OpenWrt%20Router-v1.7.0-blueviolet.svg?logo=openwrt&logoColor=white" alt="Router Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.8.0"><img src="https://img.shields.io/badge/OpenWrt%20Router-v1.8.0-blueviolet.svg?logo=openwrt&logoColor=white" alt="Router Release" /></a>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/desktop-v1.7.0"><img src="https://img.shields.io/badge/Windows-v1.7.0-0078D6.svg?logo=windows&logoColor=white" alt="Windows Release" /></a>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/discussions"><img src="https://img.shields.io/badge/GitHub-Discussions-purple.svg?logo=github" alt="Discussions" /></a>
   </p>
@@ -28,7 +28,7 @@
 |:---|:---:|:---|:---|:---:|
 | **Android** | `1.7.0` | [📦 Скачать APK](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.7.0/sirin-v1.7.0.apk) | [📖 Инструкция для Android](README.md#11-android) | ✅ Стабильный |
 | **Windows Desktop** | `1.7.0` | [📦 Скачать Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.7.0/Sirin-VPN-1.7.0-Setup.exe) | [📖 Инструкция для Windows](README.md#12-windows-desktop) | ✅ Стабильный |
-| **Router (OpenWrt)** | `1.7.0` | [📦 Релиз архивы и пакеты (5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.7.0) | [📖 Руководство OpenWrt & LuCI](ROUTER.md) | ✅ Стабильный |
+| **Router (OpenWrt)** | `1.8.0` | [📦 Релиз архивы и пакеты (5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.8.0) | [📖 Руководство OpenWrt & LuCI](ROUTER.md) | ✅ Стабильный |
 | **iOS / iPadOS** | — | *В разработке (архитектура NetworkExtension)* | [🔬 Исследование (Spike iOS)](SPIKE_IOS.md) | ⏳ Скоро (Q1 2027) |
 | **macOS / Linux** | — | *Запланировано на базе Wails & core/engine* | [🗺️ Roadmap](ROADMAP.md) | ⏳ Скоро |
 

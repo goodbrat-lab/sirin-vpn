@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
-VERSION="1.7.0"
+VERSION="1.8.0"
 
 get_input() {
     if [ "$MODE" = "call" ] && [ -n "$ARG3" ]; then
@@ -1177,6 +1177,177 @@ method_set_whitelist_config() {
     fi
 }
 
+method_get_force_vpn_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        printf '{"enabled":true,"services":["ai","spotify","autodesk","adobe","jetbrains","figma","notion","canva","nvidia"],"domains":[],"cidrs":[]}\n'
+        return
+    fi
+
+    awk '
+    BEGIN {
+        in_fv = 0
+        in_srv = 0
+        in_dom = 0
+        in_cidr = 0
+        seen_fv = 0
+        enabled = "true"
+        services = ""
+        domains = ""
+        cidrs = ""
+    }
+    /^\[force_vpn\]/ {
+        in_fv = 1
+        seen_fv = 1
+        next
+    }
+    /^\[/ && !/^\[force_vpn\]/ {
+        in_fv = 0
+        in_srv = 0
+        in_dom = 0
+        in_cidr = 0
+    }
+    in_fv && /^[ \t]*enabled[ \t]*=/ {
+        if ($0 ~ /false/i) enabled = "false"
+        else enabled = "true"
+    }
+    in_fv && /^[ \t]*services[ \t]*=[ \t]*\[/ {
+        in_srv = 1
+    }
+    in_srv {
+        line = $0
+        sub(/^[ \t]*services[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            if (services != "") services = services ","
+            services = services "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_srv = 0
+    }
+    in_fv && /^[ \t]*domains[ \t]*=[ \t]*\[/ {
+        in_dom = 1
+    }
+    in_dom {
+        line = $0
+        sub(/^[ \t]*domains[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            if (domains != "") domains = domains ","
+            domains = domains "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_dom = 0
+    }
+    in_fv && /^[ \t]*cidrs[ \t]*=[ \t]*\[/ {
+        in_cidr = 1
+    }
+    in_cidr {
+        line = $0
+        sub(/^[ \t]*cidrs[ \t]*=[ \t]*\[/, "", line)
+        while (match(line, /"[^"]*"/)) {
+            item = substr(line, RSTART + 1, RLENGTH - 2)
+            if (cidrs != "") cidrs = cidrs ","
+            cidrs = cidrs "\"" item "\""
+            line = substr(line, RSTART + RLENGTH)
+        }
+        if ($0 ~ /\]/) in_cidr = 0
+    }
+    END {
+        if (!seen_fv && services == "") {
+            services = "\"ai\",\"spotify\",\"autodesk\",\"adobe\",\"jetbrains\",\"figma\",\"notion\",\"canva\",\"nvidia\""
+        }
+        printf "{\"enabled\":%s,\"services\":[%s],\"domains\":[%s],\"cidrs\":[%s]}\n", \
+            enabled, services, domains, cidrs
+    }
+    ' "$CONFIG_FILE"
+}
+
+method_set_force_vpn_config() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    eval $(awk -v json="$raw_input" '
+    function get_bool(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
+            val = substr(json, RSTART, RLENGTH)
+            sub(/^[^:]*:[ \t]*/, "", val)
+            return val
+        }
+        return ""
+    }
+    function get_array(k,    start, rest, arr) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\\[")) {
+            start = RSTART + RLENGTH - 1
+            rest = substr(json, start)
+            if (match(rest, /\]/)) {
+                arr = substr(rest, 1, RSTART)
+                gsub(/^[ \t]*\[[ \t]*/, "", arr)
+                gsub(/[ \t]*\][ \t]*$/, "", arr)
+                return arr
+            }
+        }
+        return ""
+    }
+    BEGIN {
+        en = get_bool("enabled")
+        srv = get_array("services")
+        dom = get_array("domains")
+        cidr = get_array("cidrs")
+
+        if (en == "") en = "true"
+        gsub(/'\''/, "'\''\\'\'''\''", en)
+        gsub(/'\''/, "'\''\\'\'''\''", srv)
+        gsub(/'\''/, "'\''\\'\'''\''", dom)
+        gsub(/'\''/, "'\''\\'\'''\''", cidr)
+        printf "NEW_FV_EN='\''%s'\''; NEW_FV_SRV='\''%s'\''; NEW_FV_DOM='\''%s'\''; NEW_FV_CIDR='\''%s'\'';", \
+            en, srv, dom, cidr
+    }
+    ')
+
+    TMP_CONF="/tmp/sirin_client_$$.tmp"
+    awk -v en="$NEW_FV_EN" -v srv="$NEW_FV_SRV" -v dom="$NEW_FV_DOM" -v cidr="$NEW_FV_CIDR" '
+    BEGIN {
+        in_fv = 0
+        seen_fv = 0
+    }
+    /^\[force_vpn\]/ {
+        in_fv = 1
+        seen_fv = 1
+        print "[force_vpn]"
+        print "enabled = " en
+        print "services = [" srv "]"
+        print "domains = [" dom "]"
+        print "cidrs = [" cidr "]"
+        print ""
+        next
+    }
+    /^\[/ && !/^\[force_vpn\]/ {
+        in_fv = 0
+    }
+    !in_fv { print $0 }
+    END {
+        if (!seen_fv) {
+            print ""
+            print "[force_vpn]"
+            print "enabled = " en
+            print "services = [" srv "]"
+            print "domains = [" dom "]"
+            print "cidrs = [" cidr "]"
+        }
+    }
+    ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
+
+    if [ -s "$TMP_CONF" ]; then
+        mv "$TMP_CONF" "$CONFIG_FILE"
+        printf '{"ok":true}\n'
+    else
+        rm -f "$TMP_CONF"
+        printf '{"ok":false,"error":"Не удалось записать настройки Force VPN"}\n'
+    fi
+}
+
 method_get_ru_direct_info() {
     count=8641
     if [ -f "/etc/sirin/ru-ranges.txt" ]; then
@@ -1267,6 +1438,7 @@ method_test_connection() {
     fi
 
     raw="Режим: $split_mode"
+    ru_status="Прямой маршрут через провайдера (WAN)"
     if [ "$split_mode" = "only" ]; then
         raw="Split (Only): через VPN идут только адреса из split-списка, остальное напрямую"
     else
@@ -1274,11 +1446,31 @@ method_test_connection() {
             raw="RuDirect (Bypass): трафик РФ идёт напрямую через WAN"
         else
             raw="ВНИМАНИЕ: трафик РФ идёт через VPN"
+            ru_status="Весь трафик направлен через VPN (Максимальная приватность)"
         fi
     fi
 
-    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"split_mode":"%s","raw":"%s"}\n' \
-        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$split_mode" "$raw"
+    zapret_enabled=true
+    if [ -f "$CONFIG_FILE" ]; then
+        ze=$(awk '
+            /^\[antidpi\]/ { in_a = 1; next }
+            /^\[/ { in_a = 0 }
+            in_a && /^[ \t]*enabled[ \t]*=/ {
+                if ($0 ~ /false/i) print "false"
+                else print "true"
+            }
+        ' "$CONFIG_FILE")
+        [ "$ze" = "false" ] && zapret_enabled=false
+    fi
+
+    if [ "$zapret_enabled" = "true" ]; then
+        zapret_status="Активен (YouTube, Instagram, Discord, X напрямую — 0 Байт на VPS)"
+    else
+        zapret_status="Отключен (трафик идёт по основным правилам маршрутизации)"
+    fi
+
+    printf '{"ok":true,"public_ip":"%s","ip_ok":%s,"rudirect_via_tunnel":%s,"split_mode":"%s","raw":"%s","ru_status":"%s","zapret_enabled":%s,"zapret_status":"%s"}\n' \
+        "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$split_mode" "$raw" "$ru_status" "$zapret_enabled" "$zapret_status"
 }
 
 detect_pkg_mgr() {
@@ -1566,6 +1758,13 @@ case "$1" in
     "discord": "bool",
     "custom_domains": "array"
   },
+  "get_force_vpn_config": {},
+  "set_force_vpn_config": {
+    "enabled": "bool",
+    "services": "array",
+    "domains": "array",
+    "cidrs": "array"
+  },
   "get_whitelist_config": {},
   "set_whitelist_config": {
     "enabled": "bool",
@@ -1631,6 +1830,12 @@ case "$cmd" in
         ;;
     set_antidpi_config)
         method_set_antidpi_config "$(get_input)"
+        ;;
+    get_force_vpn_config)
+        method_get_force_vpn_config
+        ;;
+    set_force_vpn_config)
+        method_set_force_vpn_config "$(get_input)"
         ;;
     get_whitelist_config)
         method_get_whitelist_config

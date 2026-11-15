@@ -48,6 +48,19 @@ var callSetAntiDPIConfig = rpc.declare({
 	expect: {}
 });
 
+var callGetForceVPNConfig = rpc.declare({
+	object: 'sirin',
+	method: 'get_force_vpn_config',
+	expect: {}
+});
+
+var callSetForceVPNConfig = rpc.declare({
+	object: 'sirin',
+	method: 'set_force_vpn_config',
+	params: ['enabled', 'services', 'domains', 'cidrs'],
+	expect: {}
+});
+
 var callGetWhitelistConfig = rpc.declare({
 	object: 'sirin',
 	method: 'get_whitelist_config',
@@ -137,6 +150,21 @@ function formatUptime(sec) {
 	return parts.join(' ');
 }
 
+function formatTransportHuman(tr) {
+	if (!tr) return 'Определение...';
+	var u = tr.toUpperCase();
+	if (u.indexOf('ZAPRET2 (LAZY VPN)') !== -1) {
+		return 'Zapret 2 Активен (VPN в спящем режиме — 0 Байт на сервер)';
+	}
+	if (u.indexOf('VLESS') !== -1) {
+		return 'Zapret 2 + Защищённый туннель VLESS Reality';
+	}
+	if (u.indexOf('UDP') !== -1) {
+		return 'Zapret 2 + Скоростной туннель Noise UDP';
+	}
+	return u;
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -145,7 +173,8 @@ return view.extend({
 			callGetSplitConfig().catch(function() { return {}; }),
 			callGetRuDirectInfo().catch(function() { return {}; }),
 			callGetAntiDPIConfig().catch(function() { return {}; }),
-			callGetWhitelistConfig().catch(function() { return {}; })
+			callGetWhitelistConfig().catch(function() { return {}; }),
+			callGetForceVPNConfig().catch(function() { return {}; })
 		]);
 	},
 
@@ -156,12 +185,34 @@ return view.extend({
 		var ruInfo = data[3] || {};
 		var antiDPI = data[4] || {};
 		var wlConfig = data[5] || {};
+		var forceVPN = data[6] || {};
 
 		var ruCount = ruInfo.count || 8641;
+		var isExpert = false;
+		try {
+			isExpert = localStorage.getItem('sirin_ui_expert') === '1';
+		} catch (e) {}
 
+		var hasUnsavedChanges = false;
+		var saveBanner = E('div', {
+			style: 'position: sticky; bottom: 12px; z-index: 50; background: #1a2433; color: #fff; padding: 12px 18px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: space-between; margin-top: 16px; border: 1px solid #2b4c7e;'
+		});
+
+		var saveBannerText = E('span', { style: 'font-size: 13px; font-weight: bold;' },
+			'Проверьте параметры и нажмите «Сохранить и применить», чтобы активировать настройки.'
+		);
+
+		function markDirty(msg) {
+			hasUnsavedChanges = true;
+			saveBanner.style.background = '#123524';
+			saveBanner.style.borderColor = '#28a745';
+			saveBannerText.textContent = msg || '● Есть несохранённые изменения — нажмите «Сохранить и применить»';
+		}
+
+		// --- UPDATE MODAL ---
 		var updateStatusSpan = E('span', {
 			id: 'sirin-update-badge',
-			style: 'margin-left: 10px; display: inline-flex; align-items: center;'
+			style: 'margin-left: 8px; display: inline-flex; align-items: center;'
 		});
 
 		function showUpgradeModal(info) {
@@ -170,31 +221,27 @@ return view.extend({
 				E('table', { class: 'table', style: 'margin: 10px 0;' }, [
 					E('tr', { class: 'tr' }, [
 						E('td', { class: 'td', style: 'width: 35%; font-weight: bold;' }, 'Текущая версия:'),
-						E('td', { class: 'td' }, info.current_version || '1.7.0')
+						E('td', { class: 'td' }, info.current_version || '1.8.0')
 					]),
 					E('tr', { class: 'tr' }, [
 						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Новая версия:'),
-						E('td', { class: 'td', style: 'color: #5cb85c; font-weight: bold;' }, info.latest_version || info.tag)
+						E('td', { class: 'td', style: 'color: #28a745; font-weight: bold;' }, info.latest_version || info.tag)
 					]),
 					E('tr', { class: 'tr' }, [
-						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Архитектура / Менеджер:'),
-						E('td', { class: 'td' }, (info.arch || 'mipsle') + ' (' + (info.pkg_mgr || 'opkg') + ')')
-					]),
-					E('tr', { class: 'tr' }, [
-						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Файл обновления:'),
-						E('td', { class: 'td', style: 'word-break: break-all;' }, info.asset_name || 'sirin-full')
+						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Устройство:'),
+						E('td', { class: 'td' }, (info.arch || 'arm64') + ' (' + (info.pkg_mgr || 'opkg') + ')')
 					])
 				]),
 				info.release_notes ? E('div', { style: 'background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 8px; margin: 10px 0; max-height: 120px; overflow-y: auto; font-size: 12px;' }, [
-					E('strong', {}, 'Информация о выпуске:'),
+					E('strong', {}, 'Что нового:'),
 					E('p', { style: 'margin: 4px 0 0 0;' }, info.release_notes)
 				]) : E('span', {}),
-				E('p', { style: 'color: #f0ad4e; margin-top: 10px;' }, '⚠ Во время обновления служба VPN будет перезапущена. Не выключайте роутер.')
+				E('p', { style: 'color: #d99b26; margin-top: 10px;' }, '⚠ Во время установки обновления служба VPN будет перезапущена на 3–5 секунд.')
 			]);
 
 			var progressDiv = E('div', { style: 'display:none; text-align:center; padding: 20px 0;' }, [
 				E('div', { class: 'spinning', style: 'display: inline-block; margin-bottom: 12px;' }),
-				E('p', { id: 'sirin-upgrade-status-text', style: 'font-weight: bold;' }, 'Загрузка и установка обновления... Пожалуйста, подождите.')
+				E('p', { style: 'font-weight: bold;' }, 'Скачивание и установка обновления... Пожалуйста, подождите.')
 			]);
 
 			var btnApply = E('button', {
@@ -207,12 +254,10 @@ return view.extend({
 
 					return callUpgrade(info.asset_url).then(function(res) {
 						if (res && res.ok) {
-							progressDiv.innerHTML = '<div style="color: #5cb85c; font-size: 16px; font-weight: bold; margin-bottom: 8px;">✓ ' +
+							progressDiv.innerHTML = '<div style="color: #28a745; font-size: 16px; font-weight: bold; margin-bottom: 8px;">✓ ' +
 								(res.message || 'Обновление успешно установлено!') + '</div>' +
-								'<p>Перезагрузка страницы через 3 секунды...</p>';
-							setTimeout(function() {
-								location.reload();
-							}, 3000);
+								'<p>Обновление страницы через 3 секунды...</p>';
+							setTimeout(function() { location.reload(); }, 3000);
 						} else {
 							progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка обновления</div>' +
 								'<p style="word-break: break-all;">' + ((res && res.error) || 'Неизвестная ошибка') + '</p>';
@@ -220,7 +265,7 @@ return view.extend({
 							btnCancel.textContent = 'Закрыть';
 						}
 					}).catch(function(e) {
-						progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка выполнения запроса</div>' +
+						progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка запроса</div>' +
 							'<p>' + (e.message || 'Ошибка RPC') + '</p>';
 						btnCancel.disabled = false;
 						btnCancel.textContent = 'Закрыть';
@@ -236,17 +281,13 @@ return view.extend({
 			ui.showModal('Обновление Sirin VPN', [
 				modalBody,
 				progressDiv,
-				E('div', { class: 'right', style: 'margin-top: 15px;' }, [
-					btnCancel,
-					' ',
-					btnApply
-				])
+				E('div', { class: 'right', style: 'margin-top: 15px;' }, [btnCancel, ' ', btnApply])
 			]);
 		}
 
 		var btnCheckUpdate = E('button', {
 			class: 'btn cbi-button cbi-button-neutral',
-			style: 'padding: 2px 8px; font-size: 12px; margin-left: 8px;',
+			style: 'padding: 2px 10px; font-size: 12px; margin-left: 8px;',
 			click: function() {
 				btnCheckUpdate.disabled = true;
 				updateStatusSpan.textContent = ' Проверка...';
@@ -260,19 +301,14 @@ return view.extend({
 						var btnDoUpgrade = E('button', {
 							class: 'btn cbi-button cbi-button-action',
 							style: 'margin-left: 8px; padding: 2px 8px; font-size: 12px;',
-							click: function() {
-								showUpgradeModal(res);
-							}
+							click: function() { showUpgradeModal(res); }
 						}, 'Обновить до ' + (res.tag || ('v' + res.latest_version)));
-
 						updateStatusSpan.innerHTML = '';
-						updateStatusSpan.appendChild(E('span', { style: 'color:#5cb85c; font-weight:bold; margin-left:6px;' }, 'Доступно: ' + res.latest_version));
+						updateStatusSpan.appendChild(E('span', { style: 'color:#28a745; font-weight:bold; margin-left:6px;' }, 'Доступна v' + res.latest_version));
 						updateStatusSpan.appendChild(btnDoUpgrade);
 					} else {
-						updateStatusSpan.innerHTML = '<span style="color:#5cb85c; margin-left:6px;">✓ У вас последняя версия (' + res.current_version + ')</span>';
-						setTimeout(function() {
-							updateStatusSpan.innerHTML = '';
-						}, 6000);
+						updateStatusSpan.innerHTML = '<span style="color:#28a745; margin-left:6px; font-weight:bold;">✓ Установлена последняя версия (' + res.current_version + ')</span>';
+						setTimeout(function() { updateStatusSpan.innerHTML = ''; }, 6000);
 					}
 				}).catch(function(e) {
 					btnCheckUpdate.disabled = false;
@@ -281,91 +317,60 @@ return view.extend({
 			}
 		}, 'Проверить обновления');
 
-		var statusNode = E('span', { class: 'label' }, 'Опрос...');
-		var infoTable = E('table', { class: 'table' }, [
-			E('tr', { class: 'tr' }, [
-				E('td', { class: 'td', style: 'width:30%' }, 'Статус службы:'),
-				E('td', { class: 'td' }, statusNode)
-			]),
-			E('tr', { class: 'tr' }, [
-				E('td', { class: 'td' }, 'Версия клиента:'),
-				E('td', { class: 'td' }, [
-					E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '1.7.0'),
-					btnCheckUpdate,
-					updateStatusSpan
-				])
-			]),
-			E('tr', { class: 'tr' }, [
-				E('td', { class: 'td' }, 'Активный транспорт:'),
-				E('td', { class: 'td', id: 'sirin-transport' }, status.transport ? status.transport.toUpperCase() : '—')
-			]),
-			E('tr', { class: 'tr' }, [
-				E('td', { class: 'td' }, 'Время непрерывной работы:'),
-				E('td', { class: 'td', id: 'sirin-uptime' }, formatUptime(status.uptime_sec))
-			]),
-			E('tr', { class: 'tr' }, [
-				E('td', { class: 'td' }, 'Автозапуск при старте:'),
-				E('td', { class: 'td', id: 'sirin-enabled' }, status.enabled ? 'Включен' : 'Отключен')
-			])
-		]);
+		// --- HEADER STATUS CONTROLS ---
+		var statusBadge = E('span', {
+			class: 'label',
+			style: 'font-size: 13px; padding: 4px 10px; border-radius: 12px;'
+		}, 'Опрос...');
+
+		var transportNode = E('span', {
+			id: 'sirin-transport',
+			style: 'font-weight: bold; color: #0069d9;'
+		}, status.transport ? formatTransportHuman(status.transport) : '—');
+
+		var uptimeNode = E('span', { id: 'sirin-uptime' }, formatUptime(status.uptime_sec));
+		var versionNode = E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '1.8.0');
 
 		var btnStart = E('button', {
 			class: 'btn cbi-button cbi-button-action',
-			style: 'margin-right: 8px;',
+			style: 'margin-right: 6px;',
 			click: function() {
 				btnStart.disabled = true;
 				return callStart().then(function(res) {
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Служба Sirin запущена'), 'info');
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка запуска'), 'error');
-					}
+					if (res && res.ok) ui.addNotification(null, E('p', {}, 'Защита Sirin VPN включена'), 'info');
+					else ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка запуска'), 'error');
 					updateStatusView();
-				}).catch(function(e) {
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC'), 'error');
-					updateStatusView();
-				});
+				}).catch(function() { updateStatusView(); });
 			}
-		}, 'Запустить');
+		}, '▶ Включить защиту');
 
 		var btnStop = E('button', {
 			class: 'btn cbi-button cbi-button-reset',
-			style: 'margin-right: 8px;',
+			style: 'margin-right: 6px;',
 			click: function() {
 				btnStop.disabled = true;
 				return callStop().then(function(res) {
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Служба Sirin остановлена'), 'info');
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка остановки'), 'error');
-					}
+					if (res && res.ok) ui.addNotification(null, E('p', {}, 'Служба Sirin VPN остановлена'), 'info');
+					else ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка остановки'), 'error');
 					updateStatusView();
-				}).catch(function(e) {
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC'), 'error');
-					updateStatusView();
-				});
+				}).catch(function() { updateStatusView(); });
 			}
-		}, 'Остановить');
+		}, '■ Остановить');
 
 		var btnRestart = E('button', {
 			class: 'btn cbi-button cbi-button-apply',
-			style: 'margin-right: 8px;',
+			style: 'margin-right: 6px;',
 			click: function() {
 				btnRestart.disabled = true;
 				return callRestart().then(function(res) {
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка перезапуска'), 'error');
-					}
+					if (res && res.ok) ui.addNotification(null, E('p', {}, 'Служба Sirin VPN перезапущена'), 'info');
+					else ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка перезапуска'), 'error');
 					updateStatusView();
-				}).catch(function(e) {
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC'), 'error');
-					updateStatusView();
-				});
+				}).catch(function() { updateStatusView(); });
 			}
-		}, 'Перезапустить');
+		}, '↻ Перезапустить');
 
+		var currentStatus = status;
 		var btnAutostart = E('button', {
 			class: 'btn cbi-button',
 			click: function() {
@@ -373,75 +378,78 @@ return view.extend({
 				var act = currentStatus.enabled ? callDisable : callEnable;
 				var text = currentStatus.enabled ? 'отключен' : 'включен';
 				return act().then(function(res) {
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Автозапуск ' + text), 'info');
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка изменения автозапуска'), 'error');
-					}
+					if (res && res.ok) ui.addNotification(null, E('p', {}, 'Автозапуск при включении роутера ' + text), 'info');
 					updateStatusView();
-				}).catch(function(e) {
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC'), 'error');
-					updateStatusView();
-				});
+				}).catch(function() { updateStatusView(); });
 			}
 		}, 'Автозапуск');
 
-		var currentStatus = status;
 		function applyStatus(st) {
 			currentStatus = st || {};
 			var isRunning = !!currentStatus.running;
-			statusNode.className = isRunning ? 'label success' : 'label warning';
-			statusNode.textContent = isRunning ? ('Работает (PID: ' + (currentStatus.pid || '—') + ')') : 'Остановлен';
+			statusBadge.className = isRunning ? 'label success' : 'label warning';
+			statusBadge.textContent = isRunning ? ('Защита активна (PID: ' + (currentStatus.pid || '—') + ')') : 'Защита остановлена';
 
-			var elVer = document.getElementById('sirin-version');
-			if (elVer) elVer.textContent = currentStatus.version || '1.7.0';
-
-			var elTrans = document.getElementById('sirin-transport');
-			if (elTrans) elTrans.textContent = isRunning ? (currentStatus.transport ? currentStatus.transport.toUpperCase() : 'Определение...') : '—';
-
-			var elUptime = document.getElementById('sirin-uptime');
-			if (elUptime) elUptime.textContent = isRunning ? formatUptime(currentStatus.uptime_sec) : '—';
-
-			var elEnabled = document.getElementById('sirin-enabled');
-			if (elEnabled) elEnabled.textContent = currentStatus.enabled ? 'Включен' : 'Отключен';
+			versionNode.textContent = currentStatus.version || '1.8.0';
+			transportNode.textContent = isRunning ? formatTransportHuman(currentStatus.transport) : '—';
+			uptimeNode.textContent = isRunning ? formatUptime(currentStatus.uptime_sec) : '—';
 
 			btnStart.disabled = isRunning;
 			btnStop.disabled = !isRunning;
 			btnRestart.disabled = false;
 			btnAutostart.disabled = false;
-			btnAutostart.textContent = currentStatus.enabled ? 'Отключить автозапуск' : 'Включить автозапуск';
+			btnAutostart.textContent = currentStatus.enabled ? '✓ Автозапуск включен' : 'Включить автозапуск';
 		}
 		applyStatus(status);
 
 		function updateStatusView() {
-			return callStatus().then(function(st) {
-				applyStatus(st);
-			}).catch(function() {});
+			return callStatus().then(function(st) { applyStatus(st); }).catch(function() {});
+		}
+		poll.add(function() { return updateStatusView(); }, 5);
+
+		// --- EXPERT MODE TOGGLE ---
+		var expertBlocks = [];
+		function registerExpertBlock(el) {
+			expertBlocks.push(el);
+			el.style.display = isExpert ? 'block' : 'none';
+			return el;
 		}
 
-		poll.add(function() {
-			return updateStatusView();
-		}, 5);
+		var btnModeToggle = E('button', {
+			class: 'btn cbi-button',
+			style: 'font-weight: bold;',
+			click: function() {
+				isExpert = !isExpert;
+				try { localStorage.setItem('sirin_ui_expert', isExpert ? '1' : '0'); } catch (e) {}
+				btnModeToggle.textContent = isExpert ? '🛠 Режим: Экспертный (показаны все тонкие настройки)' : '👤 Режим: Простой (понятные настройки)';
+				for (var i = 0; i < expertBlocks.length; i++) {
+					expertBlocks[i].style.display = isExpert ? 'block' : 'none';
+				}
+			}
+		}, isExpert ? '🛠 Режим: Экспертный (показаны все тонкие настройки)' : '👤 Режим: Простой (понятные настройки)');
 
-		// Section 2: Connection settings
+		// --- FORM INPUTS (SHARED ACROSS TABS & PRESETS) ---
 		var inGateway = E('input', {
 			class: 'cbi-input-text',
 			type: 'text',
 			placeholder: 'crp.guseynovia.ru',
-			value: config.gateway || ''
+			value: config.gateway || 'crp.guseynovia.ru',
+			change: function() { markDirty(); }
 		});
 
 		var inPassword = E('input', {
 			class: 'cbi-input-text',
 			type: 'password',
-			placeholder: 'UUID из @sirin_crp_bot',
-			value: config.password || ''
+			style: 'max-width: 340px;',
+			placeholder: 'Вставьте UUID-ключ из @sirin_crp_bot',
+			value: config.password || '',
+			input: function() { checkPasswordWarn(); markDirty(); }
 		});
 
 		var passWarnNode = E('div', {
 			class: 'cbi-value-description',
 			style: 'color: #d99b26; display: none; margin-top: 4px;'
-		}, 'Предупреждение: ключ не похож на UUID v4 (формат xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)');
+		}, 'Проверьте формат: ключ должен быть в формате UUID (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)');
 
 		function checkPasswordWarn() {
 			var val = inPassword.value.trim();
@@ -453,9 +461,6 @@ return view.extend({
 			}
 		}
 
-		inPassword.addEventListener('input', checkPasswordWarn);
-		inPassword.addEventListener('change', checkPasswordWarn);
-
 		var btnTogglePass = E('button', {
 			class: 'btn cbi-button',
 			type: 'button',
@@ -463,19 +468,20 @@ return view.extend({
 			click: function() {
 				if (inPassword.type === 'password') {
 					inPassword.type = 'text';
-					btnTogglePass.textContent = 'Скрыть';
+					btnTogglePass.textContent = 'Скрыть ключ';
 				} else {
 					inPassword.type = 'password';
-					btnTogglePass.textContent = 'Показать';
+					btnTogglePass.textContent = 'Показать ключ';
 				}
 			}
-		}, 'Показать');
+		}, 'Показать ключ');
 
 		var inDeviceId = E('input', {
 			class: 'cbi-input-text',
 			type: 'text',
 			placeholder: 'router-01',
-			value: config.device_id || 'router-01'
+			value: config.device_id || 'router-01',
+			change: function() { markDirty(); }
 		});
 
 		var inTunMtu = E('input', {
@@ -483,19 +489,36 @@ return view.extend({
 			type: 'number',
 			min: '576',
 			max: '1500',
-			value: config.tun_mtu || 1280
+			style: 'width: 110px;',
+			value: config.tun_mtu || 1280,
+			change: function() { markDirty(); }
 		});
 
+		// Protection & OpSec inputs
 		var chkKillSwitch = E('input', {
-			class: 'cbi-input-checkbox',
 			type: 'checkbox',
-			checked: (config.kill_switch !== undefined ? !!config.kill_switch : true)
+			checked: (config.kill_switch !== undefined ? !!config.kill_switch : true),
+			change: function() { markDirty(); }
+		});
+
+		var opsecInitial = (config.normalize_ttl !== undefined ? !!config.normalize_ttl : true) &&
+			(config.intercept_dns !== undefined ? !!config.intercept_dns : true);
+
+		var chkSimpleOpSec = E('input', {
+			type: 'checkbox',
+			checked: opsecInitial,
+			change: function() {
+				chkNormalizeTTL.checked = chkSimpleOpSec.checked;
+				chkInterceptDNS.checked = chkSimpleOpSec.checked;
+				chkBlockDoT.checked = chkSimpleOpSec.checked;
+				markDirty();
+			}
 		});
 
 		var chkNormalizeTTL = E('input', {
-			class: 'cbi-input-checkbox',
 			type: 'checkbox',
-			checked: (config.normalize_ttl !== undefined ? !!config.normalize_ttl : true)
+			checked: (config.normalize_ttl !== undefined ? !!config.normalize_ttl : true),
+			change: function() { markDirty(); }
 		});
 
 		var inTargetTTL = E('input', {
@@ -504,1032 +527,1029 @@ return view.extend({
 			min: '1',
 			max: '255',
 			style: 'width: 80px;',
-			value: config.target_ttl || 64
+			value: config.target_ttl || 64,
+			change: function() { markDirty(); }
 		});
 
 		var chkInterceptDNS = E('input', {
-			class: 'cbi-input-checkbox',
 			type: 'checkbox',
-			checked: (config.intercept_dns !== undefined ? !!config.intercept_dns : true)
+			checked: (config.intercept_dns !== undefined ? !!config.intercept_dns : true),
+			change: function() { markDirty(); }
 		});
 
 		var chkBlockDoT = E('input', {
-			class: 'cbi-input-checkbox',
 			type: 'checkbox',
-			checked: (config.block_dot !== undefined ? !!config.block_dot : true)
+			checked: (config.block_dot !== undefined ? !!config.block_dot : true),
+			change: function() { markDirty(); }
 		});
 
 		var txtDeadDrop = E('textarea', {
 			class: 'cbi-input-textarea',
 			rows: 3,
 			style: 'width: 100%; font-family: monospace;',
-			placeholder: 'https://disk.yandex.ru/d/...\nhttps://bucket.storage.yandexcloud.net/params.json'
+			placeholder: 'https://disk.yandex.ru/d/...\nhttps://bucket.storage.yandexcloud.net/params.json',
+			change: function() { markDirty(); }
 		}, (config.dead_drop_urls || []).join('\n'));
 
-		var btnSaveConfig = E('button', {
-			class: 'btn cbi-button cbi-button-save',
-			style: 'margin-right: 8px;',
-			click: function() {
-				var gw = inGateway.value.trim();
-				var pw = inPassword.value.trim();
-				var did = inDeviceId.value.trim();
-				var mtu = parseInt(inTunMtu.value, 10);
-				var rud = (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true);
-				var ks = chkKillSwitch.checked;
-				var normTTL = chkNormalizeTTL.checked;
-				var targTTL = parseInt(inTargetTTL.value, 10);
-				if (isNaN(targTTL) || targTTL < 1 || targTTL > 255) targTTL = 64;
-				var intDNS = chkInterceptDNS.checked;
-				var blkDoT = chkBlockDoT.checked;
-
-				var rawDD = txtDeadDrop.value.split('\n');
-				var validDD = [];
-				for (var d = 0; d < rawDD.length; d++) {
-					var item = rawDD[d].trim();
-					if (item && (item.indexOf('http://') === 0 || item.indexOf('https://') === 0)) {
-						validDD.push(item);
-					}
-				}
-
-				if (!gw || /[^a-zA-Z0-9.-]/.test(gw)) {
-					ui.addNotification(null, E('p', {}, 'Ошибка в поле «Шлюз»: укажите валидное доменное имя или IP-адрес'), 'error');
-					return;
-				}
-				if (!pw) {
-					ui.addNotification(null, E('p', {}, 'Ошибка в поле «Ключ доступа»: поле не может быть пустым'), 'error');
-					return;
-				}
-				if (!did || /[^a-zA-Z0-9._-]/.test(did) || did.length > 64) {
-					ui.addNotification(null, E('p', {}, 'Ошибка в поле «ID устройства»: допустимы символы a-z, 0-9, ., _, -, до 64 символов'), 'error');
-					return;
-				}
-				if (isNaN(mtu) || mtu < 576 || mtu > 1500) {
-					ui.addNotification(null, E('p', {}, 'Ошибка в поле «MTU»: значение должно быть от 576 до 1500'), 'error');
-					return;
-				}
-
-				btnSaveConfig.disabled = true;
-				return callSetConfig(gw, pw, did, rud, mtu, ks, normTTL, targTTL, intDNS, blkDoT, validDD).then(function(res) {
-					btnSaveConfig.disabled = false;
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Настройки успешно сохранены в /etc/sirin/client.toml'), 'info');
-						ui.showModal('Перезапустить службу Sirin?', [
-							E('p', {}, 'Настройки сохранены. Желаете перезапустить туннель прямо сейчас, чтобы применить новые параметры?'),
-							E('div', { class: 'right' }, [
-								E('button', {
-									class: 'btn cbi-button cbi-button-neutral',
-									style: 'margin-right: 8px;',
-									click: function() {
-										ui.hideModal();
-									}
-								}, 'Нет, позже'),
-								E('button', {
-									class: 'btn cbi-button cbi-button-apply',
-									click: function() {
-										ui.hideModal();
-										callRestart().then(function() {
-											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
-											updateStatusView();
-										});
-									}
-								}, 'Да, перезапустить')
-							])
-						]);
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения настроек'), 'error');
-					}
-				}).catch(function(e) {
-					btnSaveConfig.disabled = false;
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения'), 'error');
-				});
-			}
-		}, 'Сохранить');
-
-		var btnCancelConfig = E('button', {
-			class: 'btn cbi-button cbi-button-reset',
-			click: function() {
-				btnCancelConfig.disabled = true;
-				return callGetConfig().then(function(cfg) {
-					btnCancelConfig.disabled = false;
-					if (cfg) {
-						inGateway.value = cfg.gateway || '';
-						inPassword.value = cfg.password || '';
-						inDeviceId.value = cfg.device_id || 'router-01';
-						inTunMtu.value = cfg.tun_mtu || 1280;
-						chkKillSwitch.checked = (cfg.kill_switch !== undefined ? !!cfg.kill_switch : true);
-						chkNormalizeTTL.checked = (cfg.normalize_ttl !== undefined ? !!cfg.normalize_ttl : true);
-						inTargetTTL.value = cfg.target_ttl || 64;
-						chkInterceptDNS.checked = (cfg.intercept_dns !== undefined ? !!cfg.intercept_dns : true);
-						chkBlockDoT.checked = (cfg.block_dot !== undefined ? !!cfg.block_dot : true);
-						txtDeadDrop.value = (cfg.dead_drop_urls || []).join('\n');
-						ui.addNotification(null, E('p', {}, 'Значения сброшены до текущих настроек файла'), 'info');
-					}
-				}).catch(function() {
-					btnCancelConfig.disabled = false;
-				});
-			}
-		}, 'Отмена');
-
-		// Section 3: Split Tunneling
-		var splitMode = (splitConfig.mode || 'bypass').toLowerCase();
-		var radBypass = E('input', {
-			type: 'radio',
-			name: 'split_mode',
-			value: 'bypass',
-			checked: splitMode !== 'only'
-		});
-		var radOnly = E('input', {
-			type: 'radio',
-			name: 'split_mode',
-			value: 'only',
-			checked: splitMode === 'only'
-		});
-
-		var chkRuDirect = E('input', {
-			type: 'checkbox',
-			checked: (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true)
-		});
-
-		var ruDirectWarnNode = E('div', {
-			class: 'cbi-value-description',
-			style: 'color: #d99b26; display: ' + (splitMode === 'only' ? 'block' : 'none') + '; margin-top: 4px;'
-		}, 'Внимание: список RuDirect игнорируется в режиме «Only» (через VPN пойдут только адреса из списков ниже).');
-
-		function updateModeUI() {
-			if (radOnly.checked) {
-				ruDirectWarnNode.style.display = 'block';
-			} else {
-				ruDirectWarnNode.style.display = 'none';
-			}
-		}
-
-		radBypass.addEventListener('change', updateModeUI);
-		radOnly.addEventListener('change', updateModeUI);
-
-		var txtCIDRs = E('textarea', {
-			class: 'cbi-input-textarea',
-			rows: 5,
-			style: 'width: 100%; font-family: monospace;',
-			placeholder: '1.1.1.1/32\n104.16.0.0/12'
-		}, (splitConfig.cidrs || []).join('\n'));
-
-		var txtDomains = E('textarea', {
-			class: 'cbi-input-textarea',
-			rows: 5,
-			style: 'width: 100%; font-family: monospace;',
-			placeholder: 'rutracker.org\nkinopoisk.ru'
-		}, (splitConfig.domains || []).join('\n'));
-
-		var portMode = (splitConfig.port_mode || 'only').toLowerCase();
-		var radPortOnly = E('input', {
-			type: 'radio',
-			name: 'split_port_mode',
-			value: 'only',
-			checked: portMode !== 'bypass'
-		});
-		var radPortBypass = E('input', {
-			type: 'radio',
-			name: 'split_port_mode',
-			value: 'bypass',
-			checked: portMode === 'bypass'
-		});
-
-		var txtPorts = E('textarea', {
-			class: 'cbi-input-textarea',
-			rows: 4,
-			style: 'width: 100%; font-family: monospace;',
-			placeholder: '80\n443\n8080-8090\nudp:27000-27050'
-		}, (splitConfig.ports || []).join('\n'));
-
-		var btnSaveSplit = E('button', {
-			class: 'btn cbi-button cbi-button-save',
-			style: 'margin-right: 8px;',
-			click: function() {
-				var mode = radOnly.checked ? 'only' : 'bypass';
-				var useRu = chkRuDirect.checked;
-
-				// Parse and validate CIDRs
-				var rawCidrs = txtCIDRs.value.split('\n');
-				var validCidrs = [];
-				var cidrRegex = /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(\/[0-9]{1,2})?$/;
-				for (var i = 0; i < rawCidrs.length; i++) {
-					var c = rawCidrs[i].trim();
-					if (!c) continue;
-					if (!cidrRegex.test(c)) {
-						ui.addNotification(null, E('p', {}, 'Некорректный формат CIDR или IP: ' + c), 'error');
-						return;
-					}
-					validCidrs.push(c);
-				}
-
-				// Parse and validate domains
-				var rawDomains = txtDomains.value.split('\n');
-				var validDomains = [];
-				var domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
-				for (var j = 0; j < rawDomains.length; j++) {
-					var d = rawDomains[j].trim().toLowerCase();
-					if (!d) continue;
-					if (!domainRegex.test(d)) {
-						ui.addNotification(null, E('p', {}, 'Некорректный формат доменного имени: ' + d), 'error');
-						return;
-					}
-					validDomains.push(d);
-				}
-
-				// Parse and validate ports
-				var rawPorts = txtPorts.value.split('\n');
-				var validPorts = [];
-				var portRegex = /^(tcp:|udp:)?[0-9]{1,5}(-[0-9]{1,5})?$/i;
-				for (var k = 0; k < rawPorts.length; k++) {
-					var p = rawPorts[k].trim();
-					if (!p) continue;
-					if (!portRegex.test(p)) {
-						ui.addNotification(null, E('p', {}, 'Некорректный формат порта или диапазона: ' + p), 'error');
-						return;
-					}
-					var checkPart = p;
-					if (checkPart.indexOf(':') !== -1) {
-						checkPart = checkPart.split(':')[1];
-					}
-					if (checkPart.indexOf('-') !== -1) {
-						var rangeParts = checkPart.split('-');
-						var pStart = parseInt(rangeParts[0], 10);
-						var pEnd = parseInt(rangeParts[1], 10);
-						if (pStart < 1 || pStart > 65535 || pEnd < 1 || pEnd > 65535 || pStart >= pEnd) {
-							ui.addNotification(null, E('p', {}, 'Некорректный диапазон портов (1-65535, start < end): ' + p), 'error');
-							return;
-						}
-					} else {
-						var pVal = parseInt(checkPart, 10);
-						if (pVal < 1 || pVal > 65535) {
-							ui.addNotification(null, E('p', {}, 'Номер порта вне диапазона 1-65535: ' + p), 'error');
-							return;
-						}
-					}
-					validPorts.push(p);
-				}
-				var selectedPortMode = radPortBypass.checked ? 'bypass' : 'only';
-
-				btnSaveSplit.disabled = true;
-				return callSetSplitConfig(mode, useRu, validCidrs, validDomains, validPorts, selectedPortMode).then(function(res) {
-					btnSaveSplit.disabled = false;
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Параметры раздельного туннелирования сохранены'), 'info');
-						ui.showModal('Перезапустить службу Sirin?', [
-							E('p', {}, 'Параметры разделения сохранены. Для применения маршрутизации требуется перезапуск службы.'),
-							E('div', { class: 'right' }, [
-								E('button', {
-									class: 'btn cbi-button cbi-button-neutral',
-									style: 'margin-right: 8px;',
-									click: function() {
-										ui.hideModal();
-									}
-								}, 'Нет, позже'),
-								E('button', {
-									class: 'btn cbi-button cbi-button-apply',
-									click: function() {
-										ui.hideModal();
-										callRestart().then(function() {
-											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
-											updateStatusView();
-										});
-									}
-								}, 'Да, перезапустить')
-							])
-						]);
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения разделения'), 'error');
-					}
-				}).catch(function(e) {
-					btnSaveSplit.disabled = false;
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения'), 'error');
-				});
-			}
-		}, 'Сохранить раздельное туннелирование');
-
-		var btnCancelSplit = E('button', {
-			class: 'btn cbi-button cbi-button-reset',
-			click: function() {
-				btnCancelSplit.disabled = true;
-				return callGetSplitConfig().then(function(sc) {
-					btnCancelSplit.disabled = false;
-					sc = sc || {};
-					if (sc.mode === 'only') {
-						radOnly.checked = true;
-					} else {
-						radBypass.checked = true;
-					}
-					updateModeUI();
-					chkRuDirect.checked = (sc.use_ru_direct !== undefined ? !!sc.use_ru_direct : true);
-					txtCIDRs.value = (sc.cidrs || []).join('\n');
-					txtDomains.value = (sc.domains || []).join('\n');
-					txtPorts.value = (sc.ports || []).join('\n');
-					if (sc.port_mode === 'bypass') {
-						radPortBypass.checked = true;
-					} else {
-						radPortOnly.checked = true;
-					}
-					ui.addNotification(null, E('p', {}, 'Настройки разделения сброшены'), 'info');
-				}).catch(function() {
-					btnCancelSplit.disabled = false;
-				});
-			}
-		}, 'Отмена');
-
-		// Section 4: Anti-DPI (YouTube / Discord)
+		// Anti-DPI (Zapret 2) inputs
 		var chkADEnabled = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.enabled !== undefined ? !!antiDPI.enabled : true)
+			checked: (antiDPI.enabled !== undefined ? !!antiDPI.enabled : true),
+			change: function() { markDirty(); updatePresetHighlight(); }
 		});
-
 		var chkADYouTube = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.youtube !== undefined ? !!antiDPI.youtube : true)
+			checked: (antiDPI.youtube !== undefined ? !!antiDPI.youtube : true),
+			change: function() { markDirty(); }
 		});
-
 		var chkADInstagram = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.instagram !== undefined ? !!antiDPI.instagram : true)
+			checked: (antiDPI.instagram !== undefined ? !!antiDPI.instagram : true),
+			change: function() { markDirty(); }
 		});
-
 		var chkADDiscord = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.discord !== undefined ? !!antiDPI.discord : true)
+			checked: (antiDPI.discord !== undefined ? !!antiDPI.discord : true),
+			change: function() { markDirty(); }
 		});
-
 		var chkADQUICReject = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.quic_reject !== undefined ? !!antiDPI.quic_reject : true)
+			checked: (antiDPI.quic_reject !== undefined ? !!antiDPI.quic_reject : true),
+			change: function() { markDirty(); }
 		});
-
 		var inADSplitPos = E('input', {
 			type: 'number',
 			class: 'cbi-input-text',
 			min: 1,
 			max: 100,
 			value: antiDPI.split_pos || 2,
-			style: 'width: 100px;'
+			style: 'width: 90px;',
+			change: function() { markDirty(); }
 		});
-
 		var inADPort = E('input', {
 			type: 'number',
 			class: 'cbi-input-text',
 			min: 1024,
 			max: 65535,
 			value: antiDPI.port || 56100,
-			style: 'width: 120px;'
+			style: 'width: 110px;',
+			change: function() { markDirty(); }
+		});
+		var txtADCustomDomains = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 3,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'hdrezka.ag\nexample.org',
+			change: function() { markDirty(); }
+		}, (antiDPI.custom_domains || []).join('\n'));
+
+		// Force VPN (Geo-blocked services) inputs
+		var fvServices = forceVPN.services || ['ai', 'spotify', 'autodesk', 'adobe', 'jetbrains', 'figma', 'notion', 'canva', 'nvidia'];
+		function hasFvService(name) {
+			for (var i = 0; i < fvServices.length; i++) {
+				if (fvServices[i] === name) return true;
+			}
+			return false;
+		}
+
+		var chkFVEnabled = E('input', {
+			type: 'checkbox',
+			checked: (forceVPN.enabled !== undefined ? !!forceVPN.enabled : true),
+			change: function() { markDirty(); }
+		});
+		var chkFVAI = E('input', {
+			type: 'checkbox',
+			checked: hasFvService('ai'),
+			change: function() { markDirty(); }
+		});
+		var chkFVSpotify = E('input', {
+			type: 'checkbox',
+			checked: hasFvService('spotify'),
+			change: function() { markDirty(); }
+		});
+		var chkFVWork = E('input', {
+			type: 'checkbox',
+			checked: hasFvService('autodesk') || hasFvService('adobe') || hasFvService('jetbrains') || hasFvService('figma') || hasFvService('notion') || hasFvService('canva'),
+			change: function() { markDirty(); }
 		});
 
-		var txtADCustomDomains = E('textarea', {
+		var txtFVDomains = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 5,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'bbc.com\nmeduza.io\nlinkedin.com',
+			change: function() { markDirty(); }
+		}, (forceVPN.domains || []).join('\n'));
+
+		// Split Tunneling inputs
+		var splitMode = (splitConfig.mode || 'bypass').toLowerCase();
+		var radBypass = E('input', {
+			type: 'radio',
+			name: 'split_mode',
+			value: 'bypass',
+			checked: splitMode !== 'only',
+			change: function() { markDirty(); updatePresetHighlight(); }
+		});
+		var radOnly = E('input', {
+			type: 'radio',
+			name: 'split_mode',
+			value: 'only',
+			checked: splitMode === 'only',
+			change: function() { markDirty(); updatePresetHighlight(); }
+		});
+
+		var chkRuDirect = E('input', {
+			type: 'checkbox',
+			checked: (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true),
+			change: function() { markDirty(); updatePresetHighlight(); }
+		});
+
+		var portMode = (splitConfig.port_mode || 'only').toLowerCase();
+		var hasGamingPorts = portMode === 'bypass' && (splitConfig.ports || []).length > 0;
+		var chkGamingBypass = E('input', {
+			type: 'checkbox',
+			checked: hasGamingPorts,
+			change: function() {
+				if (chkGamingBypass.checked) {
+					radPortBypass.checked = true;
+					if (!txtPorts.value.trim()) {
+						txtPorts.value = 'udp:27000-27100\nudp:3478-3480\nudp:3074\n6881-6889';
+					}
+				} else {
+					radPortOnly.checked = true;
+					txtPorts.value = '';
+				}
+				markDirty();
+				updatePresetHighlight();
+			}
+		});
+
+		var radPortOnly = E('input', {
+			type: 'radio',
+			name: 'split_port_mode',
+			value: 'only',
+			checked: portMode !== 'bypass',
+			change: function() { markDirty(); }
+		});
+		var radPortBypass = E('input', {
+			type: 'radio',
+			name: 'split_port_mode',
+			value: 'bypass',
+			checked: portMode === 'bypass',
+			change: function() { markDirty(); }
+		});
+
+		var txtDomains = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 5,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'gosuslugi.ru\nmybank.ru\nkinopoisk.ru',
+			change: function() { markDirty(); }
+		}, (splitConfig.domains || []).join('\n'));
+
+		var txtCIDRs = E('textarea', {
 			class: 'cbi-input-textarea',
 			rows: 4,
 			style: 'width: 100%; font-family: monospace;',
-			placeholder: 'example.com\ncdn.example.org'
-		}, (antiDPI.custom_domains || []).join('\n'));
+			placeholder: '1.1.1.1/32\n104.16.0.0/12',
+			change: function() { markDirty(); }
+		}, (splitConfig.cidrs || []).join('\n'));
 
-		var btnSaveAntiDPI = E('button', {
-			class: 'btn cbi-button cbi-button-save',
-			style: 'margin-right: 8px;',
-			click: function() {
-				var enabled = chkADEnabled.checked;
-				var yt = chkADYouTube.checked;
-				var ig = chkADInstagram.checked;
-				var dc = chkADDiscord.checked;
-				var quic = chkADQUICReject.checked;
-				var sp = parseInt(inADSplitPos.value, 10);
-				if (isNaN(sp) || sp < 1 || sp > 100) {
-					ui.addNotification(null, E('p', {}, 'Некорректная позиция фрагментации ClientHello (1-100)'), 'error');
-					return;
-				}
-				var port = parseInt(inADPort.value, 10);
-				if (isNaN(port) || port < 1024 || port > 65535) {
-					ui.addNotification(null, E('p', {}, 'Некорректный порт локального прокси Anti-DPI (1024-65535)'), 'error');
-					return;
-				}
+		var txtPorts = E('textarea', {
+			class: 'cbi-input-textarea',
+			rows: 3,
+			style: 'width: 100%; font-family: monospace;',
+			placeholder: 'udp:27000-27100\n6881-6889',
+			change: function() { markDirty(); }
+		}, (splitConfig.ports || []).join('\n'));
 
-				var rawDomains = txtADCustomDomains.value.split('\n');
-				var validDomains = [];
-				var domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
-				for (var i = 0; i < rawDomains.length; i++) {
-					var d = rawDomains[i].trim().toLowerCase();
-					if (!d) continue;
-					if (!domainRegex.test(d)) {
-						ui.addNotification(null, E('p', {}, 'Некорректный формат доменного имени Anti-DPI: ' + d), 'error');
-						return;
-					}
-					validDomains.push(d);
-				}
-
-				btnSaveAntiDPI.disabled = true;
-				return callSetAntiDPIConfig(enabled, port, sp, quic, yt, ig, dc, validDomains).then(function(res) {
-					btnSaveAntiDPI.disabled = false;
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Параметры Anti-DPI сохранены'), 'info');
-						ui.showModal('Перезапустить службу Sirin?', [
-							E('p', {}, 'Параметры Anti-DPI сохранены. Для применения сетевых правил nftables и dnsmasq требуется перезапуск службы.'),
-							E('div', { class: 'right' }, [
-								E('button', {
-									class: 'btn cbi-button cbi-button-neutral',
-									style: 'margin-right: 8px;',
-									click: function() {
-										ui.hideModal();
-									}
-								}, 'Нет, позже'),
-								E('button', {
-									class: 'btn cbi-button cbi-button-apply',
-									click: function() {
-										ui.hideModal();
-										callRestart().then(function() {
-											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
-											updateStatusView();
-										});
-									}
-								}, 'Да, перезапустить')
-							])
-						]);
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения Anti-DPI'), 'error');
-					}
-				}).catch(function(e) {
-					btnSaveAntiDPI.disabled = false;
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения Anti-DPI'), 'error');
-				});
-			}
-		}, 'Сохранить параметры Anti-DPI');
-
-		var btnCancelAntiDPI = E('button', {
-			class: 'btn cbi-button cbi-button-reset',
-			click: function() {
-				btnCancelAntiDPI.disabled = true;
-				return callGetAntiDPIConfig().then(function(ad) {
-					btnCancelAntiDPI.disabled = false;
-					ad = ad || {};
-					chkADEnabled.checked = (ad.enabled !== undefined ? !!ad.enabled : true);
-					chkADYouTube.checked = (ad.youtube !== undefined ? !!ad.youtube : true);
-					chkADInstagram.checked = (ad.instagram !== undefined ? !!ad.instagram : true);
-					chkADDiscord.checked = (ad.discord !== undefined ? !!ad.discord : true);
-					chkADQUICReject.checked = (ad.quic_reject !== undefined ? !!ad.quic_reject : true);
-					inADSplitPos.value = ad.split_pos || 2;
-					inADPort.value = ad.port || 56100;
-					txtADCustomDomains.value = (ad.custom_domains || []).join('\n');
-					ui.addNotification(null, E('p', {}, 'Настройки Anti-DPI сброшены'), 'info');
-				}).catch(function() {
-					btnCancelAntiDPI.disabled = false;
-				});
-			}
-		}, 'Отмена');
-
-		// Section 5: Whitelist Fallback (VK Calls / DION / S3)
+		// Whitelist Fallback inputs
 		var chkWLEnabled = E('input', {
 			type: 'checkbox',
-			checked: (wlConfig.enabled !== undefined ? !!wlConfig.enabled : true)
+			checked: (wlConfig.enabled !== undefined ? !!wlConfig.enabled : true),
+			change: function() { markDirty(); updatePresetHighlight(); }
 		});
-
 		var wlMode = (wlConfig.mode || 'auto').toLowerCase();
 		var radWLAuto = E('input', {
 			type: 'radio',
 			name: 'wl_mode',
 			value: 'auto',
-			checked: wlMode !== 'always'
+			checked: wlMode !== 'always',
+			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 		var radWLAlways = E('input', {
 			type: 'radio',
 			name: 'wl_mode',
 			value: 'always',
-			checked: wlMode === 'always'
+			checked: wlMode === 'always',
+			change: function() { markDirty(); updatePresetHighlight(); }
 		});
-
 		var inWLPort = E('input', {
 			type: 'number',
 			class: 'cbi-input-text',
 			min: 1,
 			max: 65535,
 			value: wlConfig.gateway_port || 56005,
-			style: 'width: 100px;'
+			style: 'width: 100px;',
+			change: function() { markDirty(); }
 		});
-
 		var chkWLDTLS = E('input', {
 			type: 'checkbox',
-			checked: !!wlConfig.use_dtls
+			checked: !!wlConfig.use_dtls,
+			change: function() { markDirty(); }
 		});
-
 		var inWLTurnBackup = E('input', {
 			type: 'text',
 			class: 'cbi-input-text',
 			value: wlConfig.turn_backup || '193.203.43.1:19302',
-			style: 'width: 250px;'
+			style: 'width: 240px;',
+			change: function() { markDirty(); }
 		});
-
 		var inWLTurnRealm = E('input', {
 			type: 'text',
 			class: 'cbi-input-text',
 			value: wlConfig.turn_realm || 'vkcalls',
-			style: 'width: 150px;'
+			style: 'width: 140px;',
+			change: function() { markDirty(); }
 		});
-
 		var inWLRelayTarget = E('input', {
 			type: 'text',
 			class: 'cbi-input-text',
 			value: wlConfig.relay_target || '',
-			placeholder: '200.10.40.239',
-			style: 'width: 200px;'
+			placeholder: 'Авто',
+			style: 'width: 180px;',
+			change: function() { markDirty(); }
 		});
-
 		var txtWLVKHashes = E('textarea', {
 			class: 'cbi-input-textarea',
-			rows: 4,
+			rows: 3,
 			style: 'width: 100%; font-family: monospace;',
-			placeholder: 'https://vk.com/call/join/abcdef123456\nhttps://vk.com/call/join/uvwxyz789012'
+			placeholder: 'https://vk.com/call/join/...',
+			change: function() { markDirty(); }
 		}, (wlConfig.vk_hashes || []).join('\n'));
-
 		var txtWLDionSlugs = E('textarea', {
 			class: 'cbi-input-textarea',
-			rows: 4,
+			rows: 3,
 			style: 'width: 100%; font-family: monospace;',
-			placeholder: 'https://dion.vc/event/my-room-slug\nanother-slug'
+			placeholder: 'https://dion.vc/event/...',
+			change: function() { markDirty(); }
 		}, (wlConfig.dion_slugs || []).join('\n'));
 
-		var btnSaveWhitelist = E('button', {
-			class: 'btn cbi-button cbi-button-save',
-			style: 'margin-right: 8px;',
-			click: function() {
-				var enabled = chkWLEnabled.checked;
-				var mode = radWLAlways.checked ? 'always' : 'auto';
-				var port = parseInt(inWLPort.value, 10);
-				if (isNaN(port) || port < 1 || port > 65535) {
-					ui.addNotification(null, E('p', {}, 'Некорректный порт шлюза для релея (1-65535)'), 'error');
-					return;
-				}
-				var dtls = chkWLDTLS.checked;
-				var turn = inWLTurnBackup.value.trim() || '193.203.43.1:19302';
-				var realm = inWLTurnRealm.value.trim() || 'vkcalls';
-				var target = inWLRelayTarget.value.trim();
+		// --- SCENARIO PRESETS (TAB 1) ---
+		var presetCards = {};
+		function detectActivePreset() {
+			if (chkWLEnabled.checked && radWLAlways.checked) return 'emergency';
+			if (!chkRuDirect.checked && !chkADEnabled.checked && radBypass.checked) return 'privacy';
+			if (chkRuDirect.checked && chkADEnabled.checked && chkGamingBypass.checked) return 'gaming';
+			if (chkRuDirect.checked && chkADEnabled.checked) return 'smart';
+			return 'custom';
+		}
 
-				var rawVK = txtWLVKHashes.value.split('\n');
-				var validVK = [];
-				for (var i = 0; i < rawVK.length; i++) {
-					var item = rawVK[i].trim();
-					if (item) validVK.push(item);
-				}
-
-				var rawDion = txtWLDionSlugs.value.split('\n');
-				var validDion = [];
-				for (var j = 0; j < rawDion.length; j++) {
-					var dItem = rawDion[j].trim();
-					if (dItem) validDion.push(dItem);
-				}
-
-				btnSaveWhitelist.disabled = true;
-				return callSetWhitelistConfig(enabled, mode, port, dtls, turn, realm, target, validVK, validDion).then(function(res) {
-					btnSaveWhitelist.disabled = false;
-					if (res && res.ok) {
-						ui.addNotification(null, E('p', {}, 'Параметры Whitelist Fallback сохранены'), 'info');
-						ui.showModal('Перезапустить службу Sirin?', [
-							E('p', {}, 'Параметры аварийного канала сохранены. Для применения конфигурации требуется перезапуск службы.'),
-							E('div', { class: 'right' }, [
-								E('button', {
-									class: 'btn cbi-button cbi-button-neutral',
-									style: 'margin-right: 8px;',
-									click: function() {
-										ui.hideModal();
-									}
-								}, 'Нет, позже'),
-								E('button', {
-									class: 'btn cbi-button cbi-button-apply',
-									click: function() {
-										ui.hideModal();
-										callRestart().then(function() {
-											ui.addNotification(null, E('p', {}, 'Служба Sirin перезапущена'), 'info');
-											updateStatusView();
-										});
-									}
-								}, 'Да, перезапустить')
-							])
-						]);
-					} else {
-						ui.addNotification(null, E('p', {}, (res && res.error) || 'Ошибка сохранения Whitelist Fallback'), 'error');
-					}
-				}).catch(function(e) {
-					btnSaveWhitelist.disabled = false;
-					ui.addNotification(null, E('p', {}, e.message || 'Ошибка RPC сохранения'), 'error');
-				});
+		function applyPreset(id) {
+			if (id === 'smart') {
+				radBypass.checked = true;
+				chkRuDirect.checked = true;
+				chkGamingBypass.checked = false;
+				radPortOnly.checked = true;
+				txtPorts.value = '';
+				chkADEnabled.checked = true;
+				chkADYouTube.checked = true;
+				chkADInstagram.checked = true;
+				chkADDiscord.checked = true;
+				chkFVEnabled.checked = true;
+				chkFVAI.checked = true;
+				chkFVSpotify.checked = true;
+				chkFVWork.checked = true;
+				chkWLEnabled.checked = true;
+				radWLAuto.checked = true;
+				markDirty('Выбран профиль «Умный режим (Рекомендуется)» — нажмите «Сохранить и применить»');
+			} else if (id === 'gaming') {
+				radBypass.checked = true;
+				chkRuDirect.checked = true;
+				chkGamingBypass.checked = true;
+				radPortBypass.checked = true;
+				txtPorts.value = 'udp:27000-27100\nudp:3478-3480\nudp:3074\n6881-6889';
+				chkADEnabled.checked = true;
+				chkADYouTube.checked = true;
+				chkADInstagram.checked = true;
+				chkADDiscord.checked = true;
+				chkFVEnabled.checked = true;
+				chkFVAI.checked = true;
+				chkWLEnabled.checked = true;
+				radWLAuto.checked = true;
+				markDirty('Выбран профиль «Игры и Стриминг без задержек» — нажмите «Сохранить и применить»');
+			} else if (id === 'privacy') {
+				radBypass.checked = true;
+				chkRuDirect.checked = false;
+				chkGamingBypass.checked = false;
+				radPortOnly.checked = true;
+				txtPorts.value = '';
+				chkADEnabled.checked = false;
+				chkKillSwitch.checked = true;
+				chkSimpleOpSec.checked = true;
+				chkNormalizeTTL.checked = true;
+				chkInterceptDNS.checked = true;
+				chkBlockDoT.checked = true;
+				radWLAuto.checked = true;
+				markDirty('Выбран профиль «Максимальная приватность (Весь трафик в VPN)» — нажмите «Сохранить и применить»');
+			} else if (id === 'emergency') {
+				chkWLEnabled.checked = true;
+				radWLAlways.checked = true;
+				chkRuDirect.checked = true;
+				markDirty('Выбран профиль «Экстренная связь (Белые списки VK / DION)» — нажмите «Сохранить и применить»');
 			}
-		}, 'Сохранить параметры Whitelist Fallback');
+			updatePresetHighlight();
+		}
 
-		var btnCancelWhitelist = E('button', {
-			class: 'btn cbi-button cbi-button-reset',
-			click: function() {
-				btnCancelWhitelist.disabled = true;
-				return callGetWhitelistConfig().then(function(wl) {
-					btnCancelWhitelist.disabled = false;
-					wl = wl || {};
-					chkWLEnabled.checked = (wl.enabled !== undefined ? !!wl.enabled : true);
-					if (wl.mode === 'always') {
-						radWLAlways.checked = true;
-					} else {
-						radWLAuto.checked = true;
-					}
-					inWLPort.value = wl.gateway_port || 56005;
-					chkWLDTLS.checked = !!wl.use_dtls;
-					inWLTurnBackup.value = wl.turn_backup || '193.203.43.1:19302';
-					inWLTurnRealm.value = wl.turn_realm || 'vkcalls';
-					inWLRelayTarget.value = wl.relay_target || '';
-					txtWLVKHashes.value = (wl.vk_hashes || []).join('\n');
-					txtWLDionSlugs.value = (wl.dion_slugs || []).join('\n');
-					ui.addNotification(null, E('p', {}, 'Настройки Whitelist Fallback сброшены'), 'info');
-				}).catch(function() {
-					btnCancelWhitelist.disabled = false;
-				});
+		function updatePresetHighlight() {
+			var active = detectActivePreset();
+			var ids = ['smart', 'gaming', 'privacy', 'emergency'];
+			for (var i = 0; i < ids.length; i++) {
+				var k = ids[i];
+				var card = presetCards[k];
+				if (!card) continue;
+				if (k === active) {
+					card.style.border = '2px solid #0069d9';
+					card.style.background = '#f0f7ff';
+					card.querySelector('.preset-badge').style.display = 'inline-block';
+				} else {
+					card.style.border = '1px solid #d8dee9';
+					card.style.background = '#ffffff';
+					card.querySelector('.preset-badge').style.display = 'none';
+				}
 			}
-		}, 'Отмена');
+		}
 
-		// Section 6: Diagnostics
-		var diagResult = E('div', { style: 'margin-top: 12px; display: none;' });
+		function buildPresetCard(id, icon, title, subtitle, bullets) {
+			var badge = E('span', {
+				class: 'preset-badge label success',
+				style: 'display: none; margin-left: 8px; font-size: 11px; padding: 2px 8px; border-radius: 10px;'
+			}, '✓ Выбран');
+
+			var ul = E('ul', { style: 'margin: 8px 0 0 18px; padding: 0; font-size: 12px; color: #495057;' });
+			for (var i = 0; i < bullets.length; i++) {
+				ul.appendChild(E('li', { style: 'margin-bottom: 3px;' }, bullets[i]));
+			}
+
+			var card = E('div', {
+				style: 'border: 1px solid #d8dee9; border-radius: 8px; padding: 14px 16px; cursor: pointer; background: #fff; transition: all 0.15s ease;',
+				click: function() { applyPreset(id); }
+			}, [
+				E('div', { style: 'display: flex; align-items: center; justify-content: space-between;' }, [
+					E('strong', { style: 'font-size: 15px; color: #212529;' }, icon + ' ' + title),
+					badge
+				]),
+				E('div', { style: 'font-size: 12px; color: #6c757d; margin-top: 4px;' }, subtitle),
+				ul
+			]);
+			presetCards[id] = card;
+			return card;
+		}
+
+		var presetsGrid = E('div', {
+			style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 10px;'
+		}, [
+			buildPresetCard(
+				'smart',
+				'🌟',
+				'Умный режим (Рекомендуется)',
+				'Идеальный баланс скорости и защиты на каждый день',
+				[
+					'Банки РФ, Госуслуги и маркетплейсы открываются напрямую',
+					'YouTube (4K), Instagram и Discord работают через Zapret 2 (0 Байт на VPS)',
+					'ChatGPT, Claude, Gemini и Spotify автоматически идут через VPN'
+				]
+			),
+			buildPresetCard(
+				'gaming',
+				'🎮',
+				'Игры и Стриминг без задержек',
+				'Минимальный пинг в онлайн-играх и высокая скорость загрузки',
+				[
+					'Все преимущества «Умного режима» для YouTube, Discord и ИИ',
+					'Игровые порты (Steam, CS2, Dota 2, PSN, Xbox) и торренты идут напрямую мимо VPN'
+				]
+			),
+			buildPresetCard(
+				'privacy',
+				'🔒',
+				'Максимальная приватность',
+				'Полное шифрование всего трафика домашней сети',
+				[
+					'Все сайты и приложения направляются через зарубежный VPN-сервер',
+					'Включена строгая блокировка утечек при обрыве (Kill Switch)'
+				]
+			),
+			buildPresetCard(
+				'emergency',
+				'🚨',
+				'Экстренная связь (Белые списки)',
+				'Для работы при блокировке зарубежного интернета и шатдаунах',
+				[
+					'Трафик маскируется под видеозвонки ВКонтакте (VK Звонки) и DION',
+					'Проходит через разрешённые российские серверы из белого списка'
+				]
+			)
+		]);
+		updatePresetHighlight();
+
+		// --- DIAGNOSTICS & LOGS (TAB 4) ---
+		var diagTrafficLights = E('div', { style: 'margin-top: 14px; display: none;' });
+		var inlineLogPre = E('pre', {
+			style: 'max-height: 360px; overflow-y: auto; background: #171c26; color: #dbe2ef; padding: 12px; font-family: monospace; font-size: 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; margin-top: 10px;'
+		}, 'Нажмите «Обновить журнал», чтобы загрузить последние записи...');
+
+		function refreshInlineLogs() {
+			return callGetLogs(120).then(function(res) {
+				var lines = (res && res.lines && res.lines.length) ? res.lines.join('\n') : 'Системный журнал пуст';
+				inlineLogPre.textContent = lines;
+			}).catch(function(e) {
+				inlineLogPre.textContent = 'Ошибка чтения журнала: ' + (e.message || 'RPC error');
+			});
+		}
 
 		var btnTestConn = E('button', {
 			class: 'btn cbi-button cbi-button-action',
 			style: 'margin-right: 8px;',
 			click: function() {
 				btnTestConn.disabled = true;
-				diagResult.style.display = 'block';
-				diagResult.innerHTML = '<p><em>Выполняется проверка сетевых маршрутов...</em></p>';
+				diagTrafficLights.style.display = 'block';
+				diagTrafficLights.innerHTML = '<div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">⏳ <em>Проверяем маршруты до российских сайтов, Zapret 2 и зарубежного VPN...</em></div>';
 
 				return callTestConnection().then(function(res) {
 					btnTestConn.disabled = false;
 					res = res || {};
-					var rudClass = res.rudirect_via_tunnel ? 'label warning' : 'label success';
-					var rudText = res.raw || (res.rudirect_via_tunnel ? 'РФ-трафик направлен в туннель' : 'RuDirect напрямую через WAN (ок)');
+					var ruOk = !res.rudirect_via_tunnel;
+					var zapOk = res.zapret_enabled !== false;
+					var vpnOk = !!res.ip_ok;
 
-					diagResult.innerHTML = '';
-					diagResult.appendChild(E('table', { class: 'table' }, [
-						E('tr', { class: 'tr' }, [
-							E('td', { class: 'td', style: 'width: 35%;' }, 'Внешний IP (через туннель):'),
-							E('td', { class: 'td' }, E('strong', {}, res.public_ip || 'нет ответа'))
-						]),
-						E('tr', { class: 'tr' }, [
-							E('td', { class: 'td' }, 'Режим разделения трафика:'),
-							E('td', { class: 'td' }, E('span', { class: rudClass }, rudText))
-						])
-					]));
-				}).catch(function(e) {
-					btnTestConn.disabled = false;
-					diagResult.innerHTML = '<p class="error">Ошибка проверки: ' + (e.message || 'RPC timeout') + '</p>';
-				});
-			}
-		}, 'Проверить подключение');
-
-		var btnShowLogs = E('button', {
-			class: 'btn cbi-button cbi-button-neutral',
-			click: function() {
-				function fetchAndShowLogs() {
-					return callGetLogs(200).then(function(res) {
-						var lines = (res && res.lines) ? res.lines.join('\n') : 'Журнал пуст';
-						var logPre = E('pre', {
-							style: 'max-height: 450px; overflow-y: auto; background: #1e1e1e; color: #dcdcdc; padding: 10px; font-family: monospace; font-size: 12px; border-radius: 4px; white-space: pre-wrap; word-break: break-all;'
-						}, lines);
-
-						ui.showModal('Журнал работы Sirin VPN', [
-							logPre,
-							E('div', { class: 'right', style: 'margin-top: 10px;' }, [
-								E('button', {
-									class: 'btn cbi-button cbi-button-action',
-									style: 'margin-right: 8px;',
-									click: function() {
-										fetchAndShowLogs();
-									}
-								}, 'Обновить'),
-								E('button', {
-									class: 'btn cbi-button cbi-button-neutral',
-									click: function() {
-										ui.hideModal();
-									}
-								}, 'Закрыть')
+					function makeRow(dot, title, statusText, desc) {
+						return E('div', {
+							style: 'display: flex; align-items: flex-start; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; background: #fff;'
+						}, [
+							E('span', { style: 'font-size: 18px; margin-right: 12px; line-height: 1.2;' }, dot),
+							E('div', {}, [
+								E('div', { style: 'font-weight: bold; font-size: 14px; color: #212529;' }, title + ' — ' + statusText),
+								E('div', { style: 'font-size: 12px; color: #6c757d; margin-top: 2px;' }, desc)
 							])
 						]);
-					}).catch(function(e) {
-						ui.addNotification(null, E('p', {}, 'Ошибка загрузки логов: ' + (e.message || 'RPC failure')), 'error');
-					});
-				}
-				fetchAndShowLogs();
+					}
+
+					diagTrafficLights.innerHTML = '';
+					diagTrafficLights.appendChild(makeRow(
+						ruOk ? '🟢' : '🔵',
+						'1. Российские сайты и банки (Яндекс, Госуслуги)',
+						ruOk ? 'Работают напрямую через провайдера' : 'Идут через защищённый VPN',
+						res.ru_status || res.raw || 'Маршрут проверен по ядерной таблице маршрутизации (77.88.8.8)'
+					));
+					diagTrafficLights.appendChild(makeRow(
+						zapOk ? '🟢' : '⚪',
+						'2. YouTube, Instagram, Discord и X (Движок Zapret 2)',
+						zapOk ? 'Ускорение активно (0 Байт нагрузки на VPS)' : 'Прямой обход отключён',
+						res.zapret_status || 'Адаптивная десинхронизация пакетов ТСПУ РКН (4 стратегии)'
+					));
+					diagTrafficLights.appendChild(makeRow(
+						vpnOk ? '🟢' : '🟡',
+						'3. Зарубежные сервисы и ИИ (ChatGPT, Claude, Gemini, Spotify)',
+						vpnOk ? ('Защищённый канал доступен (Внешний IP: ' + res.public_ip + ')') : 'Спящий режим / Ожидание трафика',
+						'Туннель поднимается автоматически за миллисекунды при обращении к зарубежным ИИ-сервисам'
+					));
+				}).catch(function(e) {
+					btnTestConn.disabled = false;
+					diagTrafficLights.innerHTML = '<p class="error">Ошибка проверки: ' + (e.message || 'RPC timeout') + '</p>';
+				});
 			}
-		}, 'Показать логи');
+		}, '🔍 Проверить работу всех направлений');
 
-		return E('div', { class: 'view' }, [
-			E('h2', {}, 'Sirin VPN — Управление Router-клиентом'),
-			E('p', { class: 'cbi-section-descr' }, 'Управление защищённым VPN-туннелем для домашней сети на базе протоколов UDP Noise NK и VLESS Reality.'),
+		var btnCopySupportReport = E('button', {
+			class: 'btn cbi-button',
+			style: 'margin-right: 8px;',
+			click: function() {
+				return callGetLogs(40).then(function(res) {
+					var lines = (res && res.lines) ? res.lines.join('\n') : '';
+					var report = [
+						'=== Отчёт диагностики Sirin VPN Router ===',
+						'Версия: ' + (currentStatus.version || '1.8.0'),
+						'Статус: ' + (currentStatus.running ? 'Работает (PID ' + currentStatus.pid + ')' : 'Остановлен'),
+						'Транспорт: ' + (currentStatus.transport || '—'),
+						'Профиль: ' + detectActivePreset(),
+						'--- Последние записи журнала ---',
+						lines
+					].join('\n');
 
+					if (navigator.clipboard && navigator.clipboard.writeText) {
+						navigator.clipboard.writeText(report).then(function() {
+							ui.addNotification(null, E('p', {}, '✓ Отчёт для техподдержки скопирован в буфер обмена (ваш секретный ключ скрыт)'), 'info');
+						});
+					} else {
+						ui.showModal('Отчёт для техподдержки (скопируйте текст)', [
+							E('textarea', { style: 'width:100%; height:260px; font-family:monospace; font-size:12px;' }, report),
+							E('div', { class: 'right', style: 'margin-top:10px;' }, [
+								E('button', { class: 'btn cbi-button', click: ui.hideModal }, 'Закрыть')
+							])
+						]);
+					}
+				});
+			}
+		}, '📋 Скопировать отчёт для поддержки');
+
+		var btnRefreshLogs = E('button', {
+			class: 'btn cbi-button cbi-button-neutral',
+			click: function() { refreshInlineLogs(); }
+		}, '↻ Обновить журнал');
+
+		// --- UNIFIED SAVE & APPLY HANDLER ---
+		function parseLinesList(rawText, regex, errPrefix) {
+			var lines = (rawText || '').split('\n');
+			var out = [];
+			for (var i = 0; i < lines.length; i++) {
+				var v = lines[i].trim();
+				if (!v) continue;
+				if (regex && !regex.test(v)) {
+					throw new Error(errPrefix + ': ' + v);
+				}
+				out.push(v);
+			}
+			return out;
+		}
+
+		var btnUnifiedSave = E('button', {
+			class: 'btn cbi-button cbi-button-apply',
+			style: 'font-weight: bold; padding: 6px 18px;',
+			click: function() {
+				try {
+					var gw = inGateway.value.trim() || 'crp.guseynovia.ru';
+					var pw = inPassword.value.trim();
+					var did = inDeviceId.value.trim() || 'router-01';
+					var mtu = parseInt(inTunMtu.value, 10) || 1280;
+					var ks = chkKillSwitch.checked;
+					var normTTL = chkNormalizeTTL.checked;
+					var targTTL = parseInt(inTargetTTL.value, 10) || 64;
+					var intDNS = chkInterceptDNS.checked;
+					var blkDoT = chkBlockDoT.checked;
+
+					if (!pw) {
+						ui.addNotification(null, E('p', {}, 'Укажите ваш Ключ доступа (UUID из бота @sirin_crp_bot) на вкладке «Главная»'), 'error');
+						return;
+					}
+
+					var validDD = [];
+					var rawDD = txtDeadDrop.value.split('\n');
+					for (var d = 0; d < rawDD.length; d++) {
+						var item = rawDD[d].trim();
+						if (item && (item.indexOf('http://') === 0 || item.indexOf('https://') === 0)) {
+							validDD.push(item);
+						}
+					}
+
+					var domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+					var cidrRegex = /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(\/[0-9]{1,2})?$/;
+					var portRegex = /^(tcp:|udp:)?[0-9]{1,5}(-[0-9]{1,5})?$/i;
+
+					var sMode = radOnly.checked ? 'only' : 'bypass';
+					var useRu = chkRuDirect.checked;
+					var validCidrs = parseLinesList(txtCIDRs.value, cidrRegex, 'Некорректный формат IP/CIDR');
+					var validSplitDomains = parseLinesList(txtDomains.value.toLowerCase(), domainRegex, 'Некорректный домен в списке прямого доступа');
+					var validPorts = parseLinesList(txtPorts.value, portRegex, 'Некорректный формат порта');
+					var sPortMode = radPortBypass.checked ? 'bypass' : 'only';
+
+					var adEnabled = chkADEnabled.checked;
+					var adPort = parseInt(inADPort.value, 10) || 56100;
+					var adSplitPos = parseInt(inADSplitPos.value, 10) || 2;
+					var adQuic = chkADQUICReject.checked;
+					var adYT = chkADYouTube.checked;
+					var adIG = chkADInstagram.checked;
+					var adDC = chkADDiscord.checked;
+					var validADDomains = parseLinesList(txtADCustomDomains.value.toLowerCase(), domainRegex, 'Некорректный домен в списке Zapret 2');
+
+					var fvEnabled = chkFVEnabled.checked;
+					var selectedFvServices = [];
+					if (chkFVAI.checked) selectedFvServices.push('ai');
+					if (chkFVSpotify.checked) selectedFvServices.push('spotify');
+					if (chkFVWork.checked) {
+						selectedFvServices.push('autodesk', 'adobe', 'jetbrains', 'figma', 'notion', 'canva', 'nvidia');
+					}
+					var validFVDomains = parseLinesList(txtFVDomains.value.toLowerCase(), domainRegex, 'Некорректный домен в списке «Всегда через VPN»');
+
+					var wlEn = chkWLEnabled.checked;
+					var wlMd = radWLAlways.checked ? 'always' : 'auto';
+					var wlPrt = parseInt(inWLPort.value, 10) || 56005;
+					var wlDtls = chkWLDTLS.checked;
+					var wlTurn = inWLTurnBackup.value.trim() || '193.203.43.1:19302';
+					var wlRealm = inWLTurnRealm.value.trim() || 'vkcalls';
+					var wlTarget = inWLRelayTarget.value.trim();
+					var validVK = parseLinesList(txtWLVKHashes.value, null, '');
+					var validDion = parseLinesList(txtWLDionSlugs.value, null, '');
+
+					btnUnifiedSave.disabled = true;
+					btnUnifiedSave.textContent = '⏳ Сохранение и перезапуск...';
+
+					return callSetConfig(gw, pw, did, useRu, mtu, ks, normTTL, targTTL, intDNS, blkDoT, validDD)
+						.then(function() {
+							return callSetSplitConfig(sMode, useRu, validCidrs, validSplitDomains, validPorts, sPortMode);
+						})
+						.then(function() {
+							return callSetAntiDPIConfig(adEnabled, adPort, adSplitPos, adQuic, adYT, adIG, adDC, validADDomains);
+						})
+						.then(function() {
+							return callSetForceVPNConfig(fvEnabled, selectedFvServices, validFVDomains, []);
+						})
+						.then(function() {
+							return callSetWhitelistConfig(wlEn, wlMd, wlPrt, wlDtls, wlTurn, wlRealm, wlTarget, validVK, validDion);
+						})
+						.then(function() {
+							return callRestart();
+						})
+						.then(function() {
+							btnUnifiedSave.disabled = false;
+							btnUnifiedSave.textContent = '💾 Сохранить и применить настройки';
+							hasUnsavedChanges = false;
+							saveBanner.style.background = '#1a2433';
+							saveBanner.style.borderColor = '#2b4c7e';
+							saveBannerText.textContent = '✓ Все настройки успешно сохранены и применены! Служба перезапущена.';
+							ui.addNotification(null, E('p', {}, '✓ Настройки сохранены, служба Sirin VPN перезапущена!'), 'info');
+							updateStatusView();
+						})
+						.catch(function(e) {
+							btnUnifiedSave.disabled = false;
+							btnUnifiedSave.textContent = '💾 Сохранить и применить настройки';
+							ui.addNotification(null, E('p', {}, 'Ошибка сохранения: ' + (e.message || 'RPC error')), 'error');
+						});
+				} catch (validationErr) {
+					ui.addNotification(null, E('p', {}, validationErr.message), 'error');
+				}
+			}
+		}, '💾 Сохранить и применить настройки');
+
+		saveBanner.appendChild(saveBannerText);
+		saveBanner.appendChild(btnUnifiedSave);
+
+		// --- BUILD 4 TABS ---
+		var tab1Content = E('div', {}, [
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '1. Состояние службы'),
-				infoTable,
-				E('div', { style: 'margin-top: 12px;' }, [
-					btnStart,
-					btnStop,
-					btnRestart,
-					btnAutostart
-				])
-			]),
-
-			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '2. Настройки подключения'),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Шлюз (Gateway)'),
-					E('div', { class: 'cbi-value-field' }, [
-						inGateway,
-						E('div', { class: 'cbi-value-description' }, 'Домен или IP-адрес шлюза VPN (по умолчанию crp.guseynovia.ru)')
-					])
-				]),
+				E('h3', {}, '🔑 Ваш ключ доступа к Sirin VPN'),
+				E('p', { class: 'cbi-section-descr' }, 'Вставьте персональный ключ (UUID), полученный в Telegram-боте @sirin_crp_bot.'),
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title' }, 'Ключ доступа (UUID)'),
 					E('div', { class: 'cbi-value-field' }, [
-						E('div', { style: 'display: flex; align-items: center;' }, [
+						E('div', { style: 'display: flex; align-items: center; flex-wrap: wrap;' }, [
 							inPassword,
 							btnTogglePass
 						]),
-						passWarnNode,
-						E('div', { class: 'cbi-value-description' }, 'Персональный UUID-ключ клиента, выданный ботом @sirin_crp_bot')
+						passWarnNode
 					])
 				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'ID устройства'),
-					E('div', { class: 'cbi-value-field' }, [
-						inDeviceId,
-						E('div', { class: 'cbi-value-description' }, 'Идентификатор устройства в сессии (до 64 символов: a-z, 0-9, ., _, -)')
+				registerExpertBlock(E('div', { style: 'border-top: 1px dashed #dee2e6; margin-top: 12px; padding-top: 12px;' }, [
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Адрес управляющего шлюза (Gateway)'),
+						E('div', { class: 'cbi-value-field' }, [
+							inGateway,
+							E('div', { class: 'cbi-value-description' }, 'Оставьте crp.guseynovia.ru (меняется только при использовании собственного сервера)')
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Имя этого роутера (Device ID)'),
+						E('div', { class: 'cbi-value-field' }, [inDeviceId])
 					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'TUN MTU'),
-					E('div', { class: 'cbi-value-field' }, [
-						inTunMtu,
-						E('div', { class: 'cbi-value-description' }, 'Размер MTU виртуального сетевого интерфейса sirin0 (от 576 до 1500, по умолчанию 1280)')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Kill Switch'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'cursor: pointer;' }, [
-							chkKillSwitch,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Kill Switch (блокировать при обрыве)'))
-						]),
-						E('div', { class: 'cbi-value-description' }, 'Блокировать трафик локальной сети при обрыве туннеля для предотвращения утечек в WAN')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'OpSec: Нормализация TTL'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'cursor: pointer;' }, [
-							chkNormalizeTTL,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Нормализовать TTL исходящих пакетов'))
-						]),
-						E('div', { style: 'margin-top: 6px; display: flex; align-items: center;' }, [
-							E('span', { style: 'margin-right: 8px;' }, 'Целевое значение TTL:'),
-							inTargetTTL,
-							E('span', { style: 'color: #888; margin-left: 8px;' }, '(по умолчанию 64; для Windows 128)')
-						]),
-						E('div', { class: 'cbi-value-description' }, 'Маскирует роутер и факт раздачи интернета (ставит фиксированный TTL на выходе из туннеля и выравнивает TCP MSS под MTU).')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'OpSec: Anti-DNS-Leak'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'cursor: pointer;' }, [
-							chkInterceptDNS,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Перехват всех DNS-запросов (порт 53)'))
-						]),
-						E('div', { class: 'cbi-value-description' }, 'Принудительно заворачивает любые DNS-запросы LAN-клиентов на локальный dnsmasq роутера, исключая утечки.')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'OpSec: Блокировка DoT'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'cursor: pointer;' }, [
-							chkBlockDoT,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Блокировать DNS-over-TLS (порт 853)'))
-						]),
-						E('div', { class: 'cbi-value-description' }, 'Запрещает соединения на порт 853, не позволяя Android Private DNS обходить локальный DNS роутера.')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Резервный Dead Drop (Яндекс Диск / S3)'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtDeadDrop,
-						E('div', { class: 'cbi-value-description' }, 'Резервные публичные ссылки Яндекс Диска (https://disk.yandex.ru/d/...) или S3 URL для получения конфигурации при блокировке центрального API.')
-					])
-				]),
-				E('div', { style: 'margin-top: 16px;' }, [
-					btnSaveConfig,
-					btnCancelConfig
-				])
+				]))
 			]),
 
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '3. Раздельное туннелирование (Split Tunneling)'),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Режим работы'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'margin-right: 16px; cursor: pointer;' }, [
-							radBypass,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Bypass (Обход)')),
-							E('span', { style: 'color: #888; margin-left: 4px;' }, '— весь трафик в VPN, кроме списка')
-						]),
-						E('br'),
-						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
-							radOnly,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Only (Только)')),
-							E('span', { style: 'color: #888; margin-left: 4px;' }, '— только адреса из списка через VPN, остальное напрямую')
-						])
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Прямой доступ в РФ (RuDirect)'),
-					E('div', { class: 'cbi-value-field' }, [
-						chkRuDirect,
-						E('span', { style: 'margin-left: 8px;' }, 'Использовать встроенный список RuDirect (' + ruCount + ' диапазонов РФ напрямую через WAN)'),
-						ruDirectWarnNode
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Дополнительные IP / CIDR'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtCIDRs,
-						E('div', { class: 'cbi-value-description' }, 'По одному адресу или подсети на строку (например 1.1.1.1/32 или 104.16.0.0/12)')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Доменные имена'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtDomains,
-						E('div', { class: 'cbi-value-description' }, 'По одному домену на строку (например rutracker.org). IP-адреса разрешаются при запуске службы.')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Режим разделения портов'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'margin-right: 16px; cursor: pointer;' }, [
-							radPortOnly,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Only (Веб-порты)')),
-							E('span', { style: 'color: #888; margin-left: 4px;' }, '— только указанные порты в VPN, всё остальное напрямую в WAN')
-						]),
-						E('br'),
-						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
-							radPortBypass,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Bypass (Gaming Bypass)')),
-							E('span', { style: 'color: #888; margin-left: 4px;' }, '— исключать указанные порты из VPN (игры напрямую в WAN)')
-						])
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Порты назначения (Split Ports)'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtPorts,
-						E('div', { class: 'cbi-value-description' }, 'По одному порту или диапазону на строку (например 80, 443, 8080-8090, tcp:80, udp:27000-27050). Оставьте пустым, чтобы туннелировать весь трафик без фильтрации портов.')
-					])
-				]),
-				E('div', { style: 'margin-top: 16px;' }, [
-					btnSaveSplit,
-					btnCancelSplit
-				])
-			]),
+				E('h3', {}, '⚡ Выберите готовый сценарий работы (в 1 клик)'),
+				E('p', { class: 'cbi-section-descr' }, 'Выберите подходящий режим — роутер сам настроит все правила для сайтов, игр, YouTube и нейросетей. После выбора нажмите «Сохранить и применить» внизу экрана.'),
+				presetsGrid
+			])
+		]);
 
+		var tab2Content = E('div', {}, [
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '4. Обход замедления без VPN (Zapret 2: YouTube / Instagram / Discord / X)'),
-				E('p', { class: 'cbi-section-descr' }, 'Нативный модуль десинхронизации ТСПУ по технологиям Zapret 2 (Multi-Split TLS Record, TCP OOB, Low-TTL Fake) и блокировка QUIC (UDP 443). Позволяет пользоваться YouTube (4K/8K), Instagram, Discord и X напрямую через провайдера без нагрузки на VPS, а при жесткой блокировке узла бесшовно поднимает резервный VPN-туннель.'),
+				E('h3', {}, '⚡ Ускорение без нагрузки на VPN (Технология Zapret 2)'),
+				E('p', { class: 'cbi-section-descr' }, 'Разблокирует YouTube в 4K/8K, Instagram и голосовые чаты Discord напрямую через вашего провайдера без расхода трафика зарубежного сервера. Если провайдер жестко заблокирует узел по IP — роутер сам бесшовно переключит его на VPN.'),
 				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Активация Anti-DPI'),
+					E('label', { class: 'cbi-value-title' }, 'Прямой обход замедления'),
 					E('div', { class: 'cbi-value-field' }, [
 						E('label', { style: 'cursor: pointer;' }, [
 							chkADEnabled,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Включить встроенный модуль Anti-DPI (Zapret 2)'))
-						]),
-						E('div', { class: 'cbi-value-description' }, 'Автоматически перенаправляет TCP 80/443 целевых сервисов на локальный прозрачный прокси десинхронизации пакетов с бесшовным фоллбэком на VPS.')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Целевые сервисы'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'cursor: pointer; margin-right: 16px;' }, [
-							chkADYouTube,
-							E('span', { style: 'margin-left: 6px;' }, 'YouTube & Google Video CDN (googlevideo.com, ytimg.com, etc.)')
-						]),
-						E('br'),
-						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
-							chkADInstagram,
-							E('span', { style: 'margin-left: 6px;' }, 'Instagram, Meta & X / Twitter (instagram.com, cdninstagram.com, fbcdn.net, x.com, twimg.com)')
-						]),
-						E('br'),
-						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
-							chkADDiscord,
-							E('span', { style: 'margin-left: 6px;' }, 'Discord (discord.com, discord.gg, gateway, voice servers)')
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Включить ускорение Zapret 2 без VPN (рекомендуется)')
 						])
 					])
 				]),
 				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Блокировка QUIC (UDP 443)'),
+					E('label', { class: 'cbi-value-title' }, 'Какие сервисы ускорять напрямую'),
 					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'cursor: pointer;' }, [
-							chkADQUICReject,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Принудительный откат на TCP (Reject QUIC)'))
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 6px;' }, [
+							chkADYouTube,
+							E('span', { style: 'margin-left: 8px;' }, '📺 YouTube и Google Видео (быстрая загрузка видео в 4K без буферизации)')
 						]),
-						E('div', { class: 'cbi-value-description' }, 'Блокирует протокол QUIC для целевых доменов, заставляя браузер мгновенно переключаться на защищаемый TCP/TLS HTTP/2.')
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 6px;' }, [
+							chkADInstagram,
+							E('span', { style: 'margin-left: 8px;' }, '📸 Instagram, Facebook (Meta) и X / Twitter')
+						]),
+						E('label', { style: 'cursor: pointer; display: block;' }, [
+							chkADDiscord,
+							E('span', { style: 'margin-left: 8px;' }, '🎧 Discord (голосовые комнаты без задержек, стримы и чат)')
+						])
 					])
 				]),
+				registerExpertBlock(E('div', { style: 'border-top: 1px dashed #dee2e6; margin-top: 12px; padding-top: 12px;' }, [
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Подавление QUIC (UDP 443)'),
+						E('div', { class: 'cbi-value-field' }, [
+							chkADQUICReject,
+							E('span', { style: 'margin-left: 8px;' }, 'Переводить браузеры с UDP QUIC на TCP TLS 1.3 для корректного разрезания SNI')
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Позиция разреза пакета / Порт прокси'),
+						E('div', { class: 'cbi-value-field' }, [
+							E('span', {}, 'Байт сплита: '), inADSplitPos,
+							E('span', { style: 'margin-left: 16px;' }, 'Локальный порт: '), inADPort
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Дополнительные сайты для Zapret 2'),
+						E('div', { class: 'cbi-value-field' }, [
+							txtADCustomDomains,
+							E('div', { class: 'cbi-value-description' }, 'Сайты, которые нужно пробивать напрямую через Zapret 2 без VPN (по одному домену на строку)')
+						])
+					])
+				]))
+			]),
+
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '🤖 Зарубежные сервисы, не пускающие пользователей из РФ (Авто-VPN)'),
+				E('p', { class: 'cbi-section-descr' }, 'Эти сервисы сами блокируют вход с российских IP-адресов. Роутер автоматически направляет их через зарубежный VPN-сервер.'),
 				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Позиция сплита ClientHello'),
+					E('label', { class: 'cbi-value-title' }, 'Обход геоблокировок'),
 					E('div', { class: 'cbi-value-field' }, [
-						inADSplitPos,
-						E('div', { class: 'cbi-value-description' }, 'Байт разделения первого TLS-пакета (по умолчанию 2). Разбивает заголовок TLS, скрывая SNI от ТСПУ.')
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 8px;' }, [
+							chkFVEnabled,
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Автоматически включать VPN для зарубежных ИИ и сервисов')
+						]),
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 6px;' }, [
+							chkFVAI,
+							E('span', { style: 'margin-left: 8px;' }, '🧠 Нейросети и ИИ (ChatGPT / OpenAI, Claude, Google Gemini, Grok, Copilot, Perplexity, Cursor)')
+						]),
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 6px;' }, [
+							chkFVSpotify,
+							E('span', { style: 'margin-left: 8px;' }, '🎵 Музыка и Подкасты (Spotify)')
+						]),
+						E('label', { style: 'cursor: pointer; display: block;' }, [
+							chkFVWork,
+							E('span', { style: 'margin-left: 8px;' }, '📐 Рабочий и инженерный софт (Autodesk / AutoCAD, Adobe, JetBrains, Figma, Notion, Canva, NVIDIA)')
+						])
 					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Пользовательские домены'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtADCustomDomains,
-						E('div', { class: 'cbi-value-description' }, 'Дополнительные домены для прямого Anti-DPI обхода (по одному на строку, например hdrezka.ag).')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Локальный порт Anti-DPI'),
-					E('div', { class: 'cbi-value-field' }, [
-						inADPort,
-						E('div', { class: 'cbi-value-description' }, 'Внутренний порт прокси-сервера фрагментации на роутере (по умолчанию 56100).')
-					])
-				]),
-				E('div', { style: 'margin-top: 16px;' }, [
-					btnSaveAntiDPI,
-					btnCancelAntiDPI
 				])
 			]),
 
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '5. Аварийный обход (Whitelist Fallback: WebRTC TURN VK / DION)'),
-				E('p', { class: 'cbi-section-descr' }, 'Аварийный резервный туннель через разрешённые отечественные сервисы (WebRTC TURN VK Calls и DION Video Calls). Применяется при тотальных блокировках протоколов, изоляции внешнего интернета и введении «белых списков» (трафик идёт на доверенные российские адреса api.vk.me, calls.okcdn.ru, api.dion.vc).'),
+				E('h3', {}, '🇷🇺 Российские сайты, Банки и Игры'),
 				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Аварийный канал'),
+					E('label', { class: 'cbi-value-title' }, 'Российские сайты напрямую'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkRuDirect,
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Открывать российские сайты, банки и Госуслуги напрямую без VPN (' + ruCount + ' подсетей РФ)')
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Сбербанк, Т-Банк, Госуслуги, Кинопоиск, Ozon и Wildberries работают на максимальной скорости провайдера без капчи.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Онлайн-игры и торренты'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkGamingBypass,
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Пускать игровой трафик и торренты напрямую мимо VPN (минимальный пинг)')
+						])
+					])
+				])
+			]),
+
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '➕ Мои списки сайтов'),
+				E('p', { class: 'cbi-section-descr' }, 'Если какого-то сайта нет в стандартных наборах, просто добавьте его адрес (например, example.com) в нужную колонку — по одному сайту на строку.'),
+				E('div', { style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;' }, [
+					E('div', { style: 'background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;' }, [
+						E('strong', { style: 'display: block; margin-bottom: 4px; color: #0069d9;' }, '🌐 Всегда открывать ЧЕРЕЗ VPN'),
+						E('div', { style: 'font-size: 12px; color: #6c757d; margin-bottom: 8px;' }, 'Сайты, которые заблокированы или не открываются без зарубежного IP:'),
+						txtFVDomains
+					]),
+					E('div', { style: 'background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;' }, [
+						E('strong', { style: 'display: block; margin-bottom: 4px; color: #28a745;' }, '🏠 Всегда открывать НАПРЯМУЮ (без VPN)'),
+						E('div', { style: 'font-size: 12px; color: #6c757d; margin-bottom: 8px;' }, 'Сайты, которые должны видеть ваш домашний российский IP-адрес:'),
+						txtDomains
+					])
+				]),
+				registerExpertBlock(E('div', { style: 'border-top: 1px dashed #dee2e6; margin-top: 14px; padding-top: 12px;' }, [
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Режим таблицы Split Tunneling'),
+						E('div', { class: 'cbi-value-field' }, [
+							E('label', { style: 'margin-right: 16px;' }, [radBypass, ' Bypass (Исключать список из VPN)']),
+							E('label', {}, [radOnly, ' Only (Туннелировать ТОЛЬКО список)'])
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Пользовательские IP / CIDR'),
+						E('div', { class: 'cbi-value-field' }, [txtCIDRs])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Фильтр портов (Split Ports)'),
+						E('div', { class: 'cbi-value-field' }, [
+							E('div', { style: 'margin-bottom: 6px;' }, [
+								E('label', { style: 'margin-right: 14px;' }, [radPortOnly, ' Only (Только эти порты в VPN)']),
+								E('label', {}, [radPortBypass, ' Bypass (Исключить эти порты из VPN)'])
+							]),
+							txtPorts
+						])
+					])
+				]))
+			])
+		]);
+
+		var tab3Content = E('div', {}, [
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '🛡️ Автоматическая защита домашней сети'),
+				E('p', { class: 'cbi-section-descr' }, 'Рекомендуется оставить все три переключателя включёнными для надёжной и незаметной работы роутера.'),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, '1. Защита при обрыве (Kill Switch)'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkKillSwitch,
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Не выпускать трафик в открытую сеть при случайном обрыве VPN')
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Предотвращает утечку вашего реального IP-адреса на зарубежных сайтах при перезапуске соединения.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, '2. Скрытие роутера и защита DNS'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkSimpleOpSec,
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Защищать от подмены сайтов провайдером и скрывать работу VPN (OpSec)')
+						]),
+						E('div', { class: 'cbi-value-description' }, 'Автоматически выравнивает сетевой TTL пакетов и защищает DNS-запросы смартфонов и ПК от перехвата провайдером.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, '3. Обход «Белых списков» и резервная связь'),
 					E('div', { class: 'cbi-value-field' }, [
 						E('label', { style: 'cursor: pointer;' }, [
 							chkWLEnabled,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Включить Whitelist Fallback'))
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Автоматически переходить на резервный канал через звонки ВКонтакте / DION при шатдаунах')
 						]),
-						E('div', { class: 'cbi-value-description' }, 'Разрешает автоматический переход на WebRTC TURN релеи при недоступности прямого туннеля.')
+						E('div', { class: 'cbi-value-description' }, 'Если провайдер заблокирует все зарубежные IP-адреса, роутер сам установит связь через разрешённые российские серверы.')
 					])
 				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Режим работы'),
-					E('div', { class: 'cbi-value-field' }, [
-						E('label', { style: 'margin-right: 16px; cursor: pointer;' }, [
-							radWLAuto,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Auto (Аварийный откат)')),
-							E('span', { style: 'color: #888; margin-left: 4px;' }, '— включается последней ступенью при отказе прямых соединений')
-						]),
-						E('br'),
-						E('label', { style: 'cursor: pointer; margin-top: 6px; display: inline-block;' }, [
-							radWLAlways,
-							E('span', { style: 'margin-left: 6px;' }, E('strong', {}, 'Always (Только белый список)')),
-							E('span', { style: 'color: #888; margin-left: 4px;' }, '— принудительно направлять трафик исключительно через отечественные WebRTC релеи')
+
+				registerExpertBlock(E('div', { style: 'border-top: 1px dashed #dee2e6; margin-top: 14px; padding-top: 12px;' }, [
+					E('h4', { style: 'margin: 0 0 10px 0;' }, 'Тонкие сетевые параметры (Экспертный режим)'),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Размер пакета TUN MTU'),
+						E('div', { class: 'cbi-value-field' }, [
+							inTunMtu,
+							E('span', { style: 'color:#888; margin-left:8px;' }, '(576–1500, оптимально 1280)')
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Детальные опции OpSec'),
+						E('div', { class: 'cbi-value-field' }, [
+							E('label', { style: 'display:block; margin-bottom:4px;' }, [chkNormalizeTTL, ' Фиксировать исходящий TTL = ', inTargetTTL]),
+							E('label', { style: 'display:block; margin-bottom:4px;' }, [chkInterceptDNS, ' Перехватывать порт 53 (Anti-DNS-Leak)']),
+							E('label', { style: 'display:block;' }, [chkBlockDoT, ' Блокировать DNS-over-TLS (порт 853)'])
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Резервные ссылки Dead Drop (Яндекс Диск / S3)'),
+						E('div', { class: 'cbi-value-field' }, [txtDeadDrop])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Режим Белых списков (VK / DION)'),
+						E('div', { class: 'cbi-value-field' }, [
+							E('label', { style: 'margin-right:16px;' }, [radWLAuto, ' Auto (Только при отказе основных каналов)']),
+							E('label', {}, [radWLAlways, ' Always (Всегда через ВК / DION)'])
+						])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Ссылки на звонки VK Calls'),
+						E('div', { class: 'cbi-value-field' }, [txtWLVKHashes])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Комнаты конференций DION'),
+						E('div', { class: 'cbi-value-field' }, [txtWLDionSlugs])
+					]),
+					E('div', { class: 'cbi-value' }, [
+						E('label', { class: 'cbi-value-title' }, 'Запасной TURN сервер / Порт шлюза'),
+						E('div', { class: 'cbi-value-field' }, [
+							inWLTurnBackup,
+							E('span', { style: 'margin-left:12px;' }, 'Порт: '),
+							inWLPort
 						])
 					])
+				]))
+			])
+		]);
+
+		var tab4Content = E('div', {}, [
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '📊 Самодиагностика интернета (Светофор направлений)'),
+				E('p', { class: 'cbi-section-descr' }, 'Нажмите кнопку ниже, чтобы роутер автоматически проверил работу российских сайтов, прямого ускорения YouTube/Instagram (Zapret 2) и зарубежного VPN.'),
+				E('div', {}, [
+					btnTestConn,
+					btnCopySupportReport
 				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Ссылки / хеши VK Calls'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtWLVKHashes,
-						E('div', { class: 'cbi-value-description' }, 'Ссылки на групповые звонки VK (https://vk.com/call/join/...) или голые хеши. Клиент анонимно запрашивает свежие TURN-токены через api.vk.me без необходимости входа в аккаунт.')
+				diagTrafficLights
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('div', { style: 'display: flex; align-items: center; justify-content: space-between;' }, [
+					E('h3', { style: 'margin: 0;' }, '📜 Системный журнал работы (logread)'),
+					btnRefreshLogs
+				]),
+				inlineLogPre
+			])
+		]);
+
+		// --- TAB SWITCHER ---
+		var tabs = [
+			{ id: 'home', label: '🏠 1. Главная и Сценарии', node: tab1Content },
+			{ id: 'sites', label: '🌍 2. Сайты и Приложения', node: tab2Content },
+			{ id: 'shield', label: '🛡️ 3. Связь и Защита', node: tab3Content },
+			{ id: 'diag', label: '📊 4. Проверка и Журнал', node: tab4Content }
+		];
+
+		var tabButtons = {};
+		var tabMenu = E('ul', {
+			class: 'cbi-tabmenu',
+			style: 'display: flex; flex-wrap: wrap; list-style: none; padding: 0; margin: 16px 0 0 0; border-bottom: 2px solid #dee2e6; gap: 6px;'
+		});
+
+		function selectTab(activeId) {
+			for (var i = 0; i < tabs.length; i++) {
+				var t = tabs[i];
+				var isAct = (t.id === activeId);
+				t.node.style.display = isAct ? 'block' : 'none';
+				var li = tabButtons[t.id];
+				if (li) {
+					li.className = isAct ? 'cbi-tab' : 'cbi-tab-disabled';
+					li.style.background = isAct ? '#0069d9' : '#e9ecef';
+					li.style.color = isAct ? '#ffffff' : '#333333';
+				}
+			}
+			if (activeId === 'diag') {
+				refreshInlineLogs();
+			}
+		}
+
+		for (var tIdx = 0; tIdx < tabs.length; tIdx++) {
+			(function(t) {
+				var li = E('li', {
+					style: 'padding: 9px 16px; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: bold; font-size: 13px; transition: all 0.15s ease;',
+					click: function() { selectTab(t.id); }
+				}, t.label);
+				tabButtons[t.id] = li;
+				tabMenu.appendChild(li);
+			})(tabs[tIdx]);
+		}
+		selectTab('home');
+
+		return E('div', { class: 'view' }, [
+			E('div', { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 8px;' }, [
+				E('div', {}, [
+					E('h2', { style: 'margin: 0;' }, 'Sirin VPN — Центр управления домашней сетью'),
+					E('div', { style: 'color: #6c757d; font-size: 13px; margin-top: 2px;' },
+						'Умный обход блокировок: Zapret 2 (YouTube / Instagram / Discord без нагрузки на VPS) + Авто-VPN для ИИ и зарубежных сервисов.')
+				]),
+				btnModeToggle
+			]),
+
+			// Compact Sticky Header Card
+			E('div', { class: 'cbi-section', style: 'margin-bottom: 12px; padding: 14px 18px;' }, [
+				E('div', { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;' }, [
+					E('div', { style: 'display: flex; align-items: center; flex-wrap: wrap; gap: 14px;' }, [
+						statusBadge,
+						E('span', { style: 'font-size: 13px;' }, ['Режим: ', transportNode]),
+						E('span', { style: 'font-size: 13px; color: #6c757d;' }, ['Работает: ', uptimeNode]),
+						E('span', { style: 'font-size: 13px;' }, ['Версия: ', versionNode, btnCheckUpdate, updateStatusSpan])
+					]),
+					E('div', { style: 'display: flex; align-items: center; flex-wrap: wrap; gap: 4px;' }, [
+						btnStart,
+						btnStop,
+						btnRestart,
+						btnAutostart
 					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Комнаты DION (ВТБ)'),
-					E('div', { class: 'cbi-value-field' }, [
-						txtWLDionSlugs,
-						E('div', { class: 'cbi-value-description' }, 'Ссылки на конференции DION (https://dion.vc/event/...) или slug комнат. Запасной отечественный источник WebRTC TURN после VK.')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Запасной TURN сервер'),
-					E('div', { class: 'cbi-value-field' }, [
-						inWLTurnBackup,
-						E('div', { class: 'cbi-value-description' }, 'Резервный IP:порт TURN-сервера (по умолчанию 193.203.43.1:19302).')
-					])
-				]),
-				E('div', { class: 'cbi-value' }, [
-					E('label', { class: 'cbi-value-title' }, 'Порт шлюза'),
-					E('div', { class: 'cbi-value-field' }, [
-						inWLPort,
-						E('div', { class: 'cbi-value-description' }, 'Порт назначения на сервере при прохождении через релей (по умолчанию 56005).')
-					])
-				]),
-				E('div', { style: 'margin-top: 16px;' }, [
-					btnSaveWhitelist,
-					btnCancelWhitelist
 				])
 			]),
 
-			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '6. Диагностика и мониторинг'),
-				E('div', {}, [
-					btnTestConn,
-					btnShowLogs
-				]),
-				diagResult
-			])
+			// 4-Tab Bar
+			tabMenu,
+
+			// Tab Panels
+			tab1Content,
+			tab2Content,
+			tab3Content,
+			tab4Content,
+
+			// Unified Sticky Bottom Save Bar
+			saveBanner
 		]);
 	}
 });

@@ -7,7 +7,7 @@ ROOT_DIR="$(pwd)"
 OUT=dist
 mkdir -p "$OUT"
 
-VERSION=${VERSION:-1.7.0}
+VERSION=${VERSION:-1.8.0}
 LDFLAGS="-s -w -X main.Version=$VERSION"
 
 echo "Building sirin-client v$VERSION for 5 architectures..."
