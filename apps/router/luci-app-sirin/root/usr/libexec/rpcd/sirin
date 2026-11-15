@@ -1064,7 +1064,7 @@ method_set_whitelist_config() {
     function get_str(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
             val = substr(json, RSTART, RLENGTH)
-            sub(/^[^"]*"[ \t]*:[ \t]*"/, "", val)
+            sub("^\"" k "\"[ \t]*:[ \t]*\"", "", val)
             sub(/"$/, "", val)
             return val
         }
