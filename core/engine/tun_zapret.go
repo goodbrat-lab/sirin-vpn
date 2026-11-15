@@ -3,11 +3,13 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
 	"math/rand/v2"
 	"net"
+	"net/http"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -190,6 +192,14 @@ type tunZapret struct {
 
 	udpMu    sync.Mutex
 	udpFlows map[udpFlowKey]*tunUDPFlow
+
+	dohOnce    sync.Once
+	dohClients []*tunDoHClient
+}
+
+type tunDoHClient struct {
+	url    string
+	client *http.Client
 }
 
 func newTunZapret(s *session) *tunZapret {
@@ -333,9 +343,18 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 			return true
 		}
 
-		// DNS (UDP :53) ВСЕГДА отправляем через зашифрованный VPS-туннель (return false),
-		// чтобы провайдер/ТСПУ РКН на WAN не подменял ответы (фейковый NXDOMAIN / DNS poisoning).
+		// DNS (UDP :53): если VPS-туннель уже поднят — отправляем через него (return false).
+		// Если VPS спит или недоступен (lazyMode) — проксируем через DoH (1.1.1.1 / 8.8.8.8),
+		// чтобы провайдер/ТСПУ не подменял ответы и DNS работал даже без доступа к VPS.
 		if dstPort == 53 {
+			if tz.s != nil && tz.s.hasActiveUpstream() {
+				return false
+			}
+			dnsReq := append([]byte(nil), l4[8:]...)
+			if len(dnsReq) > 0 {
+				go tz.handleOutboundDNS(srcIP, srcPort, dstIP, dstPort, dnsReq)
+				return true
+			}
 			return false
 		}
 
@@ -424,26 +443,124 @@ func (tz *tunZapret) readLoopUDP(flow *tunUDPFlow) {
 		flow.pktsRecv.Add(1)
 		flow.lastActive.Store(time.Now().UnixNano())
 
-		totalLen := 20 + 8 + n
-		if totalLen > tunMTU+80 {
+		pkt := buildUDPIPv4Packet(flow.key.targetIP, flow.key.targetPort, flow.key.clientIP, flow.key.clientPort, buf[:n])
+		if pkt == nil {
 			continue
 		}
-		pkt := make([]byte, totalLen)
-		pkt[0] = 0x45
-		binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
-		pkt[6] = 0x40
-		pkt[8] = 64
-		pkt[9] = 17 // UDP
-		copy(pkt[12:16], flow.key.targetIP[:])
-		copy(pkt[16:20], flow.key.clientIP[:])
+		_ = tz.writeTun(pkt)
+	}
+}
 
-		udp := pkt[20:]
-		binary.BigEndian.PutUint16(udp[0:2], flow.key.targetPort)
-		binary.BigEndian.PutUint16(udp[2:4], flow.key.clientPort)
-		binary.BigEndian.PutUint16(udp[4:6], uint16(8+n))
-		copy(udp[8:], buf[:n])
+func buildUDPIPv4Packet(srcIP [4]byte, srcPort uint16, dstIP [4]byte, dstPort uint16, payload []byte) []byte {
+	totalLen := 20 + 8 + len(payload)
+	if totalLen > tunMTU+80 {
+		return nil
+	}
+	pkt := make([]byte, totalLen)
+	pkt[0] = 0x45
+	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
+	pkt[6] = 0x40
+	pkt[8] = 64
+	pkt[9] = 17 // UDP
+	copy(pkt[12:16], srcIP[:])
+	copy(pkt[16:20], dstIP[:])
 
-		recomputeIPv4Checksums(pkt)
+	udp := pkt[20:]
+	binary.BigEndian.PutUint16(udp[0:2], srcPort)
+	binary.BigEndian.PutUint16(udp[2:4], dstPort)
+	binary.BigEndian.PutUint16(udp[4:6], uint16(8+len(payload)))
+	copy(udp[8:], payload)
+
+	recomputeIPv4Checksums(pkt)
+	return pkt
+}
+
+func (tz *tunZapret) initDoHClients() {
+	tz.dohOnce.Do(func() {
+		providers := []dohProvider{
+			{"1.1.1.1", "cloudflare-dns.com"},
+			{"8.8.8.8", "dns.google"},
+		}
+		var prot Protector
+		var logf func(string, ...interface{})
+		if tz.s != nil {
+			prot = tz.s.prot
+			logf = tz.s.logf
+		}
+		if logf == nil {
+			logf = func(string, ...interface{}) {}
+		}
+		for _, p := range providers {
+			tr := &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   2 * time.Second,
+					KeepAlive: 30 * time.Second,
+					Control:   protectDialControl(prot, logf, "zapret-doh"),
+				}).DialContext,
+				TLSClientConfig:     &tls.Config{ServerName: p.sni},
+				ForceAttemptHTTP2:   true,
+				MaxIdleConns:        4,
+				IdleConnTimeout:     60 * time.Second,
+				TLSHandshakeTimeout: 2 * time.Second,
+			}
+			tz.dohClients = append(tz.dohClients, &tunDoHClient{
+				url:    "https://" + p.ip + "/dns-query",
+				client: &http.Client{Timeout: 3 * time.Second, Transport: tr},
+			})
+		}
+	})
+}
+
+func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]byte, dstPort uint16, query []byte) {
+	if tz.s == nil {
+		return
+	}
+	tz.initDoHClients()
+
+	var respBytes []byte
+	for _, dc := range tz.dohClients {
+		ctx, cancel := context.WithTimeout(tz.s.ctx, 2500*time.Millisecond)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, dc.url, bytes.NewReader(query))
+		if err != nil {
+			cancel()
+			continue
+		}
+		req.Header.Set("Content-Type", "application/dns-message")
+		req.Header.Set("Accept", "application/dns-message")
+
+		resp, err := dc.client.Do(req)
+		if err != nil {
+			cancel()
+			continue
+		}
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 1400))
+		_ = resp.Body.Close()
+		cancel()
+		if rerr == nil && resp.StatusCode == http.StatusOK && len(body) >= 12 {
+			respBytes = body
+			break
+		}
+	}
+
+	// Запасной путь: защищённый UDP :53 на 1.1.1.1, если DoH не ответил.
+	if len(respBytes) == 0 {
+		pc, err := tz.s.listenProtected(tz.s.ctx, tz.s.prot, "", "zapret-dns-udp")
+		if err == nil {
+			defer pc.Close()
+			_ = pc.SetDeadline(time.Now().Add(1500 * time.Millisecond))
+			if _, werr := pc.WriteTo(query, &net.UDPAddr{IP: net.IPv4(1, 1, 1, 1), Port: 53}); werr == nil {
+				buf := make([]byte, 1400)
+				if n, _, rerr := pc.ReadFrom(buf); rerr == nil && n >= 12 {
+					respBytes = buf[:n]
+				}
+			}
+		}
+	}
+
+	if len(respBytes) == 0 {
+		return
+	}
+	if pkt := buildUDPIPv4Packet(dstIP, dstPort, srcIP, srcPort, respBytes); pkt != nil {
 		_ = tz.writeTun(pkt)
 	}
 }
