@@ -139,7 +139,7 @@ func Connect(gateway string, cachedFallback string, ladder *Ladder, password str
 		return "", errors.New("лестница пуста: ни одной ступени")
 	}
 
-	if cachedFallback == "" && !ladder.disableLazyZapret {
+	if cachedFallback == "" {
 		for _, item := range ladder.items {
 			if item.host != "" {
 				cachedFallback = item.host
