@@ -1164,9 +1164,9 @@ return view.extend({
 							btnUnifiedSave.disabled = false;
 							btnUnifiedSave.textContent = '💾 Сохранить и применить настройки';
 							hasUnsavedChanges = false;
-							saveBanner.style.background = '#1a2433';
-							saveBanner.style.borderColor = '#2b4c7e';
-							saveBannerText.textContent = '✓ Все настройки успешно сохранены и применены! Служба перезапущена.';
+							saveBanner.style.background = '#14532d';
+							saveBanner.style.borderColor = '#28a745';
+							saveBannerText.textContent = '✓ Настройки сохранены и применены! Служба перезапущена.';
 							ui.addNotification(null, E('p', {}, '✓ Настройки сохранены, служба Sirin VPN перезапущена!'), 'info');
 							updateStatusView();
 						})
@@ -1551,5 +1551,9 @@ return view.extend({
 			// Unified Sticky Bottom Save Bar
 			saveBanner
 		]);
-	}
+	},
+
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
 });
