@@ -64,6 +64,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Ошибка сборки лестницы подключений: %v", err)
 	}
+	// На роутере прямой обход DPI уже выполняется через нативный kernel-socket прокси (antidpi.go) и nftables.
+	// Отключаем userspace tun_zapret поверх TUN, чтобы не резать пропускную способность (4K YouTube и т.д.).
+	ladder.SetLazyZapret(false)
 	log.Printf("[ladder] Подключение к шлюзу: %s (хостов для исключения: %d)", gateway, len(serverHosts))
 
 	// Проверка на потенциальный конфликт с sing-box / xray TPROXY
