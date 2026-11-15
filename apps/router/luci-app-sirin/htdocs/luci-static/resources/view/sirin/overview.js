@@ -497,7 +497,7 @@ return view.extend({
 		// Protection & OpSec inputs
 		var chkKillSwitch = E('input', {
 			type: 'checkbox',
-			checked: (config.kill_switch !== undefined ? !!config.kill_switch : true),
+			checked: ((config.kill_switch !== undefined ? !!config.kill_switch : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
@@ -506,7 +506,7 @@ return view.extend({
 
 		var chkSimpleOpSec = E('input', {
 			type: 'checkbox',
-			checked: opsecInitial,
+			checked: (opsecInitial) ? 'checked' : null,
 			change: function() {
 				chkNormalizeTTL.checked = chkSimpleOpSec.checked;
 				chkInterceptDNS.checked = chkSimpleOpSec.checked;
@@ -517,7 +517,7 @@ return view.extend({
 
 		var chkNormalizeTTL = E('input', {
 			type: 'checkbox',
-			checked: (config.normalize_ttl !== undefined ? !!config.normalize_ttl : true),
+			checked: ((config.normalize_ttl !== undefined ? !!config.normalize_ttl : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
@@ -533,13 +533,13 @@ return view.extend({
 
 		var chkInterceptDNS = E('input', {
 			type: 'checkbox',
-			checked: (config.intercept_dns !== undefined ? !!config.intercept_dns : true),
+			checked: ((config.intercept_dns !== undefined ? !!config.intercept_dns : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
 		var chkBlockDoT = E('input', {
 			type: 'checkbox',
-			checked: (config.block_dot !== undefined ? !!config.block_dot : true),
+			checked: ((config.block_dot !== undefined ? !!config.block_dot : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
@@ -554,27 +554,27 @@ return view.extend({
 		// Anti-DPI (Zapret 2) inputs
 		var chkADEnabled = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.enabled !== undefined ? !!antiDPI.enabled : true),
+			checked: ((antiDPI.enabled !== undefined ? !!antiDPI.enabled : true)) ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 		var chkADYouTube = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.youtube !== undefined ? !!antiDPI.youtube : true),
+			checked: ((antiDPI.youtube !== undefined ? !!antiDPI.youtube : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var chkADInstagram = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.instagram !== undefined ? !!antiDPI.instagram : true),
+			checked: ((antiDPI.instagram !== undefined ? !!antiDPI.instagram : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var chkADDiscord = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.discord !== undefined ? !!antiDPI.discord : true),
+			checked: ((antiDPI.discord !== undefined ? !!antiDPI.discord : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var chkADQUICReject = E('input', {
 			type: 'checkbox',
-			checked: (antiDPI.quic_reject !== undefined ? !!antiDPI.quic_reject : true),
+			checked: ((antiDPI.quic_reject !== undefined ? !!antiDPI.quic_reject : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var inADSplitPos = E('input', {
@@ -614,22 +614,22 @@ return view.extend({
 
 		var chkFVEnabled = E('input', {
 			type: 'checkbox',
-			checked: (forceVPN.enabled !== undefined ? !!forceVPN.enabled : true),
+			checked: ((forceVPN.enabled !== undefined ? !!forceVPN.enabled : true)) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var chkFVAI = E('input', {
 			type: 'checkbox',
-			checked: hasFvService('ai'),
+			checked: (hasFvService('ai')) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var chkFVSpotify = E('input', {
 			type: 'checkbox',
-			checked: hasFvService('spotify'),
+			checked: (hasFvService('spotify')) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var chkFVWork = E('input', {
 			type: 'checkbox',
-			checked: hasFvService('autodesk') || hasFvService('adobe') || hasFvService('jetbrains') || hasFvService('figma') || hasFvService('notion') || hasFvService('canva'),
+			checked: (hasFvService('autodesk') || hasFvService('adobe') || hasFvService('jetbrains') || hasFvService('figma') || hasFvService('notion') || hasFvService('canva')) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
@@ -647,20 +647,20 @@ return view.extend({
 			type: 'radio',
 			name: 'split_mode',
 			value: 'bypass',
-			checked: splitMode !== 'only',
+			checked: (splitMode !== 'only') ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 		var radOnly = E('input', {
 			type: 'radio',
 			name: 'split_mode',
 			value: 'only',
-			checked: splitMode === 'only',
+			checked: (splitMode === 'only') ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 
 		var chkRuDirect = E('input', {
 			type: 'checkbox',
-			checked: (splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true),
+			checked: ((splitConfig.use_ru_direct !== undefined ? !!splitConfig.use_ru_direct : true)) ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 
@@ -668,7 +668,7 @@ return view.extend({
 		var hasGamingPorts = portMode === 'bypass' && (splitConfig.ports || []).length > 0;
 		var chkGamingBypass = E('input', {
 			type: 'checkbox',
-			checked: hasGamingPorts,
+			checked: (hasGamingPorts) ? 'checked' : null,
 			change: function() {
 				if (chkGamingBypass.checked) {
 					radPortBypass.checked = true;
@@ -688,14 +688,14 @@ return view.extend({
 			type: 'radio',
 			name: 'split_port_mode',
 			value: 'only',
-			checked: portMode !== 'bypass',
+			checked: (portMode !== 'bypass') ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var radPortBypass = E('input', {
 			type: 'radio',
 			name: 'split_port_mode',
 			value: 'bypass',
-			checked: portMode === 'bypass',
+			checked: (portMode === 'bypass') ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
@@ -726,7 +726,7 @@ return view.extend({
 		// Whitelist Fallback inputs
 		var chkWLEnabled = E('input', {
 			type: 'checkbox',
-			checked: (wlConfig.enabled !== undefined ? !!wlConfig.enabled : true),
+			checked: ((wlConfig.enabled !== undefined ? !!wlConfig.enabled : true)) ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 		var wlMode = (wlConfig.mode || 'auto').toLowerCase();
@@ -734,14 +734,14 @@ return view.extend({
 			type: 'radio',
 			name: 'wl_mode',
 			value: 'auto',
-			checked: wlMode !== 'always',
+			checked: (wlMode !== 'always') ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 		var radWLAlways = E('input', {
 			type: 'radio',
 			name: 'wl_mode',
 			value: 'always',
-			checked: wlMode === 'always',
+			checked: (wlMode === 'always') ? 'checked' : null,
 			change: function() { markDirty(); updatePresetHighlight(); }
 		});
 		var inWLPort = E('input', {
@@ -755,7 +755,7 @@ return view.extend({
 		});
 		var chkWLDTLS = E('input', {
 			type: 'checkbox',
-			checked: !!wlConfig.use_dtls,
+			checked: (!!wlConfig.use_dtls) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 		var inWLTurnBackup = E('input', {
