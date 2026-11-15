@@ -1550,79 +1550,100 @@ method_check_update() {
     pkg_mgr=$(detect_pkg_mgr)
     arch=$(detect_arch)
     
-    api_url="https://api.github.com/repos/goodbrat-lab/sirin-vpn/releases"
+    api_url="https://api.github.com/repos/goodbrat-lab/sirin-vpn/releases?per_page=8"
     json_data=$(fetch_url "$api_url")
     
     if [ -z "$json_data" ]; then
         json_data=$(fetch_url "https://api.github.com/repos/goodbrat-lab/sirin-vpn/releases/latest")
     fi
-    
-    if [ -z "$json_data" ]; then
-        printf '{"ok":false,"error":"Не удалось подключиться к GitHub Releases API (проверьте интернет или DNS)","current_version":"%s","pkg_mgr":"%s","arch":"%s"}\n' \
-            "$VERSION" "$pkg_mgr" "$arch"
-        return
-    fi
-    
-    if echo "$json_data" | grep -qi "API rate limit exceeded"; then
-        printf '{"ok":false,"error":"Превышен лимит запросов к GitHub API. Попробуйте позже.","current_version":"%s","pkg_mgr":"%s","arch":"%s"}\n' \
-            "$VERSION" "$pkg_mgr" "$arch"
-        return
-    fi
 
-    parsed=$(echo "$json_data" | awk -v cur_arch="$arch" -v cur_pkg="$pkg_mgr" '
-    BEGIN {
-        tag = ""
-        asset_name = ""
-        asset_url = ""
-        notes = ""
-    }
-    {
-        if (tag == "" && match($0, /"tag_name"[ \t]*:[ \t]*"router-v[^"]+"/)) {
-            s = substr($0, RSTART, RLENGTH)
-            sub(/^"tag_name"[ \t]*:[ \t]*"/, "", s)
-            sub(/"$/, "", s)
-            tag = s
+    parsed=""
+    if [ -n "$json_data" ] && ! echo "$json_data" | grep -qi "API rate limit exceeded"; then
+        parsed=$(echo "$json_data" | tr ',' '\n' | awk -v cur_arch="$arch" -v cur_pkg="$pkg_mgr" '
+        BEGIN {
+            tag = ""
+            in_router_rel = 0
+            asset_name = ""
+            asset_url = ""
+            notes = ""
         }
-        line = $0
-        while (match(line, /"browser_download_url"[ \t]*:[ \t]*"[^"]+"/)) {
-            s = substr(line, RSTART, RLENGTH)
-            line = substr(line, RSTART + RLENGTH)
-            sub(/^"browser_download_url"[ \t]*:[ \t]*"/, "", s)
-            sub(/"$/, "", s)
-
-            is_match = 0
-            if (cur_pkg == "apk") {
-                if (s ~ /\.apk$/ && s ~ ("sirin-full.*" cur_arch)) is_match = 1
-            } else {
-                if (s ~ /\.ipk$/ && s ~ ("sirin-full.*" cur_arch)) is_match = 1
-            }
-
-            if (is_match && (tag == "" || index(s, "/" tag "/") > 0) && asset_url == "") {
-                asset_url = s
-                n = split(s, parts, "/")
-                asset_name = parts[n]
+        /"tag_name"[ \t]*:[ \t]*"/ {
+            if (match($0, /"tag_name"[ \t]*:[ \t]*"[^"]+"/)) {
+                s = substr($0, RSTART, RLENGTH)
+                sub(/^"tag_name"[ \t]*:[ \t]*"/, "", s)
+                sub(/"$/, "", s)
+                if (s ~ /^router-v/) {
+                    if (tag == "") {
+                        tag = s
+                        in_router_rel = 1
+                    } else {
+                        in_router_rel = 0
+                    }
+                } else {
+                    in_router_rel = 0
+                }
             }
         }
-        if (notes == "" && tag != "" && match($0, /"body"[ \t]*:[ \t]*"[^"]*"/)) {
-            b = substr($0, RSTART, RLENGTH)
-            sub(/^"body"[ \t]*:[ \t]*"/, "", b)
-            sub(/"$/, "", b)
-            gsub(/\\r|\\n|\\t|"/, " ", b)
-            notes = substr(b, 1, 200)
+        /"browser_download_url"[ \t]*:[ \t]*"/ {
+            if (match($0, /"browser_download_url"[ \t]*:[ \t]*"[^"]+"/)) {
+                s = substr($0, RSTART, RLENGTH)
+                sub(/^"browser_download_url"[ \t]*:[ \t]*"/, "", s)
+                sub(/"$/, "", s)
+
+                is_match = 0
+                if (cur_pkg == "apk") {
+                    if (s ~ /\.apk$/ && s ~ ("sirin-full.*" cur_arch)) is_match = 1
+                } else {
+                    if (s ~ /\.ipk$/ && s ~ ("sirin-full.*" cur_arch)) is_match = 1
+                }
+
+                if (is_match && asset_url == "" && (in_router_rel == 1 || (tag != "" && index(s, "/" tag "/") > 0))) {
+                    asset_url = s
+                    n = split(s, parts, "/")
+                    asset_name = parts[n]
+                }
+            }
         }
-    }
-    END {
-        print tag "\t" asset_name "\t" asset_url "\t" notes
-    }')
+        /"body"[ \t]*:[ \t]*"/ {
+            if (in_router_rel == 1 && notes == "" && match($0, /"body"[ \t]*:[ \t]*"[^"]*"/)) {
+                b = substr($0, RSTART, RLENGTH)
+                sub(/^"body"[ \t]*:[ \t]*"/, "", b)
+                sub(/"$/, "", b)
+                gsub(/\\r|\\n|\\t|\\|"/, " ", b)
+                notes = substr(b, 1, 200)
+            }
+        }
+        END {
+            print tag "\t" asset_name "\t" asset_url "\t" notes
+        }')
+    fi
 
     rel_tag=$(echo "$parsed" | cut -f1)
     asset_name=$(echo "$parsed" | cut -f2)
     asset_url=$(echo "$parsed" | cut -f3)
-    notes=$(echo "$parsed" | cut -f4 | tr '\r\n\t"' '   ')
+    notes=$(echo "$parsed" | cut -f4 | tr '\r\n\t"\\`' '      ')
+
+    # Fallback: если GitHub API недоступен или вернул rate limit, проверяем версию напрямую из raw install.sh
+    if [ -z "$rel_tag" ]; then
+        raw_inst=$(fetch_url "https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/router/install.sh")
+        if [ -n "$raw_inst" ]; then
+            fb_ver=$(echo "$raw_inst" | awk -F':-' '/^VERSION=\$\{VERSION:-/ {gsub(/\}/, "", $2); print $2; exit}')
+            if [ -n "$fb_ver" ]; then
+                rel_tag="router-v${fb_ver}"
+                if [ "$pkg_mgr" = "apk" ]; then
+                    asset_name="sirin-full-${fb_ver}-r1-${arch}.apk"
+                else
+                    asset_name="sirin-full_${fb_ver}-1_${arch}.ipk"
+                fi
+                asset_url="https://github.com/goodbrat-lab/sirin-vpn/releases/download/${rel_tag}/${asset_name}"
+                notes="Обновление Sirin Router ${rel_tag}"
+            fi
+        fi
+    fi
 
     if [ -z "$rel_tag" ]; then
-        printf '{"ok":true,"update_available":false,"current_version":"%s","latest_version":"%s","pkg_mgr":"%s","arch":"%s"}\n' \
-            "$VERSION" "$VERSION" "$pkg_mgr" "$arch"
+        printf '{"ok":false,"error":"Не удалось подключиться к GitHub (проверьте интернет или DNS)","current_version":"%s","pkg_mgr":"%s","arch":"%s"}\n' \
+            "$VERSION" "$pkg_mgr" "$arch"
         return
     fi
 
@@ -1683,26 +1704,30 @@ method_upgrade() {
         ret=$?
     fi
 
-    # Fallback для OpenWrt 25.x (apk v3 ADB), где tar.gz-контейнер .apk распаковывается напрямую
+    # Fallback для OpenWrt 25.x (apk v3 ADB) и нестандартных сборок: прямая распаковка архива
     if [ $ret -ne 0 ]; then
         extract_dir="/tmp/sirin_pkg_extract.$$"
         rm -rf "$extract_dir"
         mkdir -p "$extract_dir"
-        if tar -xzf "$tmp_pkg" -C "$extract_dir" 2>/dev/null && [ -f "$extract_dir/usr/bin/sirin-client" ]; then
-            chmod +x "$extract_dir/usr/bin/sirin-client"
-            mv -f "$extract_dir/usr/bin/sirin-client" /usr/bin/sirin-client
-            [ -f "$extract_dir/etc/init.d/sirin" ] && chmod +x "$extract_dir/etc/init.d/sirin" && cp -f "$extract_dir/etc/init.d/sirin" /etc/init.d/sirin
-            [ -f "$extract_dir/etc/sirin/client.toml.example" ] && mkdir -p /etc/sirin && cp -f "$extract_dir/etc/sirin/client.toml.example" /etc/sirin/client.toml.example
-            [ -d "$extract_dir/usr/share" ] && cp -rf "$extract_dir/usr/share/"* /usr/share/ 2>/dev/null || true
-            [ -d "$extract_dir/www" ] && cp -rf "$extract_dir/www/"* /www/ 2>/dev/null || true
-            if [ -f "$extract_dir/usr/libexec/rpcd/sirin" ]; then
-                chmod +x "$extract_dir/usr/libexec/rpcd/sirin"
-                mv -f "$extract_dir/usr/libexec/rpcd/sirin" /usr/libexec/rpcd/sirin
+        if tar -xzf "$tmp_pkg" -C "$extract_dir" 2>/dev/null; then
+            if [ -f "$extract_dir/data.tar.gz" ]; then
+                tar -xzf "$extract_dir/data.tar.gz" -C "$extract_dir" 2>/dev/null || true
             fi
-            rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null || true
-            /etc/init.d/rpcd reload 2>/dev/null || true
-            /etc/init.d/sirin enable 2>/dev/null || true
-            ret=0
+            if [ -f "$extract_dir/usr/bin/sirin-client" ]; then
+                chmod +x "$extract_dir/usr/bin/sirin-client"
+                mv -f "$extract_dir/usr/bin/sirin-client" /usr/bin/sirin-client
+                [ -f "$extract_dir/etc/init.d/sirin" ] && chmod +x "$extract_dir/etc/init.d/sirin" && cp -f "$extract_dir/etc/init.d/sirin" /etc/init.d/sirin
+                [ -f "$extract_dir/etc/sirin/client.toml.example" ] && mkdir -p /etc/sirin && cp -f "$extract_dir/etc/sirin/client.toml.example" /etc/sirin/client.toml.example
+                [ -d "$extract_dir/usr/share" ] && cp -rf "$extract_dir/usr/share/"* /usr/share/ 2>/dev/null || true
+                [ -d "$extract_dir/www" ] && cp -rf "$extract_dir/www/"* /www/ 2>/dev/null || true
+                if [ -f "$extract_dir/usr/libexec/rpcd/sirin" ]; then
+                    chmod +x "$extract_dir/usr/libexec/rpcd/sirin"
+                    mv -f "$extract_dir/usr/libexec/rpcd/sirin" /usr/libexec/rpcd/sirin
+                fi
+                rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null || true
+                /etc/init.d/sirin enable 2>/dev/null || true
+                ret=0
+            fi
         fi
         rm -rf "$extract_dir"
     fi
@@ -1710,10 +1735,10 @@ method_upgrade() {
     rm -f "$tmp_pkg"
 
     if [ $ret -eq 0 ]; then
-        /etc/init.d/sirin restart >/dev/null 2>&1
         printf '{"ok":true,"message":"Обновление успешно установлено, служба перезапущена"}\n'
+        ( sleep 1; /etc/init.d/rpcd reload >/dev/null 2>&1 || true; /etc/init.d/sirin restart >/dev/null 2>&1 || true ) </dev/null >/dev/null 2>&1 &
     else
-        clean_out=$(echo "$install_out" | tr '\r\n"' '   ' | head -c 300)
+        clean_out=$(echo "$install_out" | tr '\r\n"\\`' '     ' | head -c 300)
         printf '{"ok":false,"error":"Ошибка установки: %s"}\n' "$clean_out"
     fi
 }

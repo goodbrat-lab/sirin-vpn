@@ -67,7 +67,8 @@ if [ -z "$BIN_SRC" ]; then
 fi
 
 if [ -n "$BIN_SRC" ]; then
-    cp "$BIN_SRC" /usr/bin/sirin-client
+    rm -f /usr/bin/sirin-client 2>/dev/null || true
+    cp -f "$BIN_SRC" /usr/bin/sirin-client
     chmod +x /usr/bin/sirin-client
     echo "Binary: /usr/bin/sirin-client (из $BIN_SRC)"
 else
@@ -186,8 +187,12 @@ if [ ! -c /dev/net/tun ]; then
     echo "  $PKG_INSTALL kmod-tun"
 fi
 
-# 8. Включить автозапуск
+# 8. Включить автозапуск и перезапустить службу (если уже была запущена или настроена)
 /etc/init.d/sirin enable 2>/dev/null || true
+if pgrep -f "/usr/bin/sirin-client" >/dev/null 2>&1 || [ -f /etc/sirin/client.toml ]; then
+    /etc/init.d/sirin restart 2>/dev/null || true
+fi
+rm -rf /tmp/sirin.tar.gz /tmp/luci-app-sirin "/tmp/sirin-client-$ARCH" 2>/dev/null || true
 
 # 9. Настройка Firewall (OpenWrt fw4 / uci)
 if [ -z "$CONFIG_FIREWALL" ]; then
