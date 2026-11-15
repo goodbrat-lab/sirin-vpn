@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -262,6 +263,9 @@ type AntiDPIServer struct {
 	bufferPool       sync.Pool
 	vpnFallbackCache sync.Map // ключ: sni или IP или "*.basedomain" (string) -> значение: time.Time (время истечения кэша)
 	wildcardFails    sync.Map // ключ: baseDomain (string) -> значение: *failCounter
+	promotedIPs      sync.Map // ключ: IP (string) -> значение: time.Time
+	promotedDomains  sync.Map // ключ: domain (string) -> значение: bool
+	dnsmasqMu        sync.Mutex
 }
 
 type failCounter struct {
@@ -338,9 +342,11 @@ func (s *AntiDPIServer) recordFailure(exactKey string, baseDomain string) {
 		s.vpnFallbackCache.Store(exactKey, now.Add(ExactHostBlockedTTL))
 	}
 
-	// 2. Если есть базовый домен — инкрементируем счетчик сбоев
+	// 2. Если есть базовый домен — инкрементируем счетчик сбоев (общий для группы сервиса)
 	if baseDomain != "" {
-		val, _ := s.wildcardFails.LoadOrStore(baseDomain, &failCounter{})
+		group := relatedServiceDomains(baseDomain)
+		groupKey := group[0]
+		val, _ := s.wildcardFails.LoadOrStore(groupKey, &failCounter{})
 		fc := val.(*failCounter)
 		fails := fc.inc()
 
@@ -350,8 +356,82 @@ func (s *AntiDPIServer) recordFailure(exactKey string, baseDomain string) {
 			s.vpnFallbackCache.Store(wildcardKey, now.Add(WildcardBlockedTTL))
 			log.Printf("[antidpi] Зафиксировано %d сбоев для %s -> активирован wildcard fallback %q на %v",
 				fails, baseDomain, wildcardKey, WildcardBlockedTTL)
+			s.promoteDomainGroupToVPN(baseDomain, now)
 		}
 	}
+}
+
+func relatedServiceDomains(baseDomain string) []string {
+	ytGroup := []string{"youtube.com", "googlevideo.com", "ytimg.com", "ggpht.com", "youtu.be", "youtubei.googleapis.com", "yt3.ggpht.com", "wide-youtube.l.google.com"}
+	for _, d := range ytGroup {
+		if baseDomain == d {
+			return ytGroup
+		}
+	}
+	igGroup := []string{"instagram.com", "cdninstagram.com", "fbcdn.net", "facebook.com", "twitter.com", "x.com", "twimg.com", "t.co"}
+	for _, d := range igGroup {
+		if baseDomain == d {
+			return igGroup
+		}
+	}
+	dcGroup := []string{"discord.com", "discordapp.com", "discordapp.net", "discord.gg", "discord.media", "discordapp.io", "discordstatus.com", "dis.gd", "discordcdn.com"}
+	for _, d := range dcGroup {
+		if baseDomain == d {
+			return dcGroup
+		}
+	}
+	return []string{baseDomain}
+}
+
+// promoteIPToVPN переводит IP-адрес из @antidpi_cidrs в @force_vpn_cidrs в ядре (nftables),
+// чтобы последующие TCP и QUIC (UDP 443) пакеты шли напрямую через sirin0 в ядре Linux без оверхеда userspace-прокси :56100.
+func (s *AntiDPIServer) promoteIPToVPN(ipStr string) {
+	if s.listener == nil {
+		return
+	}
+	ipStr = strings.TrimSpace(ipStr)
+	if ipStr == "" {
+		return
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil || ip.To4() == nil {
+		return
+	}
+	ipStr = ip.To4().String()
+
+	now := time.Now()
+	if expVal, ok := s.promotedIPs.Load(ipStr); ok {
+		if expTime, ok := expVal.(time.Time); ok && now.Before(expTime) {
+			return
+		}
+	}
+	s.promotedIPs.Store(ipStr, now.Add(WildcardBlockedTTL))
+
+	go func(targetIP string) {
+		_ = exec.Command("nft", "add", "element", "ip", "sirin", "force_vpn_cidrs", "{", targetIP, "timeout", "20m", "}").Run()
+		_ = exec.Command("nft", "delete", "element", "ip", "sirin", "antidpi_cidrs", "{", targetIP, "}").Run()
+	}(ipStr)
+}
+
+// promoteDomainGroupToVPN переводит группу доменов заблокированного ТСПУ сервиса (например, YouTube/GoogleVideo)
+// в wildcard-кэш и очищает @antidpi_cidrs для мгновенного включения QUIC и ядерного fast-path.
+func (s *AntiDPIServer) promoteDomainGroupToVPN(baseDomain string, now time.Time) {
+	group := relatedServiceDomains(baseDomain)
+	newlyPromoted := false
+	for _, d := range group {
+		s.vpnFallbackCache.Store("*."+d, now.Add(WildcardBlockedTTL))
+		if _, loaded := s.promotedDomains.LoadOrStore(d, true); !loaded {
+			newlyPromoted = true
+		}
+	}
+	if !newlyPromoted || s.listener == nil {
+		return
+	}
+
+	go func() {
+		_ = exec.Command("nft", "flush", "set", "ip", "sirin", "antidpi_cidrs").Run()
+		log.Printf("[antidpi] Домены %v переведены в ядерный fast-path VPN (@force_vpn_cidrs, QUIC разблокирован)", group)
+	}()
 }
 
 // NewAntiDPIServer создаёт сервер Anti-DPI.
@@ -531,6 +611,10 @@ func (s *AntiDPIServer) handleConn(ctx context.Context, clientConn net.Conn) {
 		}
 	}
 
+	// Переводим IP в @force_vpn_cidrs и удаляем из @antidpi_cidrs в nftables,
+	// чтобы все последующие пакеты (включая QUIC UDP 443) шли через ядро Linux в sirin0 напрямую
+	s.promoteIPToVPN(targetAddr.IP.String())
+
 	// 2. Fallback через защищённый VPN-туннель (SO_MARK = 0x1), если провайдер глушит IP/соединение
 	vpnConn, verr := s.vpnDialer.DialContext(ctx, "tcp", targetAddr.String())
 	if verr != nil {
@@ -621,12 +705,13 @@ func SetupDnsmasqAntiDPI(domains []string) error {
 	return nil
 }
 
-// WriteDnsmasqAntiDPI записывает конфиг AntiDPI для dnsmasq без немедленного рестарта.
+// WriteDnsmasqAntiDPI записывает конфиг целевых сервисов для dnsmasq с маршрутизацией в ядерный fast-path @force_vpn_cidrs
+// и разрешением через чистый DNS (1.1.1.1) внутри туннеля, чтобы YouTube 4K (QUIC/HTTP3) работал на полной скорости ядра Linux.
 func WriteDnsmasqAntiDPI(domains []string) error {
 	if len(domains) == 0 {
 		return nil
 	}
-	content := fmt.Sprintf("nftset=/%s/4#ip#sirin#antidpi_cidrs\n", strings.Join(domains, "/"))
+	content := BuildDnsmasqForceVPNContent(domains, defaultForceVPNDNS)
 	return writeDnsmasqDropIn(antiDPIDnsmasqFilename, content)
 }
 

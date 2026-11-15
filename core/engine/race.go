@@ -327,6 +327,10 @@ func (s *session) listenProtected(ctx context.Context, prot Protector, peer, nam
 	if err != nil {
 		return nil, fmt.Errorf("открытие UDP-сокета: %w", err)
 	}
+	if uc, ok := udp.(*net.UDPConn); ok {
+		_ = uc.SetReadBuffer(4 * 1024 * 1024)
+		_ = uc.SetWriteBuffer(4 * 1024 * 1024)
+	}
 	// Печатаем то, что вернуло ядро, а не то, что мы просили: по этой
 	// строке видно настоящий адрес источника, а не наше намерение.
 	s.logf("%s: сокет на %s", name, udp.LocalAddr())

@@ -252,6 +252,13 @@ func (c *Config) IsForceVPNEnabled() bool {
 // GetForceVPNOptions возвращает нормализованные опции ForceVPN для nftables и dnsmasq.
 func (c *Config) GetForceVPNOptions() ForceVPNOptions {
 	if !c.IsForceVPNEnabled() {
+		if c.IsAntiDPIEnabled() {
+			return ForceVPNOptions{
+				Enabled:    true,
+				HasDomains: true,
+				DNSServer:  defaultForceVPNDNS,
+			}
+		}
 		return ForceVPNOptions{}
 	}
 	dns := strings.TrimSpace(c.ForceVPN.DNSServer)
@@ -261,7 +268,7 @@ func (c *Config) GetForceVPNOptions() ForceVPNOptions {
 	return ForceVPNOptions{
 		Enabled:     true,
 		StaticCIDRs: append([]string(nil), c.ForceVPN.CIDRs...),
-		HasDomains:  len(c.ForceVPN.ResolveTargetDomains()) > 0,
+		HasDomains:  len(c.ForceVPN.ResolveTargetDomains()) > 0 || c.IsAntiDPIEnabled(),
 		DNSServer:   dns,
 	}
 }

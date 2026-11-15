@@ -133,13 +133,16 @@ func main() {
 					log.Printf("[route] Ошибка настройки маршрутов: %v", err)
 				}
 				needDnsmasqRestart := false
+				var warmDomains []string
 				if cfg.IsAntiDPIEnabled() {
 					adCfg := cfg.GetAntiDPIConfig()
 					antiDPIServer = NewAntiDPIServer(adCfg)
 					if err := antiDPIServer.Start(ctx); err != nil {
 						log.Printf("[antidpi] Внимание: не удалось запустить Anti-DPI сервер: %v", err)
 					} else {
-						_ = WriteDnsmasqAntiDPI(adCfg.GetTargetDomains())
+						adDomains := adCfg.GetTargetDomains()
+						_ = WriteDnsmasqAntiDPI(adDomains)
+						warmDomains = append(warmDomains, adDomains...)
 						needDnsmasqRestart = true
 					}
 				}
@@ -148,19 +151,18 @@ func main() {
 					fvDomains := cfg.ForceVPN.ResolveTargetDomains()
 					if len(fvDomains) > 0 {
 						_ = SetupDnsmasqForceVPN(fvDomains, fvOpts.DNSServer, false)
+						warmDomains = append(warmDomains, fvDomains...)
 						forceVPNActive = true
 						needDnsmasqRestart = true
 					}
 					log.Printf("[forcevpn] Активирован принудительный VPN (доменов: %d, статических CIDR: %d, DNS: %s)",
 						len(fvDomains), len(fvOpts.StaticCIDRs), fvOpts.DNSServer)
-					if needDnsmasqRestart {
-						restartDnsmasq()
-						needDnsmasqRestart = false
-					}
-					go warmForceVPNDomains(ctx, fvDomains)
 				}
 				if needDnsmasqRestart {
 					restartDnsmasq()
+				}
+				if len(warmDomains) > 0 {
+					go warmForceVPNDomains(ctx, warmDomains)
 				}
 			case "log":
 				// Логи выводятся в реальном времени через desktopCfg.LogFunc

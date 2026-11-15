@@ -448,8 +448,12 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 	runCmd("ip", "rule", "add", "fwmark", "0x1", "table", "100", "pref", "10100")
 	runCmd("ip", "rule", "add", "fwmark", "0x2", "table", "200", "pref", "10200")
 
-	// 6. Включить IPv4 forwarding в ядре
+	// 6. Включить IPv4 forwarding в ядре и увеличить буферы UDP-сокетов для исключения дропов (4K видео / QUIC)
 	_ = os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
+	_ = os.WriteFile("/proc/sys/net/core/rmem_max", []byte("4194304"), 0644)
+	_ = os.WriteFile("/proc/sys/net/core/rmem_default", []byte("2097152"), 0644)
+	_ = os.WriteFile("/proc/sys/net/core/wmem_max", []byte("4194304"), 0644)
+	_ = os.WriteFile("/proc/sys/net/core/wmem_default", []byte("2097152"), 0644)
 
 	// 7. Сборка split и локальных списков CIDR
 	splitCIDRs := buildSplitCidrs(cfg)
