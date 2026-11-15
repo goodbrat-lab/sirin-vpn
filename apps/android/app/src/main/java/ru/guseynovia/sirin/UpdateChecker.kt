@@ -18,6 +18,7 @@ import java.security.Security
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.FileProvider
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -37,7 +38,7 @@ import kotlin.concurrent.thread
 object UpdateChecker {
 
     private const val GITHUB_API_URL =
-        "https://api.github.com/repos/goodbrat-lab/sirin-vpn/releases/latest"
+        "https://api.github.com/repos/goodbrat-lab/sirin-vpn/releases?per_page=20"
     private const val PREFS_NAME = "sirin_update_checker"
     private const val KEY_LAST_CHECK = "last_check_timestamp"
     private const val KEY_DISMISSED_VERSION = "dismissed_version"
@@ -184,25 +185,71 @@ object UpdateChecker {
             }
 
             val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-            val tagName = json.optString("tag_name", "")
-            val cleanVersion = tagName.removePrefix("v").removePrefix("android-v")
+            val releases = JSONArray(body)
+            var bestJson: JSONObject? = null
+            var bestVersion: String? = null
+            var bestApkUrl: String? = null
+            var bestApkName: String? = null
+            var bestApkSize = 0L
 
-            val assets = json.optJSONArray("assets") ?: return null
-            var apkUrl: String? = null
-            var apkName: String? = null
-            var apkSize: Long = 0L
+            for (rIdx in 0 until releases.length()) {
+                val json = releases.getJSONObject(rIdx)
+                if (json.optBoolean("draft", false) || json.optBoolean("prerelease", false)) {
+                    continue
+                }
+                val tagName = json.optString("tag_name", "")
+                if (!tagName.startsWith("v") && !tagName.startsWith("android-v")) {
+                    continue
+                }
+                val cleanVersion = tagName.removePrefix("android-v").removePrefix("v")
+                val assets = json.optJSONArray("assets") ?: continue
+
+                var apkUrl: String? = null
+                var apkName: String? = null
+                var apkSize = 0L
+                for (i in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(i)
+                    val name = asset.optString("name", "")
+                    if (name.endsWith(".apk", ignoreCase = true) &&
+                        !name.startsWith("sirin-client", ignoreCase = true) &&
+                        !name.startsWith("sirin-full", ignoreCase = true) &&
+                        !name.startsWith("luci-app-", ignoreCase = true)
+                    ) {
+                        apkUrl = asset.optString("browser_download_url")
+                        apkName = name
+                        apkSize = asset.optLong("size", 0L)
+                        break
+                    }
+                }
+                if (apkUrl == null || apkName == null) {
+                    continue
+                }
+                if (bestVersion == null || isNewer(cleanVersion, bestVersion)) {
+                    bestJson = json
+                    bestVersion = cleanVersion
+                    bestApkUrl = apkUrl
+                    bestApkName = apkName
+                    bestApkSize = apkSize
+                }
+            }
+
+            if (bestJson == null || bestVersion == null || bestApkUrl == null || bestApkName == null) {
+                return null
+            }
+
+            val tagName = bestJson.optString("tag_name", "")
+            val cleanVersion = bestVersion
+            val apkUrl = bestApkUrl
+            val apkName = bestApkName
+            val apkSize = bestApkSize
+            val assets = bestJson.optJSONArray("assets") ?: return null
             var checksumsUrl: String? = null
             var signatureUrl: String? = null
 
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 val name = asset.optString("name", "")
-                if (name.endsWith(".apk", ignoreCase = true)) {
-                    apkUrl = asset.optString("browser_download_url")
-                    apkName = name
-                    apkSize = asset.optLong("size", 0L)
-                } else if (name == "checksums.txt" || name == "sha256sums.txt") {
+                if (name == "checksums.txt" || name == "sha256sums.txt") {
                     checksumsUrl = asset.optString("browser_download_url")
                 } else if (name == "checksums.txt.asc" || name == "sha256sums.txt.asc") {
                     signatureUrl = asset.optString("browser_download_url")
