@@ -81,7 +81,7 @@ dns_server = "9.9.9.9"
 		t.Fatalf("Неожиданные ForceVPNOptions: %+v", opts)
 	}
 
-	content := BuildDnsmasqForceVPNContent(cfg.ForceVPN.ResolveTargetDomains(), opts.DNSServer)
+	content := BuildDnsmasqForceVPNContentExt(cfg.ForceVPN.ResolveTargetDomains(), opts.DNSServer, true)
 	if !strings.Contains(content, "server=/") || !strings.Contains(content, "/9.9.9.9\n") {
 		t.Fatalf("Ожидались директивы server=/.../9.9.9.9, получено:\n%s", content)
 	}

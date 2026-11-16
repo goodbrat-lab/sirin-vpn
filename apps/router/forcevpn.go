@@ -273,9 +273,26 @@ func (c *Config) GetForceVPNOptions() ForceVPNOptions {
 	}
 }
 
-// BuildDnsmasqForceVPNContent формирует правила dnsmasq (server + nftset)
+// hasDnsmasqNFTSet проверяет, скомпилирован ли dnsmasq с поддержкой nftset (HAVE_NFTSET).
+// В стандартной сборке OpenWrt dnsmasq часто собран с опцией no-nftset;
+// если передать директиву nftset= такому dnsmasq, он аварийно завершает работу с фатальной ошибкой.
+func hasDnsmasqNFTSet() bool {
+	out, err := exec.Command("dnsmasq", "-v").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	s := string(out)
+	return strings.Contains(s, " nftset") && !strings.Contains(s, "no-nftset")
+}
+
+// BuildDnsmasqForceVPNContent формирует правила dnsmasq (server + nftset при наличии поддержки)
 // батчами, чтобы не превышать буфер строки dnsmasq.
 func BuildDnsmasqForceVPNContent(domains []string, dnsServer string) string {
+	return BuildDnsmasqForceVPNContentExt(domains, dnsServer, hasDnsmasqNFTSet())
+}
+
+// BuildDnsmasqForceVPNContentExt формирует правила dnsmasq с явным указанием поддержки nftset.
+func BuildDnsmasqForceVPNContentExt(domains []string, dnsServer string, withNFTSet bool) string {
 	if len(domains) == 0 {
 		return ""
 	}
@@ -291,7 +308,9 @@ func BuildDnsmasqForceVPNContent(domains []string, dnsServer string) string {
 		}
 		joined := strings.Join(domains[i:end], "/")
 		b.WriteString(fmt.Sprintf("server=/%s/%s\n", joined, dnsServer))
-		b.WriteString(fmt.Sprintf("nftset=/%s/4#ip#sirin#force_vpn_cidrs\n", joined))
+		if withNFTSet {
+			b.WriteString(fmt.Sprintf("nftset=/%s/4#ip#sirin#force_vpn_cidrs\n", joined))
+		}
 	}
 	return b.String()
 }
