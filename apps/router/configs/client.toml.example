@@ -123,7 +123,7 @@ domains = [
 # и динамически заносятся в nftables @force_vpn_cidrs (0x1 -> sirin0).
 # [force_vpn]
 # enabled = true
-# # Доступные пресеты: "autodesk", "ai", "adobe", "jetbrains", "figma", "notion", "canva", "spotify", "nvidia", "all"
+# # Доступные пресеты: "autodesk", "ai", "adobe", "jetbrains", "figma", "notion", "canva", "spotify", "nvidia", "playstation", "all"
 # services = ["autodesk", "ai"]
 # # Дополнительные домены (включая все поддомены) и/или статические CIDR:
 # domains = []

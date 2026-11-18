@@ -122,3 +122,32 @@ func TestGenerateNftablesRules_ForceVPNPriority(t *testing.T) {
 		t.Fatalf("force_vpn_cidrs должен проверяться строго раньше antidpi_cidrs и split_cidrs (force=%d, anti=%d, split=%d)", idxForce, idxAnti, idxSplit)
 	}
 }
+
+func TestForceVPNPlayStationPreset(t *testing.T) {
+	f := &ForceVPNConfig{
+		Services: []string{"playstation"},
+	}
+	if err := f.Validate(); err != nil {
+		t.Fatalf("Ошибка валидации пресета playstation: %v", err)
+	}
+	domains := f.ResolveTargetDomains()
+	mustHave := []string{
+		"playstation.com",
+		"playstation.net",
+		"sonyentertainmentnetwork.com",
+		"sony.com",
+		"sie.com",
+		"arkoselabs.com",
+		"adyen.com",
+		"cardinalcommerce.com",
+	}
+	domSet := make(map[string]bool)
+	for _, d := range domains {
+		domSet[d] = true
+	}
+	for _, want := range mustHave {
+		if !domSet[want] {
+			t.Errorf("Ожидался домен %s в пресете playstation", want)
+		}
+	}
+}

@@ -1179,7 +1179,7 @@ method_set_whitelist_config() {
 
 method_get_force_vpn_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        printf '{"enabled":true,"services":["ai","spotify","autodesk","adobe","jetbrains","figma","notion","canva","nvidia"],"domains":[],"cidrs":[]}\n'
+        printf '{"enabled":true,"services":["ai","spotify","autodesk","adobe","jetbrains","figma","notion","canva","nvidia","playstation"],"domains":[],"cidrs":[]}\n'
         return
     fi
 
@@ -1254,7 +1254,7 @@ method_get_force_vpn_config() {
     }
     END {
         if (!seen_fv && services == "") {
-            services = "\"ai\",\"spotify\",\"autodesk\",\"adobe\",\"jetbrains\",\"figma\",\"notion\",\"canva\",\"nvidia\""
+            services = "\"ai\",\"spotify\",\"autodesk\",\"adobe\",\"jetbrains\",\"figma\",\"notion\",\"canva\",\"nvidia\",\"playstation\""
         }
         printf "{\"enabled\":%s,\"services\":[%s],\"domains\":[%s],\"cidrs\":[%s]}\n", \
             enabled, services, domains, cidrs

@@ -632,6 +632,11 @@ return view.extend({
 			checked: (hasFvService('autodesk') || hasFvService('adobe') || hasFvService('jetbrains') || hasFvService('figma') || hasFvService('notion') || hasFvService('canva')) ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
+		var chkFVPlayStation = E('input', {
+			type: 'checkbox',
+			checked: (hasFvService('playstation')) ? 'checked' : null,
+			change: function() { markDirty(); }
+		});
 
 		var txtFVDomains = E('textarea', {
 			class: 'cbi-input-textarea',
@@ -820,6 +825,7 @@ return view.extend({
 				chkFVAI.checked = true;
 				chkFVSpotify.checked = true;
 				chkFVWork.checked = true;
+				chkFVPlayStation.checked = true;
 				chkWLEnabled.checked = true;
 				radWLAuto.checked = true;
 				markDirty('Выбран профиль «Умный режим (Рекомендуется)» — нажмите «Сохранить и применить»');
@@ -835,6 +841,7 @@ return view.extend({
 				chkADDiscord.checked = true;
 				chkFVEnabled.checked = true;
 				chkFVAI.checked = true;
+				chkFVPlayStation.checked = true;
 				chkWLEnabled.checked = true;
 				radWLAuto.checked = true;
 				markDirty('Выбран профиль «Игры и Стриминг без задержек» — нажмите «Сохранить и применить»');
@@ -1130,6 +1137,7 @@ return view.extend({
 					if (chkFVWork.checked) {
 						selectedFvServices.push('autodesk', 'adobe', 'jetbrains', 'figma', 'notion', 'canva', 'nvidia');
 					}
+					if (chkFVPlayStation.checked) selectedFvServices.push('playstation');
 					var validFVDomains = parseLinesList(txtFVDomains.value.toLowerCase(), domainRegex, 'Некорректный домен в списке «Всегда через VPN»');
 
 					var wlEn = chkWLEnabled.checked;
@@ -1295,9 +1303,13 @@ return view.extend({
 							chkFVSpotify,
 							E('span', { style: 'margin-left: 8px;' }, '🎵 Музыка и Подкасты (Spotify)')
 						]),
-						E('label', { style: 'cursor: pointer; display: block;' }, [
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 6px;' }, [
 							chkFVWork,
 							E('span', { style: 'margin-left: 8px;' }, '📐 Рабочий и инженерный софт (Autodesk / AutoCAD, Adobe, JetBrains, Figma, Notion, Canva, NVIDIA)')
+						]),
+						E('label', { style: 'cursor: pointer; display: block;' }, [
+							chkFVPlayStation,
+							E('span', { style: 'margin-left: 8px;' }, '🎮 PlayStation Store и PSN (PS4 / PS5, оплата подписок, аккаунт Sony)')
 						])
 					])
 				])

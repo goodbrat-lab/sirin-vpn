@@ -93,6 +93,21 @@ var ForceVPNServicePresets = map[string][]string{
 		"nvidia.com",
 		"geforce.com",
 	},
+	"playstation": {
+		"playstation.com",
+		"playstation.net",
+		"playstation.org",
+		"sonyentertainmentnetwork.com",
+		"sony.com",
+		"sie.com",
+		"arkoselabs.com",
+		"funcaptcha.com",
+		"adyen.com",
+		"adyenpayments.com",
+		"cardinalcommerce.com",
+		"paypal.com",
+		"paypalobjects.com",
+	},
 }
 
 // ForceVPNConfig задаёт домены, пресеты сервисов и CIDR, которые принудительно
@@ -375,10 +390,13 @@ func warmForceVPNDomains(ctx context.Context, domains []string) {
 	}
 
 	hasAutodesk := false
+	hasPlayStation := false
 	for _, dom := range domains {
 		if dom == "autodesk.com" {
 			hasAutodesk = true
-			break
+		}
+		if dom == "playstation.com" {
+			hasPlayStation = true
 		}
 	}
 
@@ -396,9 +414,25 @@ func warmForceVPNDomains(ctx context.Context, domains []string) {
 			"sso.connect.pingidentity.com",
 		)
 	}
+	if hasPlayStation {
+		candidates = append(candidates,
+			"auth.api.sonyentertainmentnetwork.com",
+			"ca.account.sony.com",
+			"my.account.sony.com",
+			"web.np.playstation.com",
+			"store.playstation.com",
+			"commerce.api.playstation.com",
+			"checkout.playstation.com",
+			"m.np.playstation.com",
+			"get.np.playstation.net",
+			"gs2.ww.prod.dl.playstation.net",
+		)
+	}
 	candidates = append(candidates, domains...)
 
 	seen := make(map[string]bool)
+	var warmedIPv4 []string
+	seenIP := make(map[string]bool)
 	warmed := 0
 	for _, dom := range candidates {
 		if ctx.Err() != nil {
@@ -411,8 +445,21 @@ func warmForceVPNDomains(ctx context.Context, domains []string) {
 		qCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		if ips, err := resolver.LookupIPAddr(qCtx, dom); err == nil && len(ips) > 0 {
 			warmed++
+			for _, ipAddr := range ips {
+				if v4 := ipAddr.IP.To4(); v4 != nil {
+					s := v4.String()
+					if !seenIP[s] {
+						seenIP[s] = true
+						warmedIPv4 = append(warmedIPv4, s+" timeout 1h")
+					}
+				}
+			}
 		}
 		cancel()
 	}
-	log.Printf("[forcevpn] Прогрев DNS через чистый резолвер завершён (%d доменов)", warmed)
+	if len(warmedIPv4) > 0 {
+		elem := "{ " + strings.Join(warmedIPv4, ", ") + " }"
+		_ = exec.Command("nft", "add", "element", "ip", "sirin", "force_vpn_cidrs", elem).Run()
+	}
+	log.Printf("[forcevpn] Прогрев DNS через чистый резолвер завершён (%d доменов, %d IPv4)", warmed, len(warmedIPv4))
 }

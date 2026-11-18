@@ -748,25 +748,43 @@ func (tz *tunZapret) handleInboundFromUpstream(pkt []byte) bool {
 
 func (tz *tunZapret) closeAll() {
 	tz.tcpMu.Lock()
+	tcpConns := make([]*tunTCPConn, 0, len(tz.tcpConns))
 	for _, c := range tz.tcpConns {
-		_ = c.Close()
+		tcpConns = append(tcpConns, c)
 	}
 	tz.tcpConns = make(map[tcpFlowKey]*tunTCPConn)
 	tz.tcpMu.Unlock()
+	for _, c := range tcpConns {
+		_ = c.Close()
+	}
 
 	tz.upMu.Lock()
+	upConns := make([]*tunTCPConn, 0, len(tz.upConns))
 	for _, c := range tz.upConns {
-		_ = c.Close()
+		upConns = append(upConns, c)
 	}
 	tz.upConns = make(map[uint16]*tunTCPConn)
 	tz.upMu.Unlock()
+	for _, c := range upConns {
+		_ = c.Close()
+	}
 
 	tz.udpMu.Lock()
+	udpFlows := make([]*tunUDPFlow, 0, len(tz.udpFlows))
 	for _, f := range tz.udpFlows {
-		_ = f.pc.Close()
+		udpFlows = append(udpFlows, f)
 	}
 	tz.udpFlows = make(map[udpFlowKey]*tunUDPFlow)
 	tz.udpMu.Unlock()
+	for _, f := range udpFlows {
+		_ = f.pc.Close()
+	}
+
+	for _, dc := range tz.dohClients {
+		if dc != nil && dc.client != nil {
+			dc.client.CloseIdleConnections()
+		}
+	}
 }
 
 // tunTCPConn реализует легковесный L4 TCP-эндпоинт поверх сырых IPv4-пакетов (net.Conn).

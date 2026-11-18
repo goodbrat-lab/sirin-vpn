@@ -188,6 +188,15 @@ var GeoBlockedDomains = []string{
 	"notion.so",
 	"notion.site",
 	"jetbrains.com",
+	// PlayStation Store / PSN / Sony Account
+	"playstation.com",
+	"playstation.net",
+	"playstation.org",
+	"sonyentertainmentnetwork.com",
+	"sony.com",
+	"sie.com",
+	"arkoselabs.com",
+	"funcaptcha.com",
 	// Проверка внешнего IP туннеля
 	"api.ipify.org",
 }
