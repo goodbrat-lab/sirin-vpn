@@ -603,6 +603,7 @@ class SirinVpnService : VpnService() {
         TransportSetting.attach(this)
         HashStore.attach(this)
         SplitTunnel.attach(this)
+        TrustedWifi.attach(this)
         Access.attach(this)
         ApiClient.attach(this)
         Params.attach(this)
@@ -1868,7 +1869,20 @@ class SirinVpnService : VpnService() {
         true
     }
 
+    private val pausedByTrustedWifi = AtomicBoolean(false)
+
     private fun onUnderlyingLost(lost: Network) {
+        if (pausedByTrustedWifi.get() && !TrustedWifi.isOnTrustedWifi(this)) {
+            if (pausedByTrustedWifi.compareAndSet(true, false)) {
+                main.post {
+                    if (shuttingDown.get() || !Access.hasKey() || TunnelState.connected.value) return@post
+                    TunnelLog.add("доверенный Wi-Fi пропал — возобновляю туннель")
+                    TunnelLog.event("выход с доверенного Wi-Fi — автовозобновление")
+                    startTunnel(isReconnect = true)
+                }
+            }
+            return
+        }
         if (lost != sessionNetwork) return
         TunnelLog.add("пропала сеть, на которой стоит сессия — переподключаюсь")
         // Через сколько секунд после подъёма и какая по счёту сеть: по логам
@@ -2160,6 +2174,18 @@ class SirinVpnService : VpnService() {
      * и таймер: кто первым, тот и поднимает.
      */
     private fun onUnderlyingAvailable(net: Network) {
+        if (TrustedWifi.isOnTrustedWifi(this)) {
+            if (TunnelState.connected.value && pausedByTrustedWifi.compareAndSet(false, true)) {
+                TunnelLog.add("доверенный Wi-Fi обнаружен — ставлю туннель на паузу")
+                TunnelLog.event("доверенный Wi-Fi — автопауза")
+                try {
+                    Engine.stop()
+                } catch (_: Throwable) {
+                }
+                TunnelState.setConnected(false)
+            }
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 && TunnelState.connected.value) {
             setUnderlyingNetworks(arrayOf(net))
         }
@@ -2168,6 +2194,11 @@ class SirinVpnService : VpnService() {
             if (!Access.hasKey()) return@post
             if (TunnelState.connected.value) return@post
             if (!hasUsableNetwork()) return@post
+            if (pausedByTrustedWifi.compareAndSet(true, false)) {
+                TunnelLog.add("появилась внешняя сеть — возобновляю туннель после паузы")
+                startTunnel(isReconnect = true)
+                return@post
+            }
             if (!reconnectPending.compareAndSet(true, false)) return@post
             TunnelLog.add("сеть вернулась — поднимаюсь сразу, не жду таймер")
             TunnelLog.event("сеть вернулась")

@@ -54,6 +54,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var showChangeKeyDialog by remember { mutableStateOf(false) }
+    var showTrustedWifiDialog by remember { mutableStateOf(false) }
     var isRepairing by remember { mutableStateOf(false) }
 
     Column(
@@ -92,6 +93,15 @@ fun SettingsScreen(
             icon = { ShieldIcon() },
             checked = KillSwitch.enabled.value,
             onCheckedChange = { KillSwitch.set(context, it) },
+        )
+        Entry(
+            title = "Домашний Wi-Fi",
+            hint = if (TrustedWifi.enabled.value)
+                "автопауза активна · сетей: ${TrustedWifi.saved.value.size}"
+            else
+                "выключена (автопауза дома за роутером Sirin)",
+            icon = { ShieldIcon() },
+            onClick = { showTrustedWifiDialog = true },
         )
         Entry(
             title = "Сменить ключ",
@@ -315,6 +325,67 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showChangeKeyDialog = false }) {
                     Text("Отмена")
+                }
+            },
+        )
+    }
+
+    if (showTrustedWifiDialog) {
+        val savedNets = TrustedWifi.saved.value
+        AlertDialog(
+            onDismissRequest = { showTrustedWifiDialog = false },
+            title = { Text("Домашний Wi-Fi") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Если дома установлен роутер с Sirin VPN, приложение может автоматически ставить туннель на паузу при подключении к этому Wi-Fi и возобновлять при выходе в мобильную сеть.",
+                        fontSize = 13.sp,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Автопауза дома", fontSize = 14.sp)
+                        Switch(
+                            checked = TrustedWifi.enabled.value,
+                            onCheckedChange = { TrustedWifi.setEnabled(context, it) },
+                        )
+                    }
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            val label = TrustedWifi.addCurrent(context)
+                            val msg = if (label != null) {
+                                "Добавлена сеть: $label"
+                            } else {
+                                "Подключитесь к Wi-Fi, чтобы запомнить сеть"
+                            }
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                    ) {
+                        Text("+ Запомнить текущий Wi-Fi")
+                    }
+                    if (savedNets.isNotEmpty()) {
+                        HorizontalDivider()
+                        savedNets.forEach { (id, label) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(label, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { TrustedWifi.remove(context, id) }) {
+                                    Text("Удалить", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTrustedWifiDialog = false }) {
+                    Text("Готово")
                 }
             },
         )
