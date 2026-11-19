@@ -136,6 +136,12 @@ var callTestConnection = rpc.declare({
 	expect: {}
 });
 
+var callLeakCheck = rpc.declare({
+	object: 'sirin',
+	method: 'leak_check',
+	expect: {}
+});
+
 var callCheckUpdate = rpc.declare({
 	object: 'sirin',
 	method: 'check_update',
@@ -1023,9 +1029,13 @@ return view.extend({
 				diagTrafficLights.style.display = 'block';
 				diagTrafficLights.innerHTML = '<div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">⏳ <em>Проверяем маршруты до российских сайтов, Zapret 2 и зарубежного VPN...</em></div>';
 
-				return callTestConnection().then(function(res) {
+				return Promise.all([
+					callTestConnection(),
+					callLeakCheck().catch(function() { return null; })
+				]).then(function(results) {
 					btnTestConn.disabled = false;
-					res = res || {};
+					var res = results[0] || {};
+					var leak = results[1];
 					var ruOk = !res.rudirect_via_tunnel;
 					var zapEnabled = res.zapret_enabled !== false;
 					var zapOk = (res.zapret_ok !== undefined) ? !!res.zapret_ok : zapEnabled;
@@ -1062,6 +1072,26 @@ return view.extend({
 						vpnOk ? ('Защищённый канал доступен (Внешний IP: ' + res.public_ip + ')') : 'Спящий режим / Ожидание трафика',
 						'Туннель поднимается автоматически за миллисекунды при обращении к зарубежным ИИ-сервисам'
 					));
+					if (leak && leak.ok) {
+						diagTrafficLights.appendChild(makeRow(
+							leak.dns_ok ? '🟢' : '🔴',
+							'4. Защита DNS (утечки и спуфинг провайдера)',
+							leak.dns_ok ? 'Утечек не обнаружено' : 'Обнаружена проблема DNS!',
+							leak.dns_msg || ''
+						));
+						diagTrafficLights.appendChild(makeRow(
+							leak.ipv6_ok ? '🟢' : '🔴',
+							'5. Защита от утечек IPv6 (Happy Eyeballs)',
+							leak.ipv6_ok ? 'IPv6 не утекает мимо туннеля' : 'Возможна утечка IPv6!',
+							leak.ipv6_msg || ''
+						));
+						diagTrafficLights.appendChild(makeRow(
+							leak.udp_ok ? '🟢' : '🟡',
+							'6. Буфер UDP ядра (/proc/net/udp)',
+							leak.udp_ok ? ('Норма (drops: ' + (leak.udp_drops || 0) + ')') : ('Потери пакетов (drops: ' + (leak.udp_drops || 0) + ')'),
+							leak.udp_msg || ''
+						));
+					}
 				}).catch(function(e) {
 					btnTestConn.disabled = false;
 					diagTrafficLights.innerHTML = '<p class="error">Ошибка проверки: ' + (e.message || 'RPC timeout') + '</p>';

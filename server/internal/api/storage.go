@@ -13,9 +13,12 @@ import (
 
 // Storage обеспечивает потокобезопасную работу с базой клиентов.
 type Storage struct {
-	path string
-	mu   sync.RWMutex
-	data ClientsFile
+	path    string
+	mu      sync.RWMutex
+	data    ClientsFile
+	modTime time.Time
+	size    int64
+	loaded  bool
 }
 
 // NewStorage открывает или создаёт clients.json по указанному пути.
@@ -32,6 +35,18 @@ func NewStorage(path string) (*Storage, error) {
 	}
 
 	return s, nil
+}
+
+// reloadIfChangedLocked перечитывает файл с диска только если изменился mtime или размер.
+func (s *Storage) reloadIfChangedLocked() error {
+	if s.loaded {
+		if info, err := os.Stat(s.path); err == nil {
+			if info.ModTime().Equal(s.modTime) && info.Size() == s.size {
+				return nil
+			}
+		}
+	}
+	return s.loadOrCreate()
 }
 
 func (s *Storage) loadOrCreate() error {
@@ -63,6 +78,11 @@ func (s *Storage) loadOrCreate() error {
 		file.Clients = make(map[string]*Client)
 	}
 	s.data = file
+	if info, statErr := os.Stat(s.path); statErr == nil {
+		s.modTime = info.ModTime()
+		s.size = info.Size()
+		s.loaded = true
+	}
 
 	return nil
 }
@@ -90,14 +110,20 @@ func (s *Storage) saveLocked() error {
 		return fmt.Errorf("rename: %w", err)
 	}
 
+	if info, statErr := os.Stat(s.path); statErr == nil {
+		s.modTime = info.ModTime()
+		s.size = info.Size()
+		s.loaded = true
+	}
+
 	return nil
 }
 
-// Get возвращает копию клиента по UUID, перечитывая диск при необходимости.
+// Get возвращает копию клиента по UUID, перечитывая диск только при изменении файла.
 func (s *Storage) Get(key string) (*Client, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -111,7 +137,7 @@ func (s *Storage) Get(key string) (*Client, bool) {
 func (s *Storage) Touch(key string, deviceIDs ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -139,7 +165,7 @@ func (s *Storage) Add(name string, daysValid int) (*Client, error) {
 func (s *Storage) AddWithRelay(name string, daysValid int, relayID int) (*Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	newUUID := uuid.New().String()
 	now := time.Now().UTC()
@@ -172,7 +198,7 @@ func (s *Storage) AddWithRelay(name string, daysValid int, relayID int) (*Client
 func (s *Storage) SetRelayID(key string, relayID int) (*Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -192,7 +218,7 @@ func (s *Storage) SetRelayID(key string, relayID int) (*Client, error) {
 func (s *Storage) Revoke(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	c, ok := s.data.Clients[key]
 	if !ok {
@@ -207,7 +233,7 @@ func (s *Storage) Revoke(key string) error {
 func (s *Storage) Delete(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	if _, ok := s.data.Clients[key]; !ok {
 		return fmt.Errorf("client %s not found", key)
@@ -221,7 +247,7 @@ func (s *Storage) Delete(key string) error {
 func (s *Storage) List() []*Client {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 
 	res := make([]*Client, 0, len(s.data.Clients))
 	for _, c := range s.data.Clients {
@@ -235,6 +261,6 @@ func (s *Storage) List() []*Client {
 func (s *Storage) Count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.loadOrCreate()
+	_ = s.reloadIfChangedLocked()
 	return len(s.data.Clients)
 }

@@ -77,15 +77,19 @@ type Client struct {
 	mu        sync.RWMutex
 	apiKey    string
 	http      *http.Client
-	historyMu sync.Mutex
-	history   map[int64][]Content
+	historyMu  sync.Mutex
+	history    map[int64][]Content
+	lastActive map[int64]time.Time
 }
+
+const historyTTL = 24 * time.Hour
 
 func NewClient(apiKey string) *Client {
 	return &Client{
-		apiKey:  strings.TrimSpace(apiKey),
-		http:    &http.Client{Timeout: 30 * time.Second},
-		history: make(map[int64][]Content),
+		apiKey:     strings.TrimSpace(apiKey),
+		http:       &http.Client{Timeout: 30 * time.Second},
+		history:    make(map[int64][]Content),
+		lastActive: make(map[int64]time.Time),
 	}
 }
 
@@ -111,6 +115,16 @@ func (c *Client) Reset(userID int64) {
 	c.historyMu.Lock()
 	defer c.historyMu.Unlock()
 	delete(c.history, userID)
+	delete(c.lastActive, userID)
+}
+
+func (c *Client) pruneStaleLocked(now time.Time) {
+	for uid, ts := range c.lastActive {
+		if now.Sub(ts) > historyTTL {
+			delete(c.history, uid)
+			delete(c.lastActive, uid)
+		}
+	}
 }
 
 func (c *Client) Ask(userID int64, userMessage string) (string, error) {
@@ -154,10 +168,13 @@ func (c *Client) Ask(userID int64, userMessage string) (string, error) {
 
 	// Сохраняем ответ модели в историю диалога пользователя
 	c.historyMu.Lock()
+	now := time.Now()
+	c.pruneStaleLocked(now)
 	c.history[userID] = append(historyToSend, Content{
 		Role:  "model",
 		Parts: []Part{{Text: replyText}},
 	})
+	c.lastActive[userID] = now
 	c.historyMu.Unlock()
 
 	return replyText, nil
