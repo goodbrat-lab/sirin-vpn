@@ -23,6 +23,10 @@ type Client struct {
 	LastSeen  *time.Time `json:"last_seen,omitempty"`
 	Comment   string     `json:"comment,omitempty"`
 	RelayID   int        `json:"relay_id,omitempty"` // 0 = прямой NL, 1 = Relay 1
+
+	// Поля мультидевайса (ведутся sirinapi); здесь объявлены, чтобы бот не терял их при перезаписи clients.json.
+	MaxDevices int      `json:"max_devices,omitempty"`
+	DeviceIDs  []string `json:"device_ids,omitempty"`
 }
 
 // IsActive возвращает true, если клиент не отозван и срок действия не истёк.

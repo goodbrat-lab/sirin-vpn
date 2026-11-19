@@ -74,6 +74,10 @@ type Client struct {
 	LastSeen  *time.Time `json:"last_seen,omitempty"`
 	Comment   string     `json:"comment,omitempty"`
 	RelayID   int        `json:"relay_id,omitempty"` // 0 = прямой NL, 1 = Relay 1
+
+	// Мультидевайс («семейный ключ»): MaxDevices <= 0 — без ограничения числа устройств.
+	MaxDevices int      `json:"max_devices,omitempty"`
+	DeviceIDs  []string `json:"device_ids,omitempty"` // привязанные устройства (DeviceID — первое, для совместимости)
 }
 
 // IsActive возвращает true, если клиент не отозван и срок действия не истёк.
@@ -100,9 +104,10 @@ type ClientsFile struct {
 
 // AdminCreateRequest — запрос на создание клиента.
 type AdminCreateRequest struct {
-	Name      string `json:"name"`
-	DaysValid int    `json:"days_valid,omitempty"` // 0 = бессрочно
-	Comment   string `json:"comment,omitempty"`
+	Name       string `json:"name"`
+	DaysValid  int    `json:"days_valid,omitempty"`  // 0 = бессрочно
+	MaxDevices int    `json:"max_devices,omitempty"` // 0 = без ограничения
+	Comment    string `json:"comment,omitempty"`
 }
 
 // AdminCreateResponse — ответ при создании клиента.

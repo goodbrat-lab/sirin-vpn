@@ -70,6 +70,8 @@ func (s *Server) Start() error {
 	}))
 	mux.HandleFunc("/v1/admin/delete", s.requireAdmin(s.HandleAdminDelete))
 	mux.HandleFunc("/v1/admin/revoke", s.requireAdmin(s.HandleAdminRevoke))
+	mux.HandleFunc("/v1/admin/max_devices", s.requireAdmin(s.HandleAdminMaxDevices))
+	mux.HandleFunc("/v1/admin/unbind", s.requireAdmin(s.HandleAdminUnbind))
 	mux.HandleFunc("/v1/admin/monitor", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:

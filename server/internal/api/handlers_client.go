@@ -46,9 +46,18 @@ func (s *Server) HandleKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Обновляем last_seen и привязку device
+	// Обновляем last_seen и применяем лимит устройств («семейный ключ»)
 	if deviceID != "" {
-		_ = s.storage.Touch(key, deviceID)
+		allowed, _ := s.storage.TouchDevice(key, deviceID)
+		if !allowed {
+			writeJSON(w, 200, KeyVerdict{
+				Contract: "v1", Status: "answered",
+				Verdict: "ok", Bound: "other",
+				Since:   c.CreatedAt.Unix(),
+				Message: "достигнут лимит устройств для этого ключа",
+			})
+			return
+		}
 	}
 
 	now := time.Now().Unix()
