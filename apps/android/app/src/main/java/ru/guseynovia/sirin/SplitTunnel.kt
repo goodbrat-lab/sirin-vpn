@@ -91,6 +91,76 @@ object SplitTunnel {
         save()
     }
 
+    /**
+     * Включает все пакеты из группы, если хотя бы одного ещё нет в списке;
+     * если выбраны уже все — снимает всю группу целиком.
+     */
+    fun toggleGroup(pkgs: Collection<String>) {
+        if (pkgs.isEmpty()) return
+        val now = chosen.value
+        val allSelected = pkgs.all { it in now }
+        chosen.value = if (allSelected) now - pkgs.toSet() else now + pkgs
+        save()
+    }
+
+    /** Готовые категории приложений РФ для быстрого добавления в 1 тап. */
+    data class Preset(val id: String, val title: String, val packages: Set<String>)
+
+    val presets: List<Preset> = listOf(
+        Preset(
+            id = "banks",
+            title = "Банки",
+            packages = setOf(
+                "ru.sberbankmobile",
+                "ru.sberbankmobile_alpha",
+                "com.idamob.tinkoff.android",
+                "ru.tinkoff.investing",
+                "ru.alfabank.mobile.android",
+                "ru.vtb24.mobilebanking.android",
+                "ru.gazprombank.android.mobilebank.app",
+                "ru.raiffeisennews",
+                "ru.raiffeisen.rmobile",
+                "ru.sovcomcard.halva.v1",
+                "ru.psbank.mobile",
+                "ru.rshb.dbo",
+                "com.openbank",
+                "ru.ozon.fintech.finance",
+                "com.yandex.bank",
+                "ru.mw",
+                "ru.mts.money",
+            ),
+        ),
+        Preset(
+            id = "gov",
+            title = "Госуслуги",
+            packages = setOf(
+                "ru.rostel",
+                "ru.gosuslugi.auto",
+                "ru.gosuslugi.pos",
+                "ru.gosuslugi.goskey",
+                "ru.nalog.lkfl",
+                "com.gnivc.selfemployed",
+                "ru.russianpost.client",
+                "ru.mos.app",
+                "ru.mos.emias",
+            ),
+        ),
+        Preset(
+            id = "market",
+            title = "Маркетплейсы",
+            packages = setOf(
+                "ru.ozon.app.android",
+                "com.wildberries.ru",
+                "ru.beru.android",
+                "com.avito.android",
+                "ru.sbermegamarket.app",
+                "ru.instamart",
+                "ru.samokat.app",
+                "ru.yandex.taxi",
+            ),
+        ),
+    )
+
     fun clear() {
         chosen.value = emptySet()
         setMode(Mode.BYPASS)

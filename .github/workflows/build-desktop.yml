@@ -57,6 +57,17 @@ jobs:
           if (!(Test-Path $iscc)) { $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
           & $iscc installer.iss
 
+      - name: Generate SHA-256 Checksums
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem "apps/desktop/dist/Sirin-VPN-*-Setup.exe") + @(Get-Item "apps/desktop/bin/sirin.exe")
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 -Path $f.FullName).Hash.ToLower()
+            "$h  $($f.Name)"
+          }
+          $lines | Out-File -FilePath "apps/desktop/dist/checksums.txt" -Encoding ascii
+          Get-Content "apps/desktop/dist/checksums.txt"
+
       - name: Upload installer as artifact
         uses: actions/upload-artifact@v5
         with:
@@ -64,6 +75,7 @@ jobs:
           path: |
             apps/desktop/dist/Sirin-VPN-*-Setup.exe
             apps/desktop/bin/sirin.exe
+            apps/desktop/dist/checksums.txt
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/desktop-v')
@@ -72,6 +84,7 @@ jobs:
           files: |
             apps/desktop/dist/Sirin-VPN-*-Setup.exe
             apps/desktop/bin/sirin.exe
+            apps/desktop/dist/checksums.txt
           generate_release_notes: true
           draft: false
           prerelease: false

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -125,6 +126,39 @@ fun SplitScreen(
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+        } else {
+            val installedPkgs = remember(rows) { rows.map { it.pkg }.toSet() }
+            val availablePresets = remember(installedPkgs) {
+                SplitTunnel.presets.mapNotNull { preset ->
+                    val matched = preset.packages.filter { it in installedPkgs }
+                    if (matched.isEmpty()) null else preset to matched
+                }
+            }
+            if (availablePresets.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(availablePresets, key = { it.first.id }) { (preset, matched) ->
+                        val allChosen = matched.all { it in chosen }
+                        val chipBg = if (allChosen) Color(0x4400D4FF) else Color(0x33000000)
+                        val chipBorder = if (allChosen) Brand.cyberBlue else Glass.cardBorder
+                        Text(
+                            text = "${preset.title} (${matched.size})",
+                            color = if (allChosen) Brand.text else Brand.dim,
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .clip(Glass.pillShape)
+                                .background(chipBg)
+                                .border(1.dp, chipBorder, Glass.pillShape)
+                                .clickable { SplitTunnel.toggleGroup(matched) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+            }
         }
 
         val q = query.trim().lowercase()
