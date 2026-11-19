@@ -111,6 +111,18 @@ type PSNProxyConfig struct {
 	IncludeDownloads bool     `toml:"include_downloads,omitempty"` // пускать CDN загрузок игр через прокси
 }
 
+func DefaultPSNProxyConfig() PSNProxyConfig {
+	enabled := false
+	return PSNProxyConfig{
+		Enabled:    &enabled,
+		Type:       "socks5",
+		Via:        "wan",
+		Fallback:   "vpn",
+		ListenPort: 56200,
+		DNSPort:    56253,
+	}
+}
+
 // PSNProxyOptions передаётся в генератор nftables.
 type PSNProxyOptions struct {
 	Enabled    bool

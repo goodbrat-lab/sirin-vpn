@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -573,4 +574,32 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// SaveConfig атомарно сохраняет конфигурацию в TOML-файл.
+func SaveConfig(path string, cfg *Config) error {
+	tmpPath := fmt.Sprintf("%s.tmp.%d", path, time.Now().UnixNano())
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("create tmp config %s: %w", tmpPath, err)
+	}
+
+	enc := toml.NewEncoder(f)
+	if err := enc.Encode(cfg); err != nil {
+		f.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("encode toml: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close tmp config: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("rename tmp config to %s: %w", path, err)
+	}
+
+	return nil
 }

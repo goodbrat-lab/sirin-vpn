@@ -3,6 +3,42 @@
 CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
 VERSION="1.8.0"
 
+# ВЫЗОВ ЧЕРЕЗ GO-БИНАРНИК (W3.1).
+# Если скомпилированный sirin-client доступен в системе, передаём обработку
+# RPC-методов напрямую в него (apps/router/rpc.go), гарантируя типобезопасный
+# парсинг TOML/JSON и отсутствие шелл-инъекций.
+BIN="/usr/bin/sirin-client"
+if [ ! -x "$BIN" ]; then
+    BIN="$(command -v sirin-client 2>/dev/null)"
+fi
+
+if [ -n "$BIN" ] && [ -x "$BIN" ]; then
+    case "$1" in
+        list)
+            exec "$BIN" rpc list
+            ;;
+        call)
+            cmd="$2"
+            input="$3"
+            if [ -z "$input" ]; then
+                input="$(cat 2>/dev/null)"
+            fi
+            if [ "$cmd" = "start" ] || [ "$cmd" = "stop" ] || [ "$cmd" = "restart" ] || [ "$cmd" = "enable" ] || [ "$cmd" = "disable" ]; then
+                /etc/init.d/sirin "$cmd" >/dev/null 2>&1
+                printf '{"success":true}\n'
+                exit 0
+            elif [ "$cmd" = "get_logs" ]; then
+                lines=$(echo "$input" | grep -oE '[0-9]+' | head -n1)
+                [ -z "$lines" ] && lines=200
+                logs=$( (logread 2>/dev/null || cat /var/log/messages 2>/dev/null) | grep -i sirin | tail -n "$lines" )
+                printf '{"logs":%s}\n' "$(echo "$logs" | awk 'BEGIN{printf "["} {if (NR>1) printf ","; gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "\"%s\"", $0} END{printf "]\n"}')"
+                exit 0
+            fi
+            exec "$BIN" --config "$CONFIG_FILE" rpc "$cmd" "$input"
+            ;;
+    esac
+fi
+
 get_input() {
     if [ "$MODE" = "call" ] && [ -n "$ARG3" ]; then
         echo "$ARG3"

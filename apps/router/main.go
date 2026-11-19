@@ -17,11 +17,47 @@ var Version = "1.8.0"
 func main() {
 	configPath := flag.String("config", "/etc/sirin/client.toml", "путь к конфигурационному файлу TOML")
 	showVersion := flag.Bool("version", false, "показать версию и выйти")
+
+	// Проверяем вызов RPC в формате: sirin-client rpc <method> [input]
+	if len(os.Args) > 1 && os.Args[1] == "rpc" {
+		method := ""
+		if len(os.Args) > 2 {
+			method = os.Args[2]
+		}
+		input := ""
+		if len(os.Args) > 3 {
+			input = os.Args[3]
+		} else {
+			input = ReadStdinOrArg("")
+		}
+		out, code := ExecuteRPC(method, input, *configPath)
+		fmt.Println(out)
+		os.Exit(code)
+	}
+
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("sirin-client v%s (OpenWrt/Linux router client)\n", Version)
 		return
+	}
+
+	// Проверяем вызов RPC в формате: sirin-client --config /path rpc <method> [input]
+	args := flag.Args()
+	if len(args) > 0 && args[0] == "rpc" {
+		method := ""
+		if len(args) > 1 {
+			method = args[1]
+		}
+		input := ""
+		if len(args) > 2 {
+			input = args[2]
+		} else {
+			input = ReadStdinOrArg("")
+		}
+		out, code := ExecuteRPC(method, input, *configPath)
+		fmt.Println(out)
+		os.Exit(code)
 	}
 
 	log.Printf("Запуск Sirin VPN Client v%s...", Version)
