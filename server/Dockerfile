@@ -36,8 +36,10 @@ COPY --from=builder /out/sirind /usr/local/bin/sirind
 COPY --from=builder /out/sirinapi /usr/local/bin/sirinapi
 COPY --from=builder /out/sirinbot /usr/local/bin/sirinbot
 
-# Директории для логов и данных
-RUN mkdir -p /var/log/sirin /etc/sirin
+# Директории для логов и данных + непривилегированный пользователь для sirinapi/sirinbot
+RUN addgroup -S sirin && adduser -S sirin -G sirin \
+    && mkdir -p /var/log/sirin /etc/sirin \
+    && chown -R sirin:sirin /var/log/sirin /etc/sirin
 
 # Метка сервиса будет задана в compose (command)
 WORKDIR /opt/sirin

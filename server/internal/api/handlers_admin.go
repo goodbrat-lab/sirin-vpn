@@ -1,16 +1,16 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
-	"strings"
 )
 
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		want := "Bearer " + s.cfg.AdminToken
-		if !strings.EqualFold(auth, want) {
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(want)) != 1 {
 			writeJSON(w, 401, ErrorResponse{
 				Contract: "v1", Status: "error",
 				Error: "unauthorized",

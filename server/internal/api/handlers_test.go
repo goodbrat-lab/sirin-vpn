@@ -440,3 +440,137 @@ func TestHandleParamsDegradedFallback(t *testing.T) {
 	}
 }
 
+func TestHandleParamsMissingKeyRefused(t *testing.T) {
+	srv, _ := testServer(t)
+	srv.cfg.VLESSEnabled = true
+	srv.cfg.VLESSHost = "198.51.100.1"
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/params", nil)
+	w := httptest.NewRecorder()
+	srv.HandleParams(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing key, got %d", w.Code)
+	}
+	var errResp ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if errResp.Status != "refused" {
+		t.Fatalf("expected status=refused, got %q", errResp.Status)
+	}
+}
+
+func TestHandleAdminCaseSensitiveToken(t *testing.T) {
+	srv, _ := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/clients", nil)
+	req.Header.Set("Authorization", "Bearer TEST-ADMIN-TOKEN")
+	w := httptest.NewRecorder()
+
+	srv.requireAdmin(srv.HandleAdminList)(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong-case admin token, got %d", w.Code)
+	}
+}
+
+func TestHandleHealthNoMetadataLeak(t *testing.T) {
+	srv, storage := testServer(t)
+	_, _ = storage.Add("SecretUser", 0)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	srv.HandleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("expected status=ok, got %v", body["status"])
+	}
+	if _, hasClients := body["clients"]; hasClients {
+		t.Fatal("public /health must not expose clients count")
+	}
+	if _, hasEgress := body["egress_ip"]; hasEgress {
+		t.Fatal("public /health must not expose egress_ip")
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options=nosniff")
+	}
+}
+
+func TestHandleParamsCustomVLESSConfig(t *testing.T) {
+	srv, storage := testServer(t)
+	srv.cfg.VLESSEnabled = true
+	srv.cfg.VLESSHost = "203.0.113.10"
+	srv.cfg.VLESSPort = 443
+	srv.cfg.VLESSPBK = "custom-pbk-value"
+	srv.cfg.VLESSSID = "1122334455667788"
+	srv.cfg.VLESSSNIPool = []string{"custom.example.com", "alt.example.com"}
+	srv.cfg.XHTTPPort = 9443
+	srv.cfg.XHTTPSID = "aabbccddeeff0011"
+	srv.cfg.XHTTPPath = "/custom-xhttp-path"
+
+	c, _ := storage.Add("CustomConfigUser", 0)
+	req := httptest.NewRequest(http.MethodGet, "/v1/params?key="+c.UUID, nil)
+	w := httptest.NewRecorder()
+	srv.HandleParams(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	var p ParamsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(p.Entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(p.Entries))
+	}
+	vless := p.Entries[1]
+	xhttp := p.Entries[2]
+	if vless.PBK != "custom-pbk-value" || vless.SID != "1122334455667788" || vless.SNI != "custom.example.com" {
+		t.Fatalf("unexpected vless entry: %+v", vless)
+	}
+	if xhttp.Port != 9443 || xhttp.SID != "aabbccddeeff0011" || xhttp.Path != "/custom-xhttp-path" {
+		t.Fatalf("unexpected xhttp entry: %+v", xhttp)
+	}
+}
+
+func TestRateLimitMiddleware(t *testing.T) {
+	limiter := newIPRateLimiter(1, 2)
+	h := rateLimitMiddleware(limiter, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.RemoteAddr = "198.51.100.42:12345"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("req %d: expected 200, got %d", i, w.Code)
+		}
+	}
+
+	// 3-й запрос подряд с того же IP превышает burst=2 -> 429
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.RemoteAddr = "198.51.100.42:12345"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", w.Code)
+	}
+
+	// Другой IP не затронут
+	req2 := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req2.RemoteAddr = "198.51.100.99:54321"
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for different IP, got %d", w2.Code)
+	}
+}
+

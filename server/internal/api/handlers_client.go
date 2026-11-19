@@ -81,27 +81,52 @@ func (s *Server) HandleKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleHealth — GET /health (публичный, без утечки метаданных).
+func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+// HandleAdminHealth — GET /v1/admin/health (под Bearer, с метаданными).
+func (s *Server) HandleAdminHealth(w http.ResponseWriter, r *http.Request) {
+	egressIP := s.cfg.ServerHost
+	if egressIP == "" {
+		egressIP = s.cfg.VLESSHost
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"status":    "ok",
+		"clients":   s.storage.Count(),
+		"time":      time.Now().Unix(),
+		"egress_ip": egressIP,
+	})
+}
+
 // HandleParams — GET /v1/params?key=<UUID>
 func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 
-	// Проверяем ключ (если указан)
-	if key != "" {
-		c, ok := s.storage.Get(key)
-		if !ok || c.Revoked {
-			writeJSON(w, 200, ErrorResponse{
-				Contract: "v1", Status: "refused",
-				Error: "ключ не найден или отозван",
-			})
-			return
-		}
-		if c.ExpiresAt != nil && c.ExpiresAt.Unix() < time.Now().Unix() {
-			writeJSON(w, 200, ErrorResponse{
-				Contract: "v1", Status: "refused",
-				Error: "срок действия ключа истёк",
-			})
-			return
-		}
+	// Ключ обязателен: анонимная выдача боевой топологии, PBK/SID и XHTTP path запрещена.
+	if key == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{
+			Contract: "v1", Status: "refused",
+			Error: "ключ обязателен",
+		})
+		return
+	}
+
+	client, ok := s.storage.Get(key)
+	if !ok || client.Revoked {
+		writeJSON(w, 200, ErrorResponse{
+			Contract: "v1", Status: "refused",
+			Error: "ключ не найден или отозван",
+		})
+		return
+	}
+	if client.ExpiresAt != nil && client.ExpiresAt.Unix() < time.Now().Unix() {
+		writeJSON(w, 200, ErrorResponse{
+			Contract: "v1", Status: "refused",
+			Error: "срок действия ключа истёк",
+		})
+		return
 	}
 
 	resp := ParamsResponse{
@@ -138,66 +163,65 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 	if vlessPort == 0 {
 		vlessPort = 443
 	}
-	xhttpPort := 8443
+	xhttpPort := s.cfg.effectiveXHTTPPort()
 	var relayLoadHeader string
 
 	effectiveRelayID := 0
 	isFallbackActive := false
 
-	if key != "" {
-		if c, ok := s.storage.Get(key); ok {
-			effectiveRelayID = c.RelayID
+	if client != nil {
+		c := client
+		effectiveRelayID = c.RelayID
 
-			// Проверяем, деградирован ли назначенный маршрут
-			if effectiveRelayID > 0 && s.IsRelayDegraded(effectiveRelayID) {
-				log.Printf("[WARN] /v1/params: client %s assigned relay_id=%d is DEGRADED! Finding healthy fallback", c.UUID, effectiveRelayID)
-				isFallbackActive = true
-				if !s.IsRelayDegraded(0) {
-					effectiveRelayID = 0
-				} else if effectiveRelayID != 2 && s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
-					effectiveRelayID = 2
-				} else if effectiveRelayID != 1 && s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
-					effectiveRelayID = 1
-				}
-			} else if effectiveRelayID == 0 && s.IsRelayDegraded(0) {
-				log.Printf("[WARN] /v1/params: client %s Direct NL is DEGRADED! Finding healthy relay fallback", c.UUID)
-				isFallbackActive = true
-				if s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
-					effectiveRelayID = 2
-				} else if s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
-					effectiveRelayID = 1
-				}
+		// Проверяем, деградирован ли назначенный маршрут
+		if effectiveRelayID > 0 && s.IsRelayDegraded(effectiveRelayID) {
+			log.Printf("[WARN] /v1/params: client %s assigned relay_id=%d is DEGRADED! Finding healthy fallback", c.UUID, effectiveRelayID)
+			isFallbackActive = true
+			if !s.IsRelayDegraded(0) {
+				effectiveRelayID = 0
+			} else if effectiveRelayID != 2 && s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
+				effectiveRelayID = 2
+			} else if effectiveRelayID != 1 && s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
+				effectiveRelayID = 1
 			}
+		} else if effectiveRelayID == 0 && s.IsRelayDegraded(0) {
+			log.Printf("[WARN] /v1/params: client %s Direct NL is DEGRADED! Finding healthy relay fallback", c.UUID)
+			isFallbackActive = true
+			if s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
+				effectiveRelayID = 2
+			} else if s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
+				effectiveRelayID = 1
+			}
+		}
 
-			if effectiveRelayID == 0 {
-				// Прямой NL выход (по умолчанию или fallback)
-				isRelayClient = false
-			} else if s.relays != nil {
-				if r, found := s.relays.GetByID(effectiveRelayID); found && r.Enabled {
-					vlessHost = r.Host
-					if r.PortVLESS > 0 {
-						vlessPort = r.PortVLESS
-					}
-					if r.PortXHTTP > 0 {
-						xhttpPort = r.PortXHTTP
-					}
-					activeClients := s.storage.List()
-					activeOnRelay := relays.CountActiveOnRelay(activeClients, r.ID)
-					relayLoadHeader = fmt.Sprintf("%d/%d", activeOnRelay, r.MaxClients)
-					isRelayClient = true
-				} else {
-					log.Printf("[WARN] /v1/params: client %s has unknown or disabled relay_id=%d, fallback to direct NL", c.UUID, effectiveRelayID)
-					isRelayClient = false
+		if effectiveRelayID == 0 {
+			// Прямой NL выход (по умолчанию или fallback)
+			isRelayClient = false
+		} else if s.relays != nil {
+			if r, found := s.relays.GetByID(effectiveRelayID); found && r.Enabled {
+				vlessHost = r.Host
+				if r.PortVLESS > 0 {
+					vlessPort = r.PortVLESS
 				}
-			} else if effectiveRelayID == 1 {
-				// Fallback если relays storage не инициализирован
-				if s.cfg.Relay1Host != "" {
-					vlessHost = s.cfg.Relay1Host
-				} else {
-					vlessHost = net.IPv4(185, 182, 65, 219).String()
+				if r.PortXHTTP > 0 {
+					xhttpPort = r.PortXHTTP
 				}
+				activeClients := s.storage.List()
+				activeOnRelay := relays.CountActiveOnRelay(activeClients, r.ID)
+				relayLoadHeader = fmt.Sprintf("%d/%d", activeOnRelay, r.MaxClients)
 				isRelayClient = true
+			} else {
+				log.Printf("[WARN] /v1/params: client %s has unknown or disabled relay_id=%d, fallback to direct NL", c.UUID, effectiveRelayID)
+				isRelayClient = false
 			}
+		} else if effectiveRelayID == 1 {
+			// Fallback если relays storage не инициализирован
+			if s.cfg.Relay1Host != "" {
+				vlessHost = s.cfg.Relay1Host
+			} else {
+				vlessHost = net.IPv4(185, 182, 65, 219).String()
+			}
+			isRelayClient = true
 		}
 	}
 
@@ -220,40 +244,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		// на сетях мобильных операторов РФ (Билайн/МТС), приводя к зависанию YouTube и Instagram.
 		// Без UDP клиент сразу подключается через релей по TLS 1.3 Reality.
 		if s.cfg.VLESSEnabled && vlessHost != "" {
-			entries = append(entries, ParamsEntry{
-				ID:        s.cfg.ServerID + "-vless",
-				Host:      vlessHost,
-				Port:      vlessPort,
-				DTLS:      false,
-				Transport: "vless",
-				SNI:       "sun8-21.userapi.com",
-				SNIs: []string{
-					"sun8-21.userapi.com",
-					"www.kinopoisk.ru",
-					"wildberries.ru",
-					"www.ikea.com",
-				},
-				PBK: "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
-				SID: "8283f99ec6a0f52e",
-			})
-			entries = append(entries, ParamsEntry{
-				ID:        s.cfg.ServerID + "-xhttp",
-				Host:      vlessHost,
-				Port:      xhttpPort,
-				DTLS:      false,
-				Transport: "xhttp",
-				SNI:       "sun8-21.userapi.com",
-				SNIs: []string{
-					"sun8-21.userapi.com",
-					"www.kinopoisk.ru",
-					"wildberries.ru",
-					"www.ikea.com",
-				},
-				PBK:  "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
-				SID:  "a4b2c1d3e5f67890",
-				Path: "/s1r1nxhttp2026k",
-				Mode: "auto",
-			})
+			entries = append(entries, s.buildVLESSEntries(vlessHost, vlessPort, xhttpPort)...)
 		}
 	} else {
 		// Прямой выход через NL:
@@ -268,40 +259,7 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		})
 		// 2) Запасной VLESS/XHTTP в NL
 		if s.cfg.VLESSEnabled && vlessHost != "" {
-			entries = append(entries, ParamsEntry{
-				ID:        s.cfg.ServerID + "-vless",
-				Host:      vlessHost,
-				Port:      vlessPort,
-				DTLS:      false,
-				Transport: "vless",
-				SNI:       "sun8-21.userapi.com",
-				SNIs: []string{
-					"sun8-21.userapi.com",
-					"www.kinopoisk.ru",
-					"wildberries.ru",
-					"www.ikea.com",
-				},
-				PBK: "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
-				SID: "8283f99ec6a0f52e",
-			})
-			entries = append(entries, ParamsEntry{
-				ID:        s.cfg.ServerID + "-xhttp",
-				Host:      vlessHost,
-				Port:      xhttpPort,
-				DTLS:      false,
-				Transport: "xhttp",
-				SNI:       "sun8-21.userapi.com",
-				SNIs: []string{
-					"sun8-21.userapi.com",
-					"www.kinopoisk.ru",
-					"wildberries.ru",
-					"www.ikea.com",
-				},
-				PBK:  "bMDgBlmM7-KUEPbnuqll6ObqzDTVhh_aXeAfsc3N3A4",
-				SID:  "a4b2c1d3e5f67890",
-				Path: "/s1r1nxhttp2026k",
-				Mode: "auto",
-			})
+			entries = append(entries, s.buildVLESSEntries(vlessHost, vlessPort, xhttpPort)...)
 		}
 	}
 
@@ -321,8 +279,45 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
+func (s *Server) buildVLESSEntries(host string, vlessPort, xhttpPort int) []ParamsEntry {
+	snis := s.cfg.effectiveSNIPool()
+	primarySNI := ""
+	if len(snis) > 0 {
+		primarySNI = snis[0]
+	}
+	pbk := s.cfg.effectiveVLESSPBK()
+	return []ParamsEntry{
+		{
+			ID:        s.cfg.ServerID + "-vless",
+			Host:      host,
+			Port:      vlessPort,
+			DTLS:      false,
+			Transport: "vless",
+			SNI:       primarySNI,
+			SNIs:      snis,
+			PBK:       pbk,
+			SID:       s.cfg.effectiveVLESSSID(),
+		},
+		{
+			ID:        s.cfg.ServerID + "-xhttp",
+			Host:      host,
+			Port:      xhttpPort,
+			DTLS:      false,
+			Transport: "xhttp",
+			SNI:       primarySNI,
+			SNIs:      snis,
+			PBK:       pbk,
+			SID:       s.cfg.effectiveXHTTPSID(),
+			Path:      s.cfg.effectiveXHTTPPath(),
+			Mode:      "auto",
+		},
+	}
+}
+
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("writeJSON: %v", err)

@@ -54,20 +54,10 @@ func (s *Server) Start() error {
 	// Публичные клиентские
 	mux.HandleFunc("/v1/key", s.HandleKey)
 	mux.HandleFunc("/v1/params", s.HandleParams)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		egressIP := s.cfg.ServerHost
-		if egressIP == "" {
-			egressIP = s.cfg.VLESSHost
-		}
-		writeJSON(w, 200, map[string]interface{}{
-			"status":    "ok",
-			"clients":   s.storage.Count(),
-			"time":      time.Now().Unix(),
-			"egress_ip": egressIP,
-		})
-	})
+	mux.HandleFunc("/health", s.HandleHealth)
 
 	// Админские (Bearer)
+	mux.HandleFunc("/v1/admin/health", s.requireAdmin(s.HandleAdminHealth))
 	mux.HandleFunc("/v1/admin/clients", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -91,7 +81,9 @@ func (s *Server) Start() error {
 		}
 	}))
 
-	handler := logMiddleware(mux)
+	// Per-IP rate limiter (10 req/s, burst 30) для защиты /v1/key, /v1/params и /v1/admin/*
+	limiter := newIPRateLimiter(10, 30)
+	handler := logMiddleware(rateLimitMiddleware(limiter, mux))
 
 	s.http = &http.Server{
 		Addr:              s.cfg.ListenAddr,

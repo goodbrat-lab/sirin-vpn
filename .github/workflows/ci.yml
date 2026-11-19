@@ -1,0 +1,83 @@
+name: CI (Tests & Lint)
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+jobs:
+  go-linux:
+    name: Go Tests (engine, server, router)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: |
+            core/engine/go.sum
+            server/go.sum
+            apps/router/go.sum
+
+      - name: Test & Vet core/engine
+        working-directory: core/engine
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: Test & Vet server
+        working-directory: server
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: Test & Vet apps/router
+        working-directory: apps/router
+        run: |
+          go vet ./...
+          go test -race ./...
+
+  go-desktop:
+    name: Go Tests (desktop)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: |
+            core/engine/go.sum
+            apps/desktop/go.sum
+
+      - name: Test & Vet apps/desktop
+        working-directory: apps/desktop
+        run: |
+          go vet ./...
+          go test ./...
+
+  shell-lint:
+    name: Shell Syntax Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check POSIX sh & bash syntax
+        run: |
+          sh -n apps/router/install.sh
+          sh -n apps/router/uninstall.sh
+          sh -n apps/router/luci-app-sirin/root/usr/libexec/rpcd/sirin
+          bash -n scripts/monitor_availability.sh
+          bash -n scripts/feedback_digest.sh
+          sh -n .githooks/pre-commit

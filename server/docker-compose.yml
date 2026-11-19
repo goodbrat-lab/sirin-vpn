@@ -68,7 +68,12 @@ services:
     volumes:
       - /etc/sirin:/etc/sirin
       - /var/log/sirin:/var/log/sirin
-    user: "0:0"  # root (нужен для записи в /etc/sirin/clients.json)
+    user: "sirin:sirin"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   # sirinbot: Telegram bot
   sirinbot:
@@ -83,6 +88,7 @@ services:
     volumes:
       - /etc/sirin:/etc/sirin
       - /var/log/sirin:/var/log/sirin
-    user: "0:0"  # root (нужен для записи в /etc/sirin/clients.json)
+    user: "sirin:sirin"
     depends_on:
-      - sirinapi
+      sirinapi:
+        condition: service_healthy
