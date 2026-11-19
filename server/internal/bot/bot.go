@@ -137,6 +137,7 @@ func (b *Bot) registerHandlers() {
 	b.bot.Handle("/start", b.handleStart)
 	b.bot.Handle("/help", b.handleHelp)
 	b.bot.Handle("/mykey", b.handleMyKey)
+	b.bot.Handle("/devices", b.handleDevices)
 
 	// Админ-команды
 	b.bot.Handle("/newkey", b.adminOnly(b.handleNewKey))
@@ -150,6 +151,8 @@ func (b *Bot) registerHandlers() {
 	b.bot.Handle("/enable", b.adminOnly(b.handleEnable))
 	b.bot.Handle("/delete", b.adminOnly(b.handleDelete))
 	b.bot.Handle("/find", b.adminOnly(b.handleFind))
+	b.bot.Handle("/unbind", b.adminOnly(b.handleUnbind))
+	b.bot.Handle("/maxdevices", b.adminOnly(b.handleMaxDevices))
 
 	// Обработка inline-кнопок
 	b.bot.Handle(tele.OnCallback, b.handleCallback)

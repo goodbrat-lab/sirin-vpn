@@ -320,3 +320,67 @@ func (s *ClientsStorage) Delete(key string) (*Client, error) {
 
 	return &clone, nil
 }
+
+// UnbindDevice отвязывает указанное устройство (или все устройства, если deviceID == "") от ключа клиента.
+func (s *ClientsStorage) UnbindDevice(key, deviceID string) (*Client, error) {
+	_ = s.Reload()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return nil, fmt.Errorf("client %s not found", key)
+	}
+
+	if deviceID == "" {
+		c.DeviceID = ""
+		c.DeviceIDs = nil
+	} else {
+		if c.DeviceID == deviceID {
+			c.DeviceID = ""
+		}
+		newIDs := make([]string, 0, len(c.DeviceIDs))
+		for _, id := range c.DeviceIDs {
+			if id != deviceID {
+				newIDs = append(newIDs, id)
+			}
+		}
+		c.DeviceIDs = newIDs
+		if c.DeviceID == "" && len(c.DeviceIDs) > 0 {
+			c.DeviceID = c.DeviceIDs[0]
+		}
+	}
+
+	if err := s.saveLocked(); err != nil {
+		return nil, err
+	}
+
+	clone := *c
+	return &clone, nil
+}
+
+// SetMaxDevices устанавливает лимит одновременно привязанных устройств (1..20).
+func (s *ClientsStorage) SetMaxDevices(key string, max int) (*Client, error) {
+	if max < 1 {
+		max = 1
+	} else if max > 20 {
+		max = 20
+	}
+
+	_ = s.Reload()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.data.Clients[key]
+	if !ok {
+		return nil, fmt.Errorf("client %s not found", key)
+	}
+
+	c.MaxDevices = max
+	if err := s.saveLocked(); err != nil {
+		return nil, err
+	}
+
+	clone := *c
+	return &clone, nil
+}

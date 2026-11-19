@@ -206,4 +206,38 @@ func TestClientsStorage_Scenarios(t *testing.T) {
 	if updatedRelayClient.RelayID != 0 {
 		t.Errorf("expected RelayID=0 after SetRelayID, got %d", updatedRelayClient.RelayID)
 	}
+
+	// 10. Multi-device: SetMaxDevices and UnbindDevice
+	withMax, err := storage.SetMaxDevices(newRelayClient.UUID, 5)
+	if err != nil {
+		t.Fatalf("SetMaxDevices failed: %v", err)
+	}
+	if withMax.MaxDevices != 5 {
+		t.Errorf("expected MaxDevices=5, got %d", withMax.MaxDevices)
+	}
+
+	// Simulate bound devices
+	storage.mu.Lock()
+	storage.data.Clients[newRelayClient.UUID].DeviceIDs = []string{"dev1", "dev2"}
+	storage.data.Clients[newRelayClient.UUID].DeviceID = "dev1"
+	_ = storage.saveLocked()
+	storage.mu.Unlock()
+
+	// Unbind single device
+	afterDev1, err := storage.UnbindDevice(newRelayClient.UUID, "dev1")
+	if err != nil {
+		t.Fatalf("UnbindDevice single failed: %v", err)
+	}
+	if len(afterDev1.DeviceIDs) != 1 || afterDev1.DeviceIDs[0] != "dev2" {
+		t.Errorf("expected [dev2] after unbind dev1, got %+v", afterDev1.DeviceIDs)
+	}
+
+	// Unbind all devices
+	afterAll, err := storage.UnbindDevice(newRelayClient.UUID, "")
+	if err != nil {
+		t.Fatalf("UnbindDevice all failed: %v", err)
+	}
+	if len(afterAll.DeviceIDs) != 0 || afterAll.DeviceID != "" {
+		t.Errorf("expected 0 devices after unbind all, got %+v", afterAll.DeviceIDs)
+	}
 }

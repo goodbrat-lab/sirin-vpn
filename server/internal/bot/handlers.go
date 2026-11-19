@@ -16,6 +16,7 @@ func (b *Bot) handleStart(c tele.Context) error {
 		"Я помогу подключиться к VPN.\n\n" +
 		"Команды:\n" +
 		"/mykey — показать мой выданный ключ\n" +
+		"/devices — привязанные устройства\n" +
 		"/help — справка\n"
 
 	if b.isAdmin(userID) {
@@ -29,6 +30,8 @@ func (b *Bot) handleStart(c tele.Context) error {
 			"/shorten `<имя|uuid> <дни>` — сократить срок\n" +
 			"/disable `<имя|uuid>` — отключить (soft-delete)\n" +
 			"/enable `<имя|uuid>` — включить\n" +
+			"/unbind `<имя|uuid>` — отвязать все устройства\n" +
+			"/maxdevices `<имя|uuid> <N>` — лимит устройств\n" +
 			"/delete `<имя|uuid>` — удалить ключ\n" +
 			"/status — статистика сервера\n"
 	}
@@ -40,7 +43,8 @@ func (b *Bot) handleStart(c tele.Context) error {
 func (b *Bot) handleHelp(c tele.Context) error {
 	userID := c.Sender().ID
 	text := "📖 *Справка*\n\n" +
-		"`/mykey` — показать текущий ключ\n"
+		"`/mykey` — показать текущий ключ\n" +
+		"`/devices` — привязанные устройства и отвязка\n"
 
 	if b.isAdmin(userID) {
 		text += "\n👑 *Управление клиентами:*\n" +
@@ -54,6 +58,8 @@ func (b *Bot) handleHelp(c tele.Context) error {
 			"• `/shorten Марина 10` — сократить срок на 10 дней\n" +
 			"• `/disable Марина` — временно отключить клиента\n" +
 			"• `/enable Марина` — активировать отключенного клиента\n" +
+			"• `/unbind Марина` — сбросить привязки устройств\n" +
+			"• `/maxdevices Марина 3` — установить лимит устройств (семья)\n" +
 			"• `/delete Марина` — удалить клиента (с подтверждением)\n" +
 			"• `/delete Марина --force` — удалить немедленно\n" +
 			"• `/status` — статистика сервера и API\n"
@@ -68,18 +74,90 @@ func (b *Bot) handleMyKey(c tele.Context) error {
 		return c.Send("У тебя пока нет ключа. Обратитесь к администратору для получения доступа.")
 	}
 
+	cl, clOk := b.clientsStorage.Get(uk.UUID)
+	devicesCount := 0
+	maxDevices := 1
+	if clOk && cl != nil {
+		if cl.MaxDevices > 0 {
+			maxDevices = cl.MaxDevices
+		}
+		if len(cl.DeviceIDs) > 0 {
+			devicesCount = len(cl.DeviceIDs)
+		} else if cl.DeviceID != "" {
+			devicesCount = 1
+		}
+	}
+
 	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", uk.UUID)
 	btn := &tele.ReplyMarkup{}
 	btnOpen := btn.URL("🕊 Открыть в Сирин", openURL)
-	btn.Inline(btn.Row(btnOpen))
+	btnDevices := btn.Data("📱 Мои устройства", "my_dev:"+uk.UUID)
+	btn.Inline(
+		btn.Row(btnOpen),
+		btn.Row(btnDevices),
+	)
 
 	text := fmt.Sprintf("🔑 *Твой ключ*\n\n"+
 		"Имя: `%s`\n"+
-		"Ключ: `%s`\n\n"+
+		"Ключ: `%s`\n"+
+		"Устройств: `%d / %d`\n\n"+
 		"Нажми на кнопку ниже, чтобы открыть приложение «Сирин» и применить ключ:\n"+
-		"[Открыть в Сирин](%s)", uk.Name, maskUUID(uk.UUID), openURL)
+		"[Открыть в Сирин](%s)", uk.Name, maskUUID(uk.UUID), devicesCount, maxDevices, openURL)
 
 	return c.Send(text, btn, tele.ModeMarkdown)
+}
+
+func (b *Bot) handleDevices(c tele.Context) error {
+	userID := c.Sender().ID
+	uk, ok := b.storage.Get(userID)
+	if !ok {
+		return c.Send("У тебя пока нет ключа. Обратитесь к администратору для получения доступа.")
+	}
+
+	cl, clOk := b.clientsStorage.Get(uk.UUID)
+	devicesCount := 0
+	maxDevices := 1
+	var devList []string
+	if clOk && cl != nil {
+		if cl.MaxDevices > 0 {
+			maxDevices = cl.MaxDevices
+		}
+		if len(cl.DeviceIDs) > 0 {
+			devicesCount = len(cl.DeviceIDs)
+			devList = cl.DeviceIDs
+		} else if cl.DeviceID != "" {
+			devicesCount = 1
+			devList = []string{cl.DeviceID}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📱 *Привязанные устройства*\n\n")
+	sb.WriteString(fmt.Sprintf("Ключ: `%s`\n", maskUUID(uk.UUID)))
+	sb.WriteString(fmt.Sprintf("Лимит: *%d / %d*\n\n", devicesCount, maxDevices))
+
+	if len(devList) == 0 {
+		sb.WriteString("Сейчас к ключу не привязано ни одного устройства.\n")
+	} else {
+		sb.WriteString("Подключенные устройства:\n")
+		for i, id := range devList {
+			label := id
+			if len(label) > 16 {
+				label = label[:16] + "…"
+			}
+			sb.WriteString(fmt.Sprintf("%d. `%s`\n", i+1, label))
+		}
+		sb.WriteString("\nЕсли вы сменили телефон или роутер и достигли лимита, нажмите кнопку ниже, чтобы сбросить привязки:")
+	}
+
+	btn := &tele.ReplyMarkup{}
+	if len(devList) > 0 {
+		btnUnbind := btn.Data("🔄 Отвязать все устройства", "my_unbind:"+uk.UUID)
+		btn.Inline(btn.Row(btnUnbind))
+		return c.Send(sb.String(), btn, tele.ModeMarkdown)
+	}
+
+	return c.Send(sb.String(), tele.ModeMarkdown)
 }
 
 func (b *Bot) handleStatus(c tele.Context) error {
@@ -322,13 +400,25 @@ func (b *Bot) buildInfoCard(cl *Client) (string, *tele.ReplyMarkup) {
 	}
 	daysLeftStr := formatDaysLeft(cl.ExpiresAt)
 
+	devicesCount := 0
+	maxDevices := 1
+	if cl.MaxDevices > 0 {
+		maxDevices = cl.MaxDevices
+	}
+	if len(cl.DeviceIDs) > 0 {
+		devicesCount = len(cl.DeviceIDs)
+	} else if cl.DeviceID != "" {
+		devicesCount = 1
+	}
+
 	text := fmt.Sprintf("👤 *%s*\n\n"+
 		"UUID: `%s`\n"+
 		"Создан: %s\n"+
 		"Срок: до %s\n"+
 		"Осталось: %s\n"+
+		"Устройств: `%d / %d`\n"+
 		"Статус: %s",
-		escapeMarkdown(cl.Name), maskUUID(cl.UUID), createdStr, expStr, daysLeftStr, status)
+		escapeMarkdown(cl.Name), maskUUID(cl.UUID), createdStr, expStr, daysLeftStr, devicesCount, maxDevices, status)
 
 	markup := &tele.ReplyMarkup{}
 	btnShow := markup.Data("👁 Показать UUID", "show:"+cl.UUID)
@@ -342,11 +432,13 @@ func (b *Bot) buildInfoCard(cl *Client) (string, *tele.ReplyMarkup) {
 		btnToggle = markup.Data("⛔ Отключить", "dis:"+cl.UUID)
 	}
 	btnDel := markup.Data("🗑 Удалить", "del_req:"+cl.UUID)
+	btnUnbind := markup.Data("📱 Сбросить устройства", "unbind:"+cl.UUID)
 
 	markup.Inline(
 		markup.Row(btnShow),
 		markup.Row(btnExt, btnShort),
 		markup.Row(btnToggle, btnDel),
+		markup.Row(btnUnbind),
 	)
 
 	return text, markup
@@ -632,6 +724,72 @@ func (b *Bot) handleFind(c tele.Context) error {
 }
 
 // -----------------------------------------------------------------------------
+// /unbind <name|prefix>
+// -----------------------------------------------------------------------------
+
+func (b *Bot) handleUnbind(c tele.Context) error {
+	userID := c.Sender().ID
+	arg := strings.TrimSpace(c.Data())
+	if arg == "" {
+		return c.Send("Использование: `/unbind <имя|uuid>`", tele.ModeMarkdown)
+	}
+
+	all := b.clientsStorage.List()
+	client, err, ambiguous := resolveClient(all, arg)
+	if err != nil {
+		if err == ErrAmbiguousClient {
+			return b.renderAmbiguousSelection(c, ambiguous, "info")
+		}
+		return c.Send(fmt.Sprintf("Клиент «%s» не найден.", arg))
+	}
+
+	updated, err := b.clientsStorage.UnbindDevice(client.UUID, "")
+	if err != nil {
+		return c.Send(fmt.Sprintf("❌ Ошибка отвязки: %v", err))
+	}
+
+	b.logAdminAction(userID, "unbind", client.UUID[:8], true)
+	return c.Send(fmt.Sprintf("✅ Все устройства клиента *%s* отвязаны.", escapeMarkdown(updated.Name)), tele.ModeMarkdown)
+}
+
+// -----------------------------------------------------------------------------
+// /maxdevices <name|prefix> <N>
+// -----------------------------------------------------------------------------
+
+func (b *Bot) handleMaxDevices(c tele.Context) error {
+	userID := c.Sender().ID
+	fields := strings.Fields(c.Data())
+	if len(fields) < 2 {
+		return c.Send("Использование: `/maxdevices <имя|uuid> <лимит (1..20)>`", tele.ModeMarkdown)
+	}
+
+	limitStr := fields[len(fields)-1]
+	target := strings.Join(fields[:len(fields)-1], " ")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 20 {
+		return c.Send("Лимит должен быть числом от 1 до 20.")
+	}
+
+	all := b.clientsStorage.List()
+	client, err, ambiguous := resolveClient(all, target)
+	if err != nil {
+		if err == ErrAmbiguousClient {
+			return b.renderAmbiguousSelection(c, ambiguous, "info")
+		}
+		return c.Send(fmt.Sprintf("Клиент «%s» не найден.", target))
+	}
+
+	updated, err := b.clientsStorage.SetMaxDevices(client.UUID, limit)
+	if err != nil {
+		return c.Send(fmt.Sprintf("❌ Ошибка установки лимита: %v", err))
+	}
+
+	b.logAdminAction(userID, "max_devices", fmt.Sprintf("%s:%d", client.UUID[:8], limit), true)
+	return c.Send(fmt.Sprintf("✅ Для *%s* установлен лимит: *%d* устройств.", escapeMarkdown(updated.Name), updated.MaxDevices), tele.ModeMarkdown)
+}
+
+// -----------------------------------------------------------------------------
 // Обработка inline-кнопок
 // -----------------------------------------------------------------------------
 
@@ -821,6 +979,44 @@ func (b *Bot) handleCallback(c tele.Context) error {
 
 		_ = c.Respond(&tele.CallbackResponse{Text: "Удаление отменено"})
 		return c.Edit("❌ Удаление клиента отменено.")
+	}
+
+	// 11. Отвязка устройств пользователем my_unbind:<uuid>
+	if strings.HasPrefix(data, "my_unbind:") {
+		uuidKey := strings.TrimPrefix(data, "my_unbind:")
+		uk, ok := b.storage.Get(userID)
+		if (!ok || uk.UUID != uuidKey) && !b.isAdmin(userID) {
+			return c.Respond(&tele.CallbackResponse{Text: "⛔ Доступ запрещён", ShowAlert: true})
+		}
+		if _, err := b.clientsStorage.UnbindDevice(uuidKey, ""); err != nil {
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка: " + err.Error(), ShowAlert: true})
+		}
+		return c.Respond(&tele.CallbackResponse{
+			Text:      "✅ Все устройства отвязаны! Теперь вы можете подключить новое устройство.",
+			ShowAlert: true,
+		})
+	}
+
+	// 12. Переход к списку устройств пользователя my_dev:<uuid>
+	if strings.HasPrefix(data, "my_dev:") {
+		_ = c.Respond()
+		return b.handleDevices(c)
+	}
+
+	// 13. Отвязка устройств администратором unbind:<uuid>
+	if strings.HasPrefix(data, "unbind:") {
+		if !b.isAdmin(userID) {
+			return c.Respond(&tele.CallbackResponse{Text: "⛔ Доступно только администратору", ShowAlert: true})
+		}
+		uuidKey := strings.TrimPrefix(data, "unbind:")
+		updated, err := b.clientsStorage.UnbindDevice(uuidKey, "")
+		if err != nil {
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка: " + err.Error(), ShowAlert: true})
+		}
+		b.logAdminAction(userID, "unbind", uuidKey[:8], true)
+		_ = c.Respond(&tele.CallbackResponse{Text: "✅ Устройства отвязаны"})
+		text, markup := b.buildInfoCard(updated)
+		return c.Edit(text, markup, tele.ModeMarkdown)
 	}
 
 	return c.Respond()
