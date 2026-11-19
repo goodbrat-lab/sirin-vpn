@@ -252,6 +252,7 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.80")
     implementation("org.bouncycastle:bcutil-jdk18on:1.80")
     implementation("org.bouncycastle:bcpg-jdk18on:1.80")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     // PLAY BILLING — ТОЛЬКО В ВАРИАНТЕ PLAY.
     //

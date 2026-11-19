@@ -79,8 +79,10 @@ class SirinTileService : TileService() {
         }
         // Подзаголовок — короткое состояние. Доступен с Android 10.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val path = TunnelState.transport.value
             tile.subtitle = when {
                 TunnelState.busy.value -> "Подключаюсь…"
+                TunnelState.connected.value && path.isNotEmpty() -> "Подключено · $path"
                 TunnelState.connected.value -> "Подключено"
                 else -> "Отключено"
             }

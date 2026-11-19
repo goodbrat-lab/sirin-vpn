@@ -16,6 +16,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.platform.LocalClipboardManager
+import com.journeyapps.barcodescanner.ScanContract
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -281,19 +285,53 @@ fun SettingsScreen(
 
     if (showChangeKeyDialog) {
         var newKey by remember { mutableStateOf("") }
+        val clipboardManager = LocalClipboardManager.current
+        val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+            val text = result.contents
+            if (!text.isNullOrBlank()) {
+                val extracted = KeyLink.extractKey(text)
+                if (extracted != null) {
+                    newKey = extracted
+                }
+            }
+        }
         AlertDialog(
             onDismissRequest = { showChangeKeyDialog = false },
             title = { Text("Сменить ключ") },
             text = {
-                Column {
-                    Text("Введите новый UUID (получить можно в @sirin_crp_bot):")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Введите новый UUID (получить можно в @sirin_crp_bot) или отсканируйте QR-код:")
                     OutlinedTextField(
                         value = newKey,
                         onValueChange = { newKey = it.trim() },
                         placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                val clip = clipboardManager.getText()?.text
+                                val parsed = KeyLink.extractKey(clip)
+                                if (parsed != null) {
+                                    newKey = parsed
+                                } else if (!clip.isNullOrBlank()) {
+                                    newKey = clip.trim()
+                                }
+                            },
+                        ) { Text("📋 Вставить") }
+
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                scanLauncher.launch(QrScanner.options())
+                            },
+                        ) { Text("📷 QR-код") }
+                    }
                     if (newKey.isNotEmpty() && newKey.length != 36) {
                         Text(
                             "UUID должен быть 36 символов",

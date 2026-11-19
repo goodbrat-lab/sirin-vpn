@@ -86,3 +86,11 @@
 # ----------------------------------------------------------------------
 -keep class org.bouncycastle.** { *; }
 -dontwarn org.bouncycastle.**
+
+# ----------------------------------------------------------------------
+# ZXing Barcode Scanner
+# ----------------------------------------------------------------------
+-keep class com.journeyapps.barcodescanner.** { *; }
+-dontwarn com.journeyapps.barcodescanner.**
+-keep class com.google.zxing.** { *; }
+-dontwarn com.google.zxing.**

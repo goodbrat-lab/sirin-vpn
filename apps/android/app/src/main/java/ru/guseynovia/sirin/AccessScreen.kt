@@ -4,12 +4,14 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -20,8 +22,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -156,6 +160,7 @@ fun AccessOffer(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     var typing by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
     // Подсказка ПОД БЛОКОМ, не итог: «ключ слишком короткий», «спрашиваю
@@ -164,6 +169,20 @@ fun AccessOffer(
     var note by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val text = result.contents
+        if (!text.isNullOrBlank()) {
+            val k = KeyLink.extractKey(text)
+            if (k != null) {
+                typed = k
+                typing = true
+                KeyLink.takeRaw(k)
+            } else {
+                note = "Ключ в QR-коде не найден"
+            }
+        }
+    }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -171,36 +190,75 @@ fun AccessOffer(
         PurchaseOffer(onNote = { note = it })
 
         if (!typing) {
-            TextButton(
-                enabled = !busy,
-                onClick = {
-                    // СНАЧАЛА СПРАШИВАЕМ У GOOGLE, потом показываем поле
-                    // ввода. Человек мог поменять телефон и искать, куда
-                    // ввести ключ, — а вводить нечего, доступ оплачен и
-                    // восстановится сам (62.3). В прямой раздаче это
-                    // пустышка: покупок Google там нет, вызов вернёт пусто.
-                    busy = true
-                    scope.launch {
-                        val said = withContext(Dispatchers.IO) { tryRestorePurchase(ctx) }
-                        busy = false
-                        when {
-                            said.isNotEmpty() -> note = said
-                            // ПОЛЕ ВВОДА — ТОЛЬКО ТАМ, ГДЕ КЛЮЧ ЕСТЬ ЧЕМ
-                            // ВЫДАТЬ. Признак задан вариантом сборки.
-                            KEY_ENTRY -> typing = true
-                            else -> note = RECOVER_EMPTY
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy,
+                    onClick = {
+                        // СНАЧАЛА СПРАШИВАЕМ У GOOGLE, потом показываем поле
+                        // ввода. Человек мог поменять телефон и искать, куда
+                        // ввести ключ, — а вводить нечего, доступ оплачен и
+                        // восстановится сам (62.3). В прямой раздаче это
+                        // пустышка: покупок Google там нет, вызов вернёт пусто.
+                        busy = true
+                        scope.launch {
+                            val said = withContext(Dispatchers.IO) { tryRestorePurchase(ctx) }
+                            busy = false
+                            when {
+                                said.isNotEmpty() -> note = said
+                                // ПОЛЕ ВВОДА — ТОЛЬКО ТАМ, ГДЕ КЛЮЧ ЕСТЬ ЧЕМ
+                                // ВЫДАТЬ. Признак задан вариантом сборки.
+                                KEY_ENTRY -> typing = true
+                                else -> note = RECOVER_EMPTY
+                            }
                         }
-                    }
-                },
-            ) { Text(if (busy) "Проверяю…" else RECOVER_LABEL) }
+                    },
+                ) { Text(if (busy) "Проверяю…" else RECOVER_LABEL) }
+
+                if (KEY_ENTRY) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = !busy,
+                        onClick = { scanLauncher.launch(QrScanner.options()) },
+                    ) { Text("📷 Сканировать QR") }
+                }
+            }
         } else if (KEY_ENTRY) {
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = typed,
                 onValueChange = { typed = it },
                 label = { Text("Ключ") },
+                placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") },
                 singleLine = true,
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy,
+                    onClick = {
+                        val clip = clipboardManager.getText()?.text
+                        val parsed = KeyLink.extractKey(clip)
+                        if (parsed != null) {
+                            typed = parsed
+                        } else if (!clip.isNullOrBlank()) {
+                            typed = clip.trim()
+                        }
+                    },
+                ) { Text("📋 Вставить") }
+
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy,
+                    onClick = { scanLauncher.launch(QrScanner.options()) },
+                ) { Text("📷 QR-код") }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

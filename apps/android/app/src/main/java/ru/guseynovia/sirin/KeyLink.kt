@@ -24,8 +24,36 @@ import androidx.compose.runtime.mutableStateOf
  */
 object KeyLink {
 
-    /** Ключ из последней ссылки, ждущий подтверждения. Пусто — ничего. */
+    /** Ключ из последней ссылки или сканера, ждущий подтверждения. Пусто — ничего. */
     val pending = mutableStateOf("")
+
+    /**
+     * Извлечь и нормализовать ключ из любой строки:
+     * - sirin://key/<ключ>
+     * - sirin://key?uuid=<ключ>
+     * - https://crp.guseynovia.ru/key?uuid=<ключ>
+     * - сырой UUID/ключ (без пробелов, длина >= 8)
+     */
+    fun extractKey(rawInput: String?): String? {
+        if (rawInput.isNullOrBlank()) return null
+        val s = rawInput.trim()
+        if (s.startsWith("sirin://", ignoreCase = true) || s.startsWith("https://", ignoreCase = true)) {
+            val uri = try { android.net.Uri.parse(s) } catch (_: Throwable) { null }
+            if (uri != null) {
+                val candidate = uri.getQueryParameter("uuid")
+                    ?: uri.getQueryParameter("k")
+                    ?: uri.lastPathSegment
+                if (!candidate.isNullOrBlank() && candidate.trim().length >= 8) {
+                    return candidate.trim()
+                }
+            }
+        }
+        val cleaned = s.removePrefix("sirin://").removePrefix("sirin:").removePrefix("key:").trim()
+        if (cleaned.length >= 8 && !cleaned.contains(' ') && !cleaned.contains('\n') && !cleaned.contains('\r')) {
+            return cleaned
+        }
+        return null
+    }
 
     /** Разобрать интент активности. Чужие интенты игнорирует. */
     fun take(intent: Intent?) {
@@ -34,22 +62,24 @@ object KeyLink {
         val isSirinScheme = uri.scheme == "sirin" && uri.host == "key"
         val isHttpsLink = uri.scheme == "https" && uri.host == "crp.guseynovia.ru" && (uri.path?.startsWith("/key") == true)
         if (!isSirinScheme && !isHttpsLink) return
-        // sirin://key/<ключ>, sirin://key?uuid=<ключ>, https://crp.guseynovia.ru/key?uuid=<ключ>
-        val raw = uri.getQueryParameter("uuid") ?: uri.getQueryParameter("k") ?: uri.lastPathSegment ?: return
-        val k = raw.trim()
+        val k = extractKey(uri.toString()) ?: return
         if (k.length < 8) {
             TunnelLog.add("ссылка с ключом: ключ слишком короткий — пропускаю")
             return
         }
         pending.value = k
-        // СТАРАЯ ОШИБКА ПОД ЭКРАНОМ — УБИРАЕМ. Notice переживает переоткрытие
-        // активности (это singleton-объект, а не состояние экрана), и без
-        // явной очистки человек, пришедший по свежей ссылке на ключ, видел
-        // бы «не удалось подключиться» от прошлой, никак не связанной с этой
-        // попытки — сообщение к текущему действию отношения не имеет и
-        // только путает.
         Notice.clear()
         TunnelLog.add("ссылка с ключом получена, жду подтверждения")
+    }
+
+    /** Принять ключ напрямую из QR-сканера или буфера обмена. */
+    fun takeRaw(rawInput: String?): Boolean {
+        if (!KEY_ENTRY) return false
+        val k = extractKey(rawInput) ?: return false
+        pending.value = k
+        Notice.clear()
+        TunnelLog.add("ключ получен из сканера/буфера, жду подтверждения")
+        return true
     }
 
     /** Показ на экране: только последние четыре знака, чтобы узнать ключ, не раскрывая его. */
