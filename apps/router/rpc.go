@@ -81,6 +81,21 @@ func RPCSchema() map[string]any {
 			"via":               "str",
 			"include_downloads": "bool",
 		},
+		"get_service_proxy_config": map[string]any{},
+		"set_service_proxy_config": map[string]any{
+			"enabled":           "bool",
+			"services":          "array",
+			"type":              "str",
+			"host":              "str",
+			"port":              "int",
+			"username":          "str",
+			"password":          "str",
+			"via":               "str",
+			"fallback":          "str",
+			"domains":           "array",
+			"exclude_domains":   "array",
+			"include_downloads": "bool",
+		},
 		"get_ru_direct_info": map[string]any{},
 		"leak_check":         map[string]any{},
 		"test_connection":   map[string]any{},
@@ -189,6 +204,21 @@ func ExecuteRPC(method string, rawInput string, configPath string) (string, int)
 
 	case "set_psn_proxy_config":
 		err := rpcSetPSNProxyConfig(configPath, rawInput)
+		if err != nil {
+			return errJSON(err), 1
+		}
+		return `{"success":true}`, 0
+
+	case "get_service_proxy_config":
+		res, err := rpcGetServiceProxyConfig(configPath)
+		if err != nil {
+			return errJSON(err), 1
+		}
+		data, _ := json.Marshal(res)
+		return string(data), 0
+
+	case "set_service_proxy_config":
+		err := rpcSetServiceProxyConfig(configPath, rawInput)
 		if err != nil {
 			return errJSON(err), 1
 		}
@@ -660,21 +690,26 @@ func rpcGetPSNProxyConfig(configPath string) (map[string]any, error) {
 		return nil, err
 	}
 
-	psn := cfg.PSNProxy
-	if psn == nil {
-		def := DefaultPSNProxyConfig()
-		psn = &def
+	sp := cfg.GetServiceProxyConfig()
+	if sp == nil {
+		def := DefaultServiceProxyConfig()
+		sp = &def
+	}
+
+	enabled := false
+	if sp.Enabled != nil {
+		enabled = *sp.Enabled
 	}
 
 	return map[string]any{
-		"enabled":           psn.Enabled,
-		"type":              psn.Type,
-		"host":              psn.Host,
-		"port":              psn.Port,
-		"username":          psn.Username,
-		"password":          psn.Password,
-		"via":               psn.Via,
-		"include_downloads": psn.IncludeDownloads,
+		"enabled":           enabled,
+		"type":              sp.Type,
+		"host":              sp.Host,
+		"port":              sp.Port,
+		"username":          sp.Username,
+		"password":          sp.Password,
+		"via":               sp.Via,
+		"include_downloads": sp.IncludeDownloads,
 	}, nil
 }
 
@@ -694,6 +729,61 @@ func rpcSetPSNProxyConfig(configPath string, rawInput string) error {
 	}
 
 	cfg.PSNProxy = &input
+	if cfg.ServiceProxy != nil {
+		cfg.ServiceProxy = input.ToServiceProxyConfig()
+	}
+	return SaveConfig(configPath, cfg)
+}
+
+func rpcGetServiceProxyConfig(configPath string) (map[string]any, error) {
+	cfg, err := loadOrCreateConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	sp := cfg.GetServiceProxyConfig()
+	if sp == nil {
+		def := DefaultServiceProxyConfig()
+		sp = &def
+	}
+
+	enabled := false
+	if sp.Enabled != nil {
+		enabled = *sp.Enabled
+	}
+
+	return map[string]any{
+		"enabled":           enabled,
+		"services":          sp.Services,
+		"type":              sp.Type,
+		"host":              sp.Host,
+		"port":              sp.Port,
+		"username":          sp.Username,
+		"password":          sp.Password,
+		"via":               sp.Via,
+		"fallback":          sp.Fallback,
+		"domains":           sp.Domains,
+		"exclude_domains":   sp.ExcludeDomains,
+		"include_downloads": sp.IncludeDownloads,
+	}, nil
+}
+
+func rpcSetServiceProxyConfig(configPath string, rawInput string) error {
+	cfg, err := loadOrCreateConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	var input ServiceProxyConfig
+	if err := json.Unmarshal([]byte(rawInput), &input); err != nil {
+		return fmt.Errorf("invalid json input: %w", err)
+	}
+
+	if err := input.Validate(); err != nil {
+		return err
+	}
+
+	cfg.ServiceProxy = &input
 	return SaveConfig(configPath, cfg)
 }
 

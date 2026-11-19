@@ -144,6 +144,23 @@ func TestExecuteRPC_AntiDPIAndForceVPN(t *testing.T) {
 	if fvMap["enabled"] != true {
 		t.Errorf("expected force_vpn enabled=true")
 	}
+
+	// ServiceProxy (W3.2: PSN + Netflix + ChatGPT)
+	spInput := `{"enabled":true,"services":["psn","netflix","chatgpt"],"type":"socks5","host":"1.2.3.4","port":1080,"via":"wan"}`
+	out, code = ExecuteRPC("set_service_proxy_config", spInput, cfgPath)
+	if code != 0 {
+		t.Fatalf("set_service_proxy_config failed: %s", out)
+	}
+
+	out, code = ExecuteRPC("get_service_proxy_config", "", cfgPath)
+	if code != 0 {
+		t.Fatalf("get_service_proxy_config failed: %s", out)
+	}
+	var spMap map[string]any
+	_ = json.Unmarshal([]byte(out), &spMap)
+	if spMap["enabled"] != true || spMap["host"] != "1.2.3.4" || spMap["port"] != float64(1080) {
+		t.Errorf("unexpected service_proxy config: %+v", spMap)
+	}
 }
 
 func TestExecuteRPC_Diagnostics(t *testing.T) {

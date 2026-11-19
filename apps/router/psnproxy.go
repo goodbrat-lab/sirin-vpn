@@ -93,6 +93,212 @@ var psnDownloadCDNHosts = []string{
 	"psn-rsc.prod.dl.playstation.net",
 }
 
+// ServiceProxyDefaultPresets — встроенные профили регионального прокси (W3.2: PSN, Netflix, ChatGPT).
+var ServiceProxyDefaultPresets = map[string]struct {
+	Domains  []string
+	Excludes []string
+}{
+	"psn": {
+		Domains: []string{
+			"playstation.com",
+			"playstation.net",
+			"playstation.org",
+			"sonyentertainmentnetwork.com",
+			"sony.com",
+			"sie.com",
+			"arkoselabs.com",
+			"funcaptcha.com",
+		},
+		Excludes: []string{
+			"dl.playstation.net",
+		},
+	},
+	"netflix": {
+		Domains: []string{
+			"netflix.com",
+			"netflix.net",
+			"nflximg.net",
+			"nflxvideo.net",
+			"nflxext.com",
+			"nflxso.net",
+		},
+		Excludes: []string{},
+	},
+	"chatgpt": {
+		Domains: []string{
+			"openai.com",
+			"chatgpt.com",
+			"oaistatic.com",
+			"oaiusercontent.com",
+			"auth0.openai.com",
+			"anthropic.com",
+			"claude.ai",
+		},
+		Excludes: []string{},
+	},
+}
+
+// ServiceProxyConfig — универсальная конфигурация секции [service_proxy] в client.toml.
+type ServiceProxyConfig struct {
+	Enabled          *bool    `toml:"enabled,omitempty"`
+	Services         []string `toml:"services,omitempty"`          // "psn", "netflix", "chatgpt"
+	Type             string   `toml:"type"`                        // "socks5" (по умолчанию) или "http"
+	Host             string   `toml:"host"`                        // адрес upstream-прокси
+	Port             int      `toml:"port"`                        // порт upstream-прокси
+	Username         string   `toml:"username,omitempty"`          // логин (опционально)
+	Password         string   `toml:"password,omitempty"`          // пароль (опционально)
+	Via              string   `toml:"via,omitempty"`               // "wan" (по умолчанию) или "vpn"
+	Fallback         string   `toml:"fallback,omitempty"`          // "vpn" (по умолчанию) или "none"
+	ListenPort       int      `toml:"listen_port,omitempty"`       // локальный порт (56200)
+	DNSPort          int      `toml:"dns_port,omitempty"`          // локальный порт DNS (56253)
+	UpstreamDNS      string   `toml:"upstream_dns,omitempty"`      // чистый DNS (1.1.1.1)
+	Domains          []string `toml:"domains,omitempty"`           // пользовательские домены
+	ExcludeDomains   []string `toml:"exclude_domains,omitempty"`   // исключения CDN
+	IncludeDownloads bool     `toml:"include_downloads,omitempty"` // пускать CDN через прокси
+}
+
+func DefaultServiceProxyConfig() ServiceProxyConfig {
+	enabled := false
+	return ServiceProxyConfig{
+		Enabled:    &enabled,
+		Services:   []string{"psn"},
+		Type:       "socks5",
+		Via:        "wan",
+		Fallback:   "vpn",
+		ListenPort: DefaultPSNProxyListenPort,
+		DNSPort:    DefaultPSNProxyDNSPort,
+	}
+}
+
+func (s *ServiceProxyConfig) Validate() error {
+	if s.Enabled != nil && !*s.Enabled {
+		return nil
+	}
+	s.Type = strings.ToLower(strings.TrimSpace(s.Type))
+	switch s.Type {
+	case "", "socks", "socks5", "socks5h":
+		s.Type = "socks5"
+	case "http", "https":
+		s.Type = "http"
+	default:
+		return fmt.Errorf("service_proxy: неподдерживаемый тип %q (допустимы socks5 или http)", s.Type)
+	}
+	s.Host = strings.TrimSpace(s.Host)
+	if s.Host == "" {
+		return errors.New("service_proxy: не указан host")
+	}
+	if s.Port <= 0 || s.Port > 65535 {
+		return fmt.Errorf("service_proxy: некорректный порт %d (1-65535)", s.Port)
+	}
+	s.Via = strings.ToLower(strings.TrimSpace(s.Via))
+	if s.Via == "" {
+		s.Via = "wan"
+	} else if s.Via != "wan" && s.Via != "vpn" {
+		return fmt.Errorf("service_proxy: некорректный via %q (wan или vpn)", s.Via)
+	}
+	s.Fallback = strings.ToLower(strings.TrimSpace(s.Fallback))
+	if s.Fallback == "" {
+		s.Fallback = "vpn"
+	} else if s.Fallback != "vpn" && s.Fallback != "none" {
+		return fmt.Errorf("service_proxy: некорректный fallback %q (vpn или none)", s.Fallback)
+	}
+	if s.ListenPort <= 0 {
+		s.ListenPort = DefaultPSNProxyListenPort
+	}
+	if s.DNSPort <= 0 {
+		s.DNSPort = DefaultPSNProxyDNSPort
+	}
+	if s.UpstreamDNS == "" {
+		s.UpstreamDNS = "1.1.1.1"
+	}
+	return nil
+}
+
+func (s *ServiceProxyConfig) TargetDomains() []string {
+	seen := map[string]bool{}
+	var out []string
+
+	for _, svc := range s.Services {
+		svc = strings.ToLower(strings.TrimSpace(svc))
+		if preset, ok := ServiceProxyDefaultPresets[svc]; ok {
+			for _, d := range preset.Domains {
+				d = strings.ToLower(strings.TrimSpace(d))
+				if d != "" && !seen[d] {
+					seen[d] = true
+					out = append(out, d)
+				}
+			}
+		}
+	}
+
+	for _, d := range s.Domains {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d != "" && !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func (s *ServiceProxyConfig) Excludes() []string {
+	var out []string
+	if !s.IncludeDownloads {
+		for _, svc := range s.Services {
+			svc = strings.ToLower(strings.TrimSpace(svc))
+			if preset, ok := ServiceProxyDefaultPresets[svc]; ok {
+				out = append(out, preset.Excludes...)
+			}
+		}
+	}
+	return append(out, s.ExcludeDomains...)
+}
+
+func (s *ServiceProxyConfig) ToPSNProxyConfig() *PSNProxyConfig {
+	if s == nil {
+		return nil
+	}
+	return &PSNProxyConfig{
+		Enabled:          s.Enabled,
+		Type:             s.Type,
+		Host:             s.Host,
+		Port:             s.Port,
+		Username:         s.Username,
+		Password:         s.Password,
+		Via:              s.Via,
+		Fallback:         s.Fallback,
+		ListenPort:       s.ListenPort,
+		DNSPort:          s.DNSPort,
+		UpstreamDNS:      s.UpstreamDNS,
+		Domains:          s.TargetDomains(),
+		ExcludeDomains:   s.Excludes(),
+		IncludeDownloads: s.IncludeDownloads,
+	}
+}
+
+func (p *PSNProxyConfig) ToServiceProxyConfig() *ServiceProxyConfig {
+	if p == nil {
+		return nil
+	}
+	return &ServiceProxyConfig{
+		Enabled:          p.Enabled,
+		Services:         []string{"psn"},
+		Type:             p.Type,
+		Host:             p.Host,
+		Port:             p.Port,
+		Username:         p.Username,
+		Password:         p.Password,
+		Via:              p.Via,
+		Fallback:         p.Fallback,
+		ListenPort:       p.ListenPort,
+		DNSPort:          p.DNSPort,
+		UpstreamDNS:      p.UpstreamDNS,
+		Domains:          p.Domains,
+		ExcludeDomains:   p.ExcludeDomains,
+		IncludeDownloads: p.IncludeDownloads,
+	}
+}
+
 // PSNProxyConfig — секция [psn_proxy] в client.toml.
 type PSNProxyConfig struct {
 	Enabled          *bool    `toml:"enabled,omitempty"`
@@ -228,23 +434,41 @@ func (p *PSNProxyConfig) Excludes() []string {
 	return append(out, p.ExcludeDomains...)
 }
 
-// IsPSNProxyEnabled — секция задана, не выключена и содержит адрес прокси.
+// GetServiceProxyConfig возвращает активную конфигурацию прокси (приоритет у [service_proxy], fallback на [psn_proxy]).
+func (c *Config) GetServiceProxyConfig() *ServiceProxyConfig {
+	if c.ServiceProxy != nil {
+		return c.ServiceProxy
+	}
+	if c.PSNProxy != nil {
+		return c.PSNProxy.ToServiceProxyConfig()
+	}
+	return nil
+}
+
+// IsServiceProxyEnabled возвращает true, если секция [service_proxy] или [psn_proxy] активна.
+func (c *Config) IsServiceProxyEnabled() bool {
+	sp := c.GetServiceProxyConfig()
+	if sp == nil {
+		return false
+	}
+	if sp.Enabled != nil && !*sp.Enabled {
+		return false
+	}
+	return sp.Host != "" && sp.Port > 0
+}
+
+// IsPSNProxyEnabled — обратная совместимость для IsServiceProxyEnabled.
 func (c *Config) IsPSNProxyEnabled() bool {
-	if c.PSNProxy == nil {
-		return false
-	}
-	if c.PSNProxy.Enabled != nil && !*c.PSNProxy.Enabled {
-		return false
-	}
-	return c.PSNProxy.Host != "" && c.PSNProxy.Port > 0
+	return c.IsServiceProxyEnabled()
 }
 
 // GetPSNProxyOptions возвращает опции для nftables.
 func (c *Config) GetPSNProxyOptions() PSNProxyOptions {
-	if !c.IsPSNProxyEnabled() {
+	if !c.IsServiceProxyEnabled() {
 		return PSNProxyOptions{}
 	}
-	return PSNProxyOptions{Enabled: true, ListenPort: c.PSNProxy.ListenPort}
+	sp := c.GetServiceProxyConfig()
+	return PSNProxyOptions{Enabled: true, ListenPort: sp.ListenPort}
 }
 
 func domainMatches(host string, list []string) bool {

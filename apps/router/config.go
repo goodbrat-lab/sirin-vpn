@@ -82,6 +82,9 @@ type Config struct {
 	// PSN Proxy (трафик PlayStation Store / PSN через внешний SOCKS5/HTTP прокси)
 	PSNProxy *PSNProxyConfig `toml:"psn_proxy,omitempty"`
 
+	// Service Proxy (универсальный региональный прокси: PSN, Netflix, ChatGPT и кастомные домены)
+	ServiceProxy *ServiceProxyConfig `toml:"service_proxy,omitempty"`
+
 	// DNS Filter (опциональная блокировка рекламы, трекеров и фишинга через dnsmasq)
 	DNSFilter *DNSFilterConfig `toml:"dns_filter,omitempty"`
 }
@@ -564,6 +567,12 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.PSNProxy != nil {
 		if err := cfg.PSNProxy.Validate(); err != nil {
 			return nil, fmt.Errorf("ошибка валидации psn_proxy: %w", err)
+		}
+	}
+
+	if cfg.ServiceProxy != nil {
+		if err := cfg.ServiceProxy.Validate(); err != nil {
+			return nil, fmt.Errorf("ошибка валидации service_proxy: %w", err)
 		}
 	}
 

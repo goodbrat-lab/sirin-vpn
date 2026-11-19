@@ -1400,14 +1400,14 @@ return view.extend({
 			]),
 
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, '🎮 PlayStation через внешний прокси (PSN Proxy)'),
-				E('p', { class: 'cbi-section-descr' }, 'Весь трафик PS Store, PSN и аккаунта Sony со всех устройств сети (PS5, PS App на телефоне) идёт через указанный SOCKS5/HTTP-прокси, например турецкий. Имеет приоритет над «Авто-VPN». Загрузки игр по умолчанию идут мимо прокси. Результат проверки прокси (внешний IP и страна) — в журнале на вкладке диагностики.'),
+				E('h3', {}, '🌐 Региональный прокси для сервисов (PSN / Netflix / ChatGPT)'),
+				E('p', { class: 'cbi-section-descr' }, 'Весь трафик PS Store, PSN, Netflix или AI-сервисов со всех устройств сети идёт через указанный внешний SOCKS5/HTTP-прокси (например, турецкий или европейский). Имеет приоритет над «Авто-VPN». Загрузки тяжелых файлов по умолчанию идут мимо прокси. Результат проверки прокси — в журнале на вкладке диагностики.'),
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title' }, 'Включить'),
 					E('div', { class: 'cbi-value-field' }, [
 						E('label', { style: 'cursor: pointer;' }, [
 							chkPSNEnabled,
-							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Пускать PlayStation через прокси')
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Пускать сервисы (PlayStation / Netflix / ChatGPT) через прокси')
 						])
 					])
 				]),
