@@ -20,11 +20,14 @@ type Device struct {
 }
 
 type UserKey struct {
-	TelegramID int64    `json:"telegram_id"`
-	UUID       string   `json:"uuid,omitempty"` // legacy single UUID for backward compatibility
-	Name       string   `json:"name"`
-	CreatedAt  int64    `json:"created_at"`
-	Devices    []Device `json:"devices,omitempty"`
+	TelegramID         int64    `json:"telegram_id"`
+	UUID               string   `json:"uuid,omitempty"` // legacy single UUID for backward compatibility
+	Name               string   `json:"name"`
+	CreatedAt          int64    `json:"created_at"`
+	Devices            []Device `json:"devices,omitempty"`
+	NotifiedExpiry3dAt int64    `json:"notified_expiry_3d_at,omitempty"`
+	NotifiedExpiry1dAt int64    `json:"notified_expiry_1d_at,omitempty"`
+	NotifiedExpiredAt  int64    `json:"notified_expired_at,omitempty"`
 }
 
 // GetDevices возвращает список всех устройств пользователя с автоматической миграцией одиночного UUID.
@@ -353,6 +356,23 @@ func (s *Storage) Delete(telegramID int64) error {
 
 	delete(s.data.Users, telegramID)
 	return s.saveLocked()
+}
+
+// ListUsers возвращает список всех зарегистрированных пользователей бота.
+func (s *Storage) ListUsers() []*UserKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.load()
+
+	var list []*UserKey
+	for _, u := range s.data.Users {
+		if u != nil {
+			clone := *u
+			clone.Devices = u.GetDevices()
+			list = append(list, &clone)
+		}
+	}
+	return list
 }
 
 // -----------------------------------------------------------------------------

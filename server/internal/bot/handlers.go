@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,6 +78,7 @@ func (b *Bot) handleMyKey(c tele.Context) error {
 	cl, clOk := b.clientsStorage.Get(uk.UUID)
 	devicesCount := 0
 	maxDevices := 1
+	expiryText := "бессрочно"
 	if clOk && cl != nil {
 		if cl.MaxDevices > 0 {
 			maxDevices = cl.MaxDevices
@@ -86,25 +88,64 @@ func (b *Bot) handleMyKey(c tele.Context) error {
 		} else if cl.DeviceID != "" {
 			devicesCount = 1
 		}
+		if cl.ExpiresAt != nil && !cl.ExpiresAt.IsZero() {
+			days, _ := cl.DaysLeft()
+			if days < 0 {
+				expiryText = fmt.Sprintf("истёк %s ⚠️", cl.ExpiresAt.Format("02.01.2006"))
+			} else {
+				expiryText = fmt.Sprintf("до %s (осталось %d дн.)", cl.ExpiresAt.Format("02.01.2006"), days)
+			}
+		}
 	}
 
 	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", uk.UUID)
 	btn := &tele.ReplyMarkup{}
 	btnOpen := btn.URL("🕊 Открыть в Сирин", openURL)
 	btnDevices := btn.Data("📱 Мои устройства", "my_dev:"+uk.UUID)
+	btnStars := btn.Data("⭐ Продлить через Stars", "my_stars:"+uk.UUID)
 	btn.Inline(
 		btn.Row(btnOpen),
-		btn.Row(btnDevices),
+		btn.Row(btnDevices, btnStars),
 	)
 
 	text := fmt.Sprintf("🔑 *Твой ключ*\n\n"+
 		"Имя: `%s`\n"+
 		"Ключ: `%s`\n"+
+		"Срок: *%s*\n"+
 		"Устройств: `%d / %d`\n\n"+
 		"Нажми на кнопку ниже, чтобы открыть приложение «Сирин» и применить ключ:\n"+
-		"[Открыть в Сирин](%s)", uk.Name, maskUUID(uk.UUID), devicesCount, maxDevices, openURL)
+		"[Открыть в Сирин](%s)", uk.Name, maskUUID(uk.UUID), expiryText, devicesCount, maxDevices, openURL)
 
 	return c.Send(text, btn, tele.ModeMarkdown)
+}
+
+func (b *Bot) handleTariffs(c tele.Context) error {
+	userID := c.Sender().ID
+	keyUUID := "new"
+	if uk, ok := b.storage.Get(userID); ok && uk != nil && uk.UUID != "" {
+		keyUUID = uk.UUID
+	}
+
+	text := "💳 *Тарифы Sirin VPN*\n\n" +
+		"Выберите период для мгновенной оплаты через *Telegram Stars*:\n\n" +
+		"• *1 месяц (30 дн.)* — 75 ⭐ / 150 ₽\n" +
+		"• *3 месяца (90 дн.)* — 200 ⭐ / 400 ₽ _(скидка 11%)_\n" +
+		"• *6 месяцев (180 дн.)* — 375 ⭐ / 750 ₽ _(скидка 17%)_\n" +
+		"• *1 год (365 дн.)* — 700 ⭐ / 1 350 ₽ _(скидка 25%)_\n\n" +
+		"⚡ _Мгновенная активация, безлимитный трафик, поддержка всех устройств._"
+
+	markup := &tele.ReplyMarkup{}
+	btn1m := markup.Data("1 мес — 75 ⭐", "stars_buy:1m:"+keyUUID)
+	btn3m := markup.Data("3 мес — 200 ⭐", "stars_buy:3m:"+keyUUID)
+	btn6m := markup.Data("6 мес — 375 ⭐", "stars_buy:6m:"+keyUUID)
+	btn1y := markup.Data("1 год — 700 ⭐", "stars_buy:1y:"+keyUUID)
+
+	markup.Inline(
+		markup.Row(btn1m, btn3m),
+		markup.Row(btn6m, btn1y),
+	)
+
+	return c.Send(text, markup, tele.ModeMarkdown)
 }
 
 func (b *Bot) handleDevices(c tele.Context) error {
@@ -1019,7 +1060,164 @@ func (b *Bot) handleCallback(c tele.Context) error {
 		return c.Edit(text, markup, tele.ModeMarkdown)
 	}
 
+	// 14. Продление через Stars my_stars:<uuid>
+	if strings.HasPrefix(data, "my_stars:") {
+		uuidKey := strings.TrimPrefix(data, "my_stars:")
+		text := "⭐ *Продление подписки Sirin VPN через Telegram Stars*\n\n" +
+			"Выберите тариф для моментального продления доступа:\n\n" +
+			"• *1 месяц (30 дн.)* — 75 ⭐\n" +
+			"• *3 месяца (90 дн.)* — 200 ⭐ _(скидка 11%)_\n" +
+			"• *6 месяцев (180 дн.)* — 375 ⭐ _(скидка 17%)_\n" +
+			"• *1 год (365 дн.)* — 700 ⭐ _(скидка 25%)_\n\n" +
+			"⚡ _После оплаты подписка будет автоматически продлена в ту же секунду._"
+
+		markup := &tele.ReplyMarkup{}
+		btn1m := markup.Data("1 мес — 75 ⭐", "stars_buy:1m:"+uuidKey)
+		btn3m := markup.Data("3 мес — 200 ⭐", "stars_buy:3m:"+uuidKey)
+		btn6m := markup.Data("6 мес — 375 ⭐", "stars_buy:6m:"+uuidKey)
+		btn1y := markup.Data("1 год — 700 ⭐", "stars_buy:1y:"+uuidKey)
+
+		markup.Inline(
+			markup.Row(btn1m, btn3m),
+			markup.Row(btn6m, btn1y),
+		)
+		_ = c.Respond()
+		return c.Send(text, markup, tele.ModeMarkdown)
+	}
+
+	// 15. Покупка тарифа через Stars stars_buy:<tariff_id>:<uuid>
+	if strings.HasPrefix(data, "stars_buy:") {
+		parts := strings.Split(strings.TrimPrefix(data, "stars_buy:"), ":")
+		if len(parts) >= 2 {
+			tariffID := parts[0]
+			uuidKey := parts[1]
+			if tariff, ok := FindTariff(tariffID); ok {
+				_ = c.Respond()
+				return b.SendStarsInvoice(c.Recipient(), tariff, uuidKey)
+			}
+		}
+		return c.Respond(&tele.CallbackResponse{Text: "Тариф не найден", ShowAlert: true})
+	}
+
 	return c.Respond()
+}
+
+// -----------------------------------------------------------------------------
+// Telegram Stars: OnCheckout & OnPayment
+// -----------------------------------------------------------------------------
+
+func (b *Bot) handleCheckout(c tele.Context) error {
+	pcq := c.PreCheckoutQuery()
+	if pcq == nil {
+		return nil
+	}
+	if strings.HasPrefix(pcq.Payload, "sirin_stars:") {
+		return c.Accept()
+	}
+	return c.Accept("Неизвестный тип заказа")
+}
+
+func (b *Bot) handlePayment(c tele.Context) error {
+	msg := c.Message()
+	if msg == nil || msg.Payment == nil {
+		return nil
+	}
+	payment := msg.Payment
+	if !strings.HasPrefix(payment.Payload, "sirin_stars:") {
+		return nil
+	}
+
+	parts := strings.Split(payment.Payload, ":")
+	if len(parts) < 4 {
+		log.Printf("[SirinBot] invalid stars payload: %s", payment.Payload)
+		return nil
+	}
+	clientUUID := parts[1]
+	tariffID := parts[2]
+	days, _ := strconv.Atoi(parts[3])
+
+	userID := c.Sender().ID
+	userName := strings.TrimSpace(c.Sender().FirstName + " " + c.Sender().LastName)
+	if userName == "" {
+		userName = fmt.Sprintf("User_%d", userID)
+	}
+
+	var updated *Client
+	var err error
+
+	if clientUUID == "" || clientUUID == "new" {
+		// Создание нового клиента
+		resp, createErr := b.api.CreateClient(userName, days)
+		if createErr != nil {
+			log.Printf("[SirinBot] failed to create client after stars payment: %v", createErr)
+			return c.Send(fmt.Sprintf("⚠️ Оплата (%d ⭐) получена, но произошла ошибка создания ключа: %v. Администратор оповещён.", payment.Total, createErr))
+		}
+		clientUUID = resp.Key
+		_ = b.storage.Set(UserKey{
+			TelegramID: userID,
+			UUID:       clientUUID,
+			Name:       userName,
+			CreatedAt:  time.Now().Unix(),
+		})
+		updated, _ = b.clientsStorage.Get(clientUUID)
+	} else {
+		// Продление существующего клиента
+		updated, err = b.clientsStorage.Extend(clientUUID, days)
+		if err != nil {
+			log.Printf("[SirinBot] failed to extend client %s: %v", clientUUID, err)
+			return c.Send(fmt.Sprintf("⚠️ Оплата (%d ⭐) получена, но произошла ошибка продления ключа: %v. Администратор оповещён.", payment.Total, err))
+		}
+	}
+
+	// Сброс флагов напоминаний об истечении срока
+	if uk, ok := b.storage.Get(userID); ok {
+		uk.NotifiedExpiry3dAt = 0
+		uk.NotifiedExpiry1dAt = 0
+		uk.NotifiedExpiredAt = 0
+		_ = b.storage.Set(*uk)
+	}
+
+	expiryStr := "бессрочно"
+	if updated != nil && updated.ExpiresAt != nil && !updated.ExpiresAt.IsZero() {
+		expiryStr = updated.ExpiresAt.Format("02.01.2006")
+	}
+
+	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", clientUUID)
+	markup := &tele.ReplyMarkup{}
+	btnOpen := markup.URL("🕊 Открыть в Сирин", openURL)
+	btnDevs := markup.Data("📱 Мои устройства", "my_dev:"+clientUUID)
+	markup.Inline(markup.Row(btnOpen), markup.Row(btnDevs))
+
+	tariffName := tariffID
+	if t, ok := FindTariff(tariffID); ok {
+		tariffName = t.Name
+	}
+
+	text := fmt.Sprintf(
+		"🎉 *Оплата успешно получена!*\n\n"+
+			"Тариф: *%s* (%d дней, %d ⭐)\n"+
+			"Подписка активна до: *%s*\n"+
+			"Ключ: `%s`\n\n"+
+			"Спасибо за доверие к Sirin VPN! Нажмите кнопку ниже, чтобы открыть приложение:",
+		tariffName, days, payment.Total, expiryStr, maskUUID(clientUUID),
+	)
+
+	// Уведомление администраторам
+	for _, adminID := range b.cfg.AdminIDs() {
+		adminText := fmt.Sprintf(
+			"⭐ *Новая оплата через Telegram Stars!*\n\n"+
+				"Пользователь: %s (ID: `%d`, @%s)\n"+
+				"Тариф: *%s* (%d дней)\n"+
+				"Оплачено: *%d ⭐* (Telegram Charge ID: `%s`)\n"+
+				"Ключ: `%s` (до %s)",
+			userName, userID, c.Sender().Username,
+			tariffName, days, payment.Total, payment.TelegramChargeID,
+			clientUUID, expiryStr,
+		)
+		_, _ = b.bot.Send(&tele.User{ID: adminID}, adminText, tele.ModeMarkdown)
+	}
+
+	return c.Send(text, markup, tele.ModeMarkdown)
 }
 
 func escapeMarkdown(s string) string {

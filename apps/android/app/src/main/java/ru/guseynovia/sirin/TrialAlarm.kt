@@ -39,39 +39,57 @@ object TrialAlarm {
 
     private const val HOUR_MS = 60L * 60L * 1000L
     private const val TEN_MIN_MS = 10L * 60L * 1000L
+    private const val DAY_MS = 24L * 60L * 60L * 1000L
+    private const val THREE_DAYS_MS = 3L * DAY_MS
 
     /** Разные коды, иначе второй будильник затрёт первый. */
     private const val RQ_HOUR = 11
     private const val RQ_TEN = 12
+    private const val RQ_KEY_3D = 21
+    private const val RQ_KEY_1D = 22
+    private const val RQ_KEY_EXP = 23
 
     /**
-     * Ставит оба напоминания заново.
+     * Ставит напоминания заново.
      *
      * Звать не жалко: старые будильники с теми же кодами заменяются, а
-     * не копятся. Зовём при старте приложения, при начале триала и
-     * после перезагрузки.
+     * не копятся. Зовём при старте приложения, при начале триала,
+     * при обновлении ключа подписки и после перезагрузки.
      */
     fun arm(ctx: Context) {
         val app = ctx.applicationContext
         cancel(app)
 
         Access.refresh()
-        if (Access.state.value != Access.State.TRIAL) return
+        val st = Access.state.value
 
-        val ends = Access.endsAt()
-        if (ends == 0L) return
+        if (st == Access.State.TRIAL) {
+            val ends = Access.endsAt()
+            if (ends == 0L) return
 
-        val now = System.currentTimeMillis()
-        var armed = 0
-        if (set(app, RQ_HOUR, ends - HOUR_MS, now)) armed++
-        if (set(app, RQ_TEN, ends - TEN_MIN_MS, now)) armed++
-        if (armed > 0) TunnelLog.add("напоминаний о конце триала поставлено: $armed")
+            val now = System.currentTimeMillis()
+            var armed = 0
+            if (set(app, RQ_HOUR, ends - HOUR_MS, now)) armed++
+            if (set(app, RQ_TEN, ends - TEN_MIN_MS, now)) armed++
+            if (armed > 0) TunnelLog.add("напоминаний о конце триала поставлено: $armed")
+        } else if (st == Access.State.KEYED) {
+            val expSec = Access.expires.value
+            if (expSec <= 0L) return // бессрочный ключ
+
+            val expMs = expSec * 1000L
+            val now = System.currentTimeMillis()
+            var armed = 0
+            if (set(app, RQ_KEY_3D, expMs - THREE_DAYS_MS, now)) armed++
+            if (set(app, RQ_KEY_1D, expMs - DAY_MS, now)) armed++
+            if (set(app, RQ_KEY_EXP, expMs, now)) armed++
+            if (armed > 0) TunnelLog.add("напоминаний о подписке поставлено: $armed")
+        }
     }
 
     fun cancel(ctx: Context) {
         val app = ctx.applicationContext
         val mgr = app.getSystemService(AlarmManager::class.java) ?: return
-        for (rq in intArrayOf(RQ_HOUR, RQ_TEN)) {
+        for (rq in intArrayOf(RQ_HOUR, RQ_TEN, RQ_KEY_3D, RQ_KEY_1D, RQ_KEY_EXP)) {
             mgr.cancel(pending(app, rq))
         }
     }
@@ -106,7 +124,6 @@ object TrialAlarm {
         Access.refresh()
 
         val st = Access.state.value
-        if (st == Access.State.KEYED) return
 
         // ГДЕ БРАТЬ КЛЮЧ — СВОЁ У КАЖДОГО ВАРИАНТА СБОРКИ.
         //
@@ -123,6 +140,23 @@ object TrialAlarm {
                 "Пробный период кончается: осталось ${Access.leftText()}. $where"
             Access.State.OVER ->
                 "Пробный период закончился. $where"
+            Access.State.KEYED -> {
+                val expSec = Access.expires.value
+                if (expSec <= 0L) return
+                val now = System.currentTimeMillis()
+                val diffMs = (expSec * 1000L) - now
+                when {
+                    diffMs <= 0L ->
+                        "Подписка Sirin VPN закончилась. $where"
+                    diffMs <= DAY_MS ->
+                        "Подписка Sirin VPN истекает менее чем через сутки. $where"
+                    diffMs <= THREE_DAYS_MS -> {
+                        val days = ((diffMs + 12L * HOUR_MS) / DAY_MS).coerceAtLeast(1)
+                        "Подписка Sirin VPN истекает через $days дн. $where"
+                    }
+                    else -> return
+                }
+            }
             else -> return
         }
 
@@ -132,7 +166,7 @@ object TrialAlarm {
                 mgr.createNotificationChannel(
                     NotificationChannel(
                         CHANNEL_ID,
-                        "Триал",
+                        "Подписка и триал",
                         NotificationManager.IMPORTANCE_HIGH,
                     )
                 )

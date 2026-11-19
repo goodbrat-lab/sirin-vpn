@@ -588,6 +588,14 @@ func (m *Manager) handleCallback(c tele.Context) error {
 		switch action {
 		case "select":
 			if len(args) > 0 {
+				return m.ShowTariffPaymentChoice(c, args[0], true)
+			}
+		case "stars":
+			if len(args) > 0 {
+				return m.HandleStarsPayment(c, args[0])
+			}
+		case "sbp":
+			if len(args) > 0 {
 				return m.SelectTariff(c, args[0])
 			}
 		case "paid":

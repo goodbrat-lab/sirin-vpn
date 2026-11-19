@@ -742,17 +742,18 @@ func (m *Manager) HandleAdminTrialCustom(c tele.Context, reqID string) error {
 func (m *Manager) ShowClientTariffs(c tele.Context, edit bool) error {
 	text := "💳 *Тарифы подписки «Сирин»*\n\n" +
 		"Выберите подходящий период доступа:\n\n" +
-		"• *1 месяц (30 дн.)* — 150 ₽\n" +
-		"• *3 месяца (90 дн.)* — 400 ₽ _(скидка 11%)_\n" +
-		"• *6 месяцев (180 дн.)* — 750 ₽ _(скидка 17%)_\n" +
-		"• *1 год (365 дн.)* — 1 350 ₽ _(скидка 25%)_\n\n" +
+		"• *1 месяц (30 дн.)* — 75 ⭐ / 150 ₽\n" +
+		"• *3 месяца (90 дн.)* — 200 ⭐ / 400 ₽ _(скидка 11%)_\n" +
+		"• *6 месяцев (180 дн.)* — 375 ⭐ / 750 ₽ _(скидка 17%)_\n" +
+		"• *1 год (365 дн.)* — 700 ⭐ / 1 350 ₽ _(скидка 25%)_\n\n" +
+		"⭐ _Оплата через Telegram Stars активирует и продлевает доступ мгновенно._\n" +
 		"⚡ _Безлимитный трафик, максимальная скорость, поддержка всех устройств._"
 
 	markup := &tele.ReplyMarkup{}
-	btn1m := markup.Data("1 мес — 150 ₽", "order", "select", "1m")
-	btn3m := markup.Data("3 мес — 400 ₽", "order", "select", "3m")
-	btn6m := markup.Data("6 мес — 750 ₽", "order", "select", "6m")
-	btn1y := markup.Data("1 год — 1 350 ₽", "order", "select", "1y")
+	btn1m := markup.Data("1 мес — 75 ⭐ / 150 ₽", "order", "select", "1m")
+	btn3m := markup.Data("3 мес — 200 ⭐ / 400 ₽", "order", "select", "3m")
+	btn6m := markup.Data("6 мес — 375 ⭐ / 750 ₽", "order", "select", "6m")
+	btn1y := markup.Data("1 год — 700 ⭐ / 1 350 ₽", "order", "select", "1y")
 	btnBack := markup.Data("◀ В меню", "my", "home")
 
 	markup.Inline(
@@ -765,6 +766,57 @@ func (m *Manager) ShowClientTariffs(c tele.Context, edit bool) error {
 		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
+}
+
+// ShowTariffPaymentChoice предлагает выбрать между мгновенными Telegram Stars и СБП.
+func (m *Manager) ShowTariffPaymentChoice(c tele.Context, tariffID string, edit bool) error {
+	tariff, ok := FindTariff(tariffID)
+	if !ok {
+		RespondAlert(c, "Неизвестный тариф")
+		return m.ShowClientTariffs(c, true)
+	}
+
+	text := fmt.Sprintf(
+		"💳 *Тариф: %s (%d дней)*\n\n"+
+			"Стоимость: *%d ⭐* (Stars) или *%d ₽* (СБП)\n\n"+
+			"Выберите способ оплаты:\n\n"+
+			"• ⭐ *Telegram Stars (Рекомендуется)* — моментальная оплата в приложении, автоматическое продление без ожидания.\n"+
+			"• 📲 *Перевод по СБП* — перевод на карту/счёт с прикреплением чека и проверкой администратором.",
+		tariff.Name, tariff.Days, tariff.Stars, tariff.PriceRub,
+	)
+
+	markup := &tele.ReplyMarkup{}
+	btnStars := markup.Data(fmt.Sprintf("⭐ Оплатить %d Stars (Мгновенно)", tariff.Stars), "order", "stars", tariff.ID)
+	btnSBP := markup.Data(fmt.Sprintf("📲 Перевод %d ₽ (СБП)", tariff.PriceRub), "order", "sbp", tariff.ID)
+	btnBack := markup.Data("◀ К тарифам", "my", "tariffs")
+
+	markup.Inline(
+		markup.Row(btnStars),
+		markup.Row(btnSBP),
+		markup.Row(btnBack),
+	)
+
+	if edit {
+		return EditOrSend(c, text, markup)
+	}
+	return c.Send(text, markup, tele.ModeMarkdown)
+}
+
+// HandleStarsPayment отправляет инвойс Telegram Stars для выбранного тарифа.
+func (m *Manager) HandleStarsPayment(c tele.Context, tariffID string) error {
+	tariff, ok := FindTariff(tariffID)
+	if !ok {
+		RespondAlert(c, "Неизвестный тариф")
+		return nil
+	}
+
+	keyUUID := "new"
+	if uk, hasKey := m.bot.Storage().Get(c.Sender().ID); hasKey && uk != nil && uk.UUID != "" {
+		keyUUID = uk.UUID
+	}
+
+	_ = c.Respond()
+	return m.bot.SendStarsInvoice(c.Recipient(), tariff, keyUUID)
 }
 
 // SelectTariff создаёт заказ на оплату и выводит платёжные реквизиты.

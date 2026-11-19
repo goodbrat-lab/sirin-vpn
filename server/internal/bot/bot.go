@@ -2,6 +2,7 @@ package bot
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ type Bot struct {
 	ticketsStorage *tickets.Storage // tickets.json
 	api            *APIClient
 	aiClient       *ai.Client
+	expiryNotifier *ExpiryNotifier
 	pendingDeletes map[string]pendingDelete
 	pendingDelMu   sync.Mutex
 }
@@ -75,20 +77,28 @@ func New(cfg *Config, storage *Storage) (*Bot, error) {
 		aiClient:       ai.NewClient(cfg.GeminiAPIKey),
 		pendingDeletes: make(map[string]pendingDelete),
 	}
+	b.expiryNotifier = NewExpiryNotifier(b, 1*time.Hour)
 	b.registerHandlers()
 	return b, nil
 }
 
 func (b *Bot) Start() {
 	log.Printf("[SirinBot] starting as @%s", b.bot.Me.Username)
+	if b.expiryNotifier != nil {
+		b.expiryNotifier.Start()
+	}
 	b.bot.Start()
 }
 
 func (b *Bot) Stop() {
+	if b.expiryNotifier != nil {
+		b.expiryNotifier.Stop()
+	}
 	b.bot.Stop()
 }
 
 func (b *Bot) TeleBot() *tele.Bot { return b.bot }
+func (b *Bot) ExpiryNotifier() *ExpiryNotifier { return b.expiryNotifier }
 func (b *Bot) ClientsStorage() *ClientsStorage { return b.clientsStorage }
 func (b *Bot) RelaysStorage() *relays.Storage { return b.relaysStorage }
 func (b *Bot) SetRelaysStorage(rs *relays.Storage) { b.relaysStorage = rs }
@@ -132,12 +142,33 @@ func (b *Bot) logAdminAction(adminID int64, action, clientPrefix string, ok bool
 	log.Println(string(payload))
 }
 
+// SendStarsInvoice отправляет инвойс на оплату подписки через Telegram Stars (XTR).
+func (b *Bot) SendStarsInvoice(to tele.Recipient, tariff Tariff, clientUUID string) error {
+	inv := &tele.Invoice{
+		Title:       fmt.Sprintf("Sirin VPN — %s", tariff.Name),
+		Description: fmt.Sprintf("Подписка Sirin VPN на %d дней. Мгновенная активация и поддержка всех устройств.", tariff.Days),
+		Payload:     fmt.Sprintf("sirin_stars:%s:%s:%d:%d", clientUUID, tariff.ID, tariff.Days, time.Now().Unix()),
+		Currency:    "XTR",
+		Prices: []tele.Price{
+			{Label: fmt.Sprintf("Sirin VPN (%s)", tariff.Name), Amount: tariff.Stars},
+		},
+		Token: "", // Для Telegram Stars провайдерский токен должен быть пустым
+	}
+	_, err := inv.Send(b.bot, to, nil)
+	return err
+}
+
 func (b *Bot) registerHandlers() {
 	// Публичные команды
 	b.bot.Handle("/start", b.handleStart)
 	b.bot.Handle("/help", b.handleHelp)
 	b.bot.Handle("/mykey", b.handleMyKey)
 	b.bot.Handle("/devices", b.handleDevices)
+	b.bot.Handle("/tariffs", b.handleTariffs)
+
+	// Telegram Stars платежи
+	b.bot.Handle(tele.OnCheckout, b.handleCheckout)
+	b.bot.Handle(tele.OnPayment, b.handlePayment)
 
 	// Админ-команды
 	b.bot.Handle("/newkey", b.adminOnly(b.handleNewKey))
