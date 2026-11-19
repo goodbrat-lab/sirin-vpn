@@ -306,6 +306,12 @@ object TunnelState {
      */
     val white = mutableStateOf(false)
 
+    /** Короткая метка активного пути («Zapret 2», «Путь A», «Белый режим»). */
+    val transport = mutableStateOf("")
+
+    /** Момент установления текущего подключения (ms, 0 если отключено). */
+    val connectedSince = mutableStateOf(0L)
+
     /**
      * Туннель ПОДНИМАЕТСЯ: человек нажал, но лестница ещё идёт.
      *
@@ -327,10 +333,12 @@ object TunnelState {
      * Любой определённый исход снимает «поднимаюсь»: и успех, и провал.
      * Иначе застрявшее true оставило бы планету вращаться навсегда.
      */
-    fun setConnected(value: Boolean, whiteMode: Boolean = false) {
+    fun setConnected(value: Boolean, whiteMode: Boolean = false, pathLabel: String = "") {
         main?.post {
             connected.value = value
             white.value = value && whiteMode
+            transport.value = if (value) pathLabel else ""
+            connectedSince.value = if (value) System.currentTimeMillis() else 0L
             busy.value = false
             refreshTile()
         }

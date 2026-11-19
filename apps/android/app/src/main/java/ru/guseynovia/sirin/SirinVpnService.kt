@@ -1503,7 +1503,14 @@ class SirinVpnService : VpnService() {
                 // туннеле выдаётся по хешу пароля, и с неверным ключом мы
                 // до этой строки просто не дошли бы.
                 Access.confirmPending()
-                TunnelState.setConnected(true, whiteMode)
+                val winLetter = Paths.letterOf(Engine.winner())
+                val pathLabel = when {
+                    whiteMode -> "Белый режим"
+                    winLetter == "Z2" -> "Zapret 2"
+                    winLetter != "?" -> "Путь $winLetter"
+                    else -> ""
+                }
+                TunnelState.setConnected(true, whiteMode, pathLabel)
                 // Замер скорости и уход с медленного пути ВЫКЛЮЧЕНЫ (решение владельца 27.09:
                 // шейпа у оператора нет, сторож гонял туннель по кругу). speedGuard оставлен в коде.
                 updateNotification(connected = true)

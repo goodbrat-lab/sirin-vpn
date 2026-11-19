@@ -4,9 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import ru.guseynovia.sirin.ui.SirinFeather
 import ru.guseynovia.sirin.ui.FeatherState
 import androidx.activity.ComponentActivity
@@ -432,6 +436,11 @@ fun TunnelScreen(modifier: Modifier = Modifier, onSettings: () -> Unit = {}) {
             )
         }
 
+        // Компактная плашка активного пути, времени сессии и скорости (только при подключении)
+        if (connected) {
+            SessionStatusPill()
+        }
+
         AccessBlock(onConnect = connect)
 
         // Ключ, пришедший ссылкой из бота, — ждёт подтверждения.
@@ -567,3 +576,79 @@ fun appVersion(ctx: android.content.Context): String = try {
 
 /** Экраны приложения. Стека нет — его тут не из чего строить. */
 private enum class Screen { TUNNEL, SETTINGS, HASHES, LOGS, SPLIT }
+
+@Composable
+private fun SessionStatusPill() {
+    val label = TunnelState.transport.value
+    val since = TunnelState.connectedSince.value
+    var elapsedSec by remember(since) { mutableStateOf(0L) }
+    var rxBps by remember(since) { mutableStateOf(0L) }
+    var txBps by remember(since) { mutableStateOf(0L) }
+
+    LaunchedEffect(since) {
+        var prevRx = TrafficStats.getTotalRxBytes().coerceAtLeast(0L)
+        var prevTx = TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
+        while (true) {
+            delay(1000L)
+            if (since > 0L) {
+                elapsedSec = ((System.currentTimeMillis() - since) / 1000L).coerceAtLeast(0L)
+            }
+            val nowRx = TrafficStats.getTotalRxBytes().coerceAtLeast(0L)
+            val nowTx = TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
+            rxBps = (nowRx - prevRx).coerceAtLeast(0L)
+            txBps = (nowTx - prevTx).coerceAtLeast(0L)
+            prevRx = nowRx
+            prevTx = nowTx
+        }
+    }
+
+    val badgeColor = when {
+        TunnelState.white.value -> Color(0xFFFFFFFF)
+        label == "Zapret 2" -> Brand.cyberBlue
+        else -> Brand.neonPurple
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(Glass.pillShape)
+                .background(Color(0x33000000))
+                .border(1.dp, Glass.cardBorder, Glass.pillShape)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (label.isNotEmpty()) {
+                Text(text = label, color = badgeColor, fontSize = 12.sp)
+                Text(text = "·", color = Brand.dim, fontSize = 12.sp)
+            }
+            Text(text = formatSessionDuration(elapsedSec), color = Brand.text, fontSize = 12.sp)
+        }
+        Text(
+            text = "↓ ${formatBytesPerSec(rxBps)}   ↑ ${formatBytesPerSec(txBps)}",
+            color = Brand.dim,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+private fun formatSessionDuration(sec: Long): String {
+    val h = sec / 3600
+    val m = (sec % 3600) / 60
+    val s = sec % 60
+    return if (h > 0) String.format("%02d:%02d:%02d", h, m, s)
+    else String.format("%02d:%02d", m, s)
+}
+
+private fun formatBytesPerSec(bps: Long): String = when {
+    bps >= 1024L * 1024L -> String.format("%.1f МБ/с", bps / (1024.0 * 1024.0))
+    bps >= 1024L -> String.format("%d КБ/с", bps / 1024L)
+    else -> "$bps Б/с"
+}
