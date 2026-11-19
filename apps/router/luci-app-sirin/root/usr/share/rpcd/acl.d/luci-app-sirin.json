@@ -11,6 +11,7 @@
           "get_force_vpn_config",
           "get_whitelist_config",
           "get_ru_direct_info",
+          "get_psn_proxy_config",
           "get_logs",
           "test_connection",
           "check_update"
@@ -28,6 +29,7 @@
           "set_antidpi_config",
           "set_force_vpn_config",
           "set_whitelist_config",
+          "set_psn_proxy_config",
           "start",
           "stop",
           "restart",

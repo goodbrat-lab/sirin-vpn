@@ -104,10 +104,22 @@ func main() {
 
 	doneCh := make(chan struct{})
 	var antiDPIServer *AntiDPIServer
+	var psnProxyServer *PSNProxyServer
+	var directWANDNS *DirectWANDNSServer
 	var forceVPNActive bool
 
 	stopDnsExtensions := func() {
 		changed := false
+		if directWANDNS != nil {
+			directWANDNS.Stop()
+			directWANDNS = nil
+		}
+		if psnProxyServer != nil {
+			removeDnsmasqDropIn(psnProxyDnsmasqFilename)
+			psnProxyServer.Stop()
+			psnProxyServer = nil
+			changed = true
+		}
 		if antiDPIServer != nil {
 			antiDPIServer.Stop()
 			removeDnsmasqDropIn(antiDPIDnsmasqFilename)
@@ -134,6 +146,46 @@ func main() {
 				}
 				needDnsmasqRestart := false
 				var warmDomains []string
+				// Повторный "ready" (переподключение туннеля): останавливаем прежние серверы
+				if psnProxyServer != nil {
+					psnProxyServer.Stop()
+					psnProxyServer = nil
+				}
+				if directWANDNS != nil {
+					directWANDNS.Stop()
+					directWANDNS = nil
+				}
+				// Запускаем DNS-форвардер для прямых загрузок игр PS5 (dl.playstation.net -> WAN 0x2),
+				// если не выбран режим проксирования загрузок и не отключён RuDirect («Максимальная приватность»).
+				wantDirectDL := cfg.SplitTunnel != nil && cfg.SplitTunnel.UseRuDirect != nil && *cfg.SplitTunnel.UseRuDirect
+				if cfg.IsPSNProxyEnabled() && cfg.PSNProxy.IncludeDownloads {
+					wantDirectDL = false
+				}
+				if wantDirectDL {
+					directWANDNS = NewDirectWANDNSServer(DefaultDirectWANDNSPort)
+					if err := directWANDNS.Start(ctx); err != nil {
+						log.Printf("[directwan] Внимание: не удалось запустить DNS-форвардер загрузок: %v", err)
+						directWANDNS = nil
+					}
+				}
+				// Убираем «осиротевший» drop-in от прошлого запуска (если процесс был убит)
+				removeDnsmasqDropIn(psnProxyDnsmasqFilename)
+				needDnsmasqRestart = true
+				if antiDPIServer != nil {
+					antiDPIServer.Stop()
+					antiDPIServer = nil
+				}
+				if cfg.IsPSNProxyEnabled() {
+					psnProxyServer = NewPSNProxyServer(*cfg.PSNProxy, currentDirectMatcher)
+					if err := psnProxyServer.Start(ctx); err != nil {
+						log.Printf("[psnproxy] Внимание: не удалось запустить PSN-прокси: %v", err)
+						psnProxyServer = nil
+					} else {
+						_ = writeDnsmasqDropIn(psnProxyDnsmasqFilename, BuildDnsmasqPSNProxyContent(cfg.PSNProxy))
+						needDnsmasqRestart = true
+						go psnProxyServer.SelfCheck(ctx)
+					}
+				}
 				if cfg.IsAntiDPIEnabled() {
 					adCfg := cfg.GetAntiDPIConfig()
 					antiDPIServer = NewAntiDPIServer(adCfg)
@@ -149,6 +201,10 @@ func main() {
 				if cfg.IsForceVPNEnabled() {
 					fvOpts := cfg.GetForceVPNOptions()
 					fvDomains := cfg.ForceVPN.ResolveTargetDomains()
+					if psnProxyServer != nil {
+						// Домены PSN обслуживает PSN-прокси — убираем их из ForceVPN
+						fvDomains = cfg.PSNProxy.FilterOutPSNDomains(fvDomains)
+					}
 					if len(fvDomains) > 0 {
 						_ = SetupDnsmasqForceVPN(fvDomains, fvOpts.DNSServer, false)
 						warmDomains = append(warmDomains, fvDomains...)
@@ -163,6 +219,12 @@ func main() {
 				}
 				if len(warmDomains) > 0 {
 					go warmForceVPNDomains(ctx, warmDomains)
+				}
+				if psnProxyServer != nil {
+					go psnProxyServer.Warm(ctx)
+				}
+				if directWANDNS != nil {
+					go directWANDNS.Warm(ctx)
 				}
 			case "log":
 				// Логи выводятся в реальном времени через desktopCfg.LogFunc

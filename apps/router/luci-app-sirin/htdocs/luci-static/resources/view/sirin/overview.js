@@ -67,6 +67,19 @@ var callGetWhitelistConfig = rpc.declare({
 	expect: {}
 });
 
+var callGetPSNProxyConfig = rpc.declare({
+	object: 'sirin',
+	method: 'get_psn_proxy_config',
+	expect: {}
+});
+
+var callSetPSNProxyConfig = rpc.declare({
+	object: 'sirin',
+	method: 'set_psn_proxy_config',
+	params: ['enabled', 'type', 'host', 'port', 'username', 'password', 'via', 'include_downloads'],
+	expect: {}
+});
+
 var callSetWhitelistConfig = rpc.declare({
 	object: 'sirin',
 	method: 'set_whitelist_config',
@@ -174,7 +187,8 @@ return view.extend({
 			callGetRuDirectInfo().catch(function() { return {}; }),
 			callGetAntiDPIConfig().catch(function() { return {}; }),
 			callGetWhitelistConfig().catch(function() { return {}; }),
-			callGetForceVPNConfig().catch(function() { return {}; })
+			callGetForceVPNConfig().catch(function() { return {}; }),
+			callGetPSNProxyConfig().catch(function() { return {}; })
 		]);
 	},
 
@@ -186,6 +200,7 @@ return view.extend({
 		var antiDPI = data[4] || {};
 		var wlConfig = data[5] || {};
 		var forceVPN = data[6] || {};
+		var psnProxy = data[7] || {};
 
 		var ruCount = ruInfo.count || 8641;
 		var isExpert = false;
@@ -635,6 +650,31 @@ return view.extend({
 		var chkFVPlayStation = E('input', {
 			type: 'checkbox',
 			checked: (hasFvService('playstation')) ? 'checked' : null,
+			change: function() { markDirty(); }
+		});
+
+		// PSN Proxy inputs
+		var chkPSNEnabled = E('input', {
+			type: 'checkbox',
+			checked: psnProxy.enabled ? 'checked' : null,
+			change: function() { markDirty(); }
+		});
+		var selPSNType = E('select', { class: 'cbi-input-select', change: function() { markDirty(); } }, [
+			E('option', { value: 'socks5', selected: (psnProxy.type !== 'http') ? 'selected' : null }, 'SOCKS5'),
+			E('option', { value: 'http', selected: (psnProxy.type === 'http') ? 'selected' : null }, 'HTTP(S) CONNECT')
+		]);
+		var inPSNHost = E('input', { type: 'text', class: 'cbi-input-text', style: 'width: 220px;', placeholder: '185.x.x.x', value: psnProxy.host || '', change: function() { markDirty(); } });
+		var inPSNPort = E('input', { type: 'number', class: 'cbi-input-text', style: 'width: 100px;', min: 1, max: 65535, placeholder: '8000', value: psnProxy.port || '', change: function() { markDirty(); } });
+		var inPSNUser = E('input', { type: 'text', class: 'cbi-input-text', style: 'width: 180px;', placeholder: 'логин', value: psnProxy.username || '', change: function() { markDirty(); } });
+		var inPSNPass = E('input', { type: 'password', class: 'cbi-input-text', style: 'width: 180px;', placeholder: 'пароль', value: psnProxy.password || '', change: function() { markDirty(); } });
+		var chkPSNViaVPN = E('input', {
+			type: 'checkbox',
+			checked: (psnProxy.via === 'vpn') ? 'checked' : null,
+			change: function() { markDirty(); }
+		});
+		var chkPSNDownloads = E('input', {
+			type: 'checkbox',
+			checked: psnProxy.include_downloads ? 'checked' : null,
 			change: function() { markDirty(); }
 		});
 
@@ -1167,6 +1207,20 @@ return view.extend({
 							return callSetWhitelistConfig(wlEn, wlMd, wlPrt, wlDtls, wlTurn, wlRealm, wlTarget, validVK, validDion);
 						})
 						.then(function() {
+							return callSetPSNProxyConfig(
+								chkPSNEnabled.checked,
+								selPSNType.value,
+								inPSNHost.value.trim(),
+								parseInt(inPSNPort.value, 10) || 0,
+								inPSNUser.value.trim(),
+								inPSNPass.value,
+								chkPSNViaVPN.checked ? 'vpn' : 'wan',
+								chkPSNDownloads.checked
+							).then(function(res) {
+								if (res && res.ok === false) throw new Error(res.error || 'PSN-прокси: ошибка сохранения');
+							});
+						})
+						.then(function() {
 							return callRestart();
 						})
 						.then(function() {
@@ -1310,6 +1364,46 @@ return view.extend({
 						E('label', { style: 'cursor: pointer; display: block;' }, [
 							chkFVPlayStation,
 							E('span', { style: 'margin-left: 8px;' }, '🎮 PlayStation Store и PSN (PS4 / PS5, оплата подписок, аккаунт Sony)')
+						])
+					])
+				])
+			]),
+
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, '🎮 PlayStation через внешний прокси (PSN Proxy)'),
+				E('p', { class: 'cbi-section-descr' }, 'Весь трафик PS Store, PSN и аккаунта Sony со всех устройств сети (PS5, PS App на телефоне) идёт через указанный SOCKS5/HTTP-прокси, например турецкий. Имеет приоритет над «Авто-VPN». Загрузки игр по умолчанию идут мимо прокси. Результат проверки прокси (внешний IP и страна) — в журнале на вкладке диагностики.'),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Включить'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer;' }, [
+							chkPSNEnabled,
+							E('span', { style: 'margin-left: 8px; font-weight: bold;' }, 'Пускать PlayStation через прокси')
+						])
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Прокси'),
+					E('div', { class: 'cbi-value-field' }, [
+						selPSNType, ' ', inPSNHost, E('span', {}, ' : '), inPSNPort
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Логин / пароль'),
+					E('div', { class: 'cbi-value-field' }, [
+						inPSNUser, ' ', inPSNPass,
+						E('div', { class: 'cbi-value-description' }, 'Оставьте пустыми, если прокси авторизует по IP.')
+					])
+				]),
+				E('div', { class: 'cbi-value' }, [
+					E('label', { class: 'cbi-value-title' }, 'Дополнительно'),
+					E('div', { class: 'cbi-value-field' }, [
+						E('label', { style: 'cursor: pointer; display: block; margin-bottom: 6px;' }, [
+							chkPSNViaVPN,
+							E('span', { style: 'margin-left: 8px;' }, 'Подключаться к прокси через VPN-туннель (если провайдер блокирует адрес прокси)')
+						]),
+						E('label', { style: 'cursor: pointer; display: block;' }, [
+							chkPSNDownloads,
+							E('span', { style: 'margin-left: 8px;' }, 'Пускать через прокси и загрузки игр/обновлений (много трафика)')
 						])
 					])
 				])

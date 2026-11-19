@@ -170,3 +170,17 @@ sid = "8283f99ec6a0f52e"
 # mode = "stream-one"
 
 
+
+# PSN Proxy: весь трафик PlayStation Store / PSN / аккаунта Sony со всех устройств сети
+# идёт через внешний SOCKS5/HTTP-прокси (например, турецкий). Приоритет выше, чем у [force_vpn].
+# Проверка прокси (внешний IP и страна) пишется в журнал: logread | grep psnproxy
+# [psn_proxy]
+# enabled = true
+# type = "socks5"            # "socks5" или "http"
+# host = "185.0.0.1"
+# port = 8000
+# username = "login"
+# password = "pass"
+# via = "wan"                # "wan" — к прокси напрямую; "vpn" — через туннель Sirin
+# include_downloads = false  # true — загрузки игр тоже через прокси
+# # domains = ["example-psn-partner.com"]   # дополнительные домены

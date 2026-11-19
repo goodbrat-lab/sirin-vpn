@@ -50,6 +50,30 @@ echo "Package manager: $PKG"
 # 1. Скачать
 echo "Downloading $URL..."
 wget -O /tmp/sirin.tar.gz "$URL"
+
+# Проверка SHA-256 по checksums.txt из релиза (если доступно)
+if command -v sha256sum >/dev/null 2>&1; then
+    CHECKSUMS_URL="${URL%/*}/checksums.txt"
+    ASSET_NAME="${URL##*/}"
+    if wget -qO /tmp/sirin_checksums.txt "$CHECKSUMS_URL" 2>/dev/null && [ -s /tmp/sirin_checksums.txt ]; then
+        EXPECTED_SHA=$(awk -v f="$ASSET_NAME" '$2 == f || $2 == "*" f { print $1; exit }' /tmp/sirin_checksums.txt)
+        rm -f /tmp/sirin_checksums.txt
+        if [ -n "$EXPECTED_SHA" ]; then
+            ACTUAL_SHA=$(sha256sum /tmp/sirin.tar.gz | awk '{print $1}')
+            if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+                echo "ERROR: SHA-256 mismatch for $ASSET_NAME!"
+                echo "  expected: $EXPECTED_SHA"
+                echo "  actual:   $ACTUAL_SHA"
+                rm -f /tmp/sirin.tar.gz
+                exit 1
+            fi
+            echo "SHA-256 verified OK ($ACTUAL_SHA)"
+        fi
+    else
+        rm -f /tmp/sirin_checksums.txt
+    fi
+fi
+
 tar -xzf /tmp/sirin.tar.gz -C /tmp/
 
 # 2. Установить бинарник

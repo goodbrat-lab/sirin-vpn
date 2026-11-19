@@ -481,9 +481,18 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 		antidpi.Enabled = false
 	}
 	forceVPN := cfg.GetForceVPNOptions()
+	psnProxy := cfg.GetPSNProxyOptions()
+
+	// Матчер «адрес идёт мимо VPN» для PSN-прокси (чужие домены на общих IP CDN)
+	if mode == "only" {
+		inSplit := newCIDRMatcher(splitCIDRs)
+		currentDirectMatcher = func(ip net.IP) bool { return !inSplit(ip) }
+	} else {
+		currentDirectMatcher = newCIDRMatcher(splitCIDRs)
+	}
 
 	// 8. Настройка nftables правил маркировки и NAT
-	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, opsec, antidpi, forceVPN); err != nil {
+	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, opsec, antidpi, forceVPN, psnProxy); err != nil {
 		log.Printf("[route] nftables ошибка: %v. Пробуем iptables fallback...", err)
 		setupIptables(tun.name, lanIface, opsec)
 	}
@@ -529,9 +538,12 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	opsecOpts := DefaultOpSecOptions()
 	antidpiOpts := DefaultAntiDPIConfig()
 	var forceVPNOpts ForceVPNOptions
+	var psnOpts PSNProxyOptions
 
 	for _, opt := range options {
 		switch v := opt.(type) {
+		case PSNProxyOptions:
+			psnOpts = v
 		case OpSecOptions:
 			opsecOpts = v
 		case []OpSecOptions:
@@ -564,6 +576,14 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	if len(localCIDRs) > 0 {
 		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(localCIDRs, ", ")))
 	}
+	b.WriteString("    }\n")
+
+	// Set direct_wan_cidrs (CDN загрузки игр PS5 dl.playstation.net — всегда напрямую через WAN 0x2)
+	b.WriteString("    set direct_wan_cidrs {\n")
+	b.WriteString("        type ipv4_addr\n")
+	b.WriteString("        flags interval, timeout\n")
+	b.WriteString("        timeout 12h\n")
+	b.WriteString("        gc-interval 5m\n")
 	b.WriteString("    }\n")
 
 	// Set split_cidrs
@@ -604,6 +624,16 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString("    }\n")
 	}
 
+	// Set psn_proxy_cidrs (наполняется DNS-форвардером PSN-прокси)
+	if psnOpts.Enabled {
+		b.WriteString("    set psn_proxy_cidrs {\n")
+		b.WriteString("        type ipv4_addr\n")
+		b.WriteString("        flags interval, timeout\n")
+		b.WriteString("        timeout 12h\n")
+		b.WriteString("        gc-interval 5m\n")
+		b.WriteString("    }\n")
+	}
+
 	// Set split_ports_tcp (если заданы TCP порты)
 	if len(tcpPorts) > 0 {
 		b.WriteString("    set split_ports_tcp {\n")
@@ -625,10 +655,17 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	modeRules := generateNftablesModeRules(mode, portMode, tcpPorts, udpPorts)
 
 	// Chain dstnat (Anti-DNS-Leak и Anti-DPI Transparent Proxy)
-	hasDstnat := opsecOpts.InterceptDNS || antidpiOpts.Enabled
+	hasDstnat := opsecOpts.InterceptDNS || antidpiOpts.Enabled || psnOpts.Enabled
 	if hasDstnat {
 		b.WriteString("    chain dstnat {\n")
 		b.WriteString("        type nat hook prerouting priority dstnat; policy accept;\n")
+		if psnOpts.Enabled || antidpiOpts.Enabled {
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @direct_wan_cidrs tcp dport 80 return\n", lanIface))
+		}
+		if psnOpts.Enabled {
+			// PSN-прокси имеет наивысший приоритет: раньше force_vpn и Anti-DPI
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @psn_proxy_cidrs tcp dport { 80, 443 } redirect to :%d\n", lanIface, psnOpts.ListenPort))
+		}
 		if antidpiOpts.Enabled {
 			if forceVPNOpts.Enabled && len(forceVPNOpts.StaticCIDRs) > 0 {
 				b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @force_vpn_static return\n", lanIface))
@@ -645,13 +682,22 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString("    }\n")
 	}
 
-	// Chain input (защита порта transparent proxy от внешних подключений из WAN)
-	if antidpiOpts.Enabled {
+	// Chain input (защита портов transparent proxy от внешних подключений из WAN)
+	if antidpiOpts.Enabled || psnOpts.Enabled {
 		b.WriteString("    chain input {\n")
 		b.WriteString("        type filter hook input priority 0; policy accept;\n")
-		b.WriteString(fmt.Sprintf("        iifname \"%s\" tcp dport %d accept\n", lanIface, antidpiOpts.Port))
-		b.WriteString(fmt.Sprintf("        iifname \"lo\" tcp dport %d accept\n", antidpiOpts.Port))
-		b.WriteString(fmt.Sprintf("        tcp dport %d drop\n", antidpiOpts.Port))
+		var ports []int
+		if antidpiOpts.Enabled {
+			ports = append(ports, antidpiOpts.Port)
+		}
+		if psnOpts.Enabled {
+			ports = append(ports, psnOpts.ListenPort)
+		}
+		for _, p := range ports {
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" tcp dport %d accept\n", lanIface, p))
+			b.WriteString(fmt.Sprintf("        iifname \"lo\" tcp dport %d accept\n", p))
+			b.WriteString(fmt.Sprintf("        tcp dport %d drop\n", p))
+		}
 		b.WriteString("    }\n")
 	}
 
@@ -663,6 +709,7 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString(fmt.Sprintf("        iifname != \"%s\" return\n", lanIface))
 	b.WriteString("        ip daddr @local_cidrs return\n")
 	b.WriteString("        ct status dnat meta mark set 0x00000002 return\n")
+	b.WriteString("        ip daddr @direct_wan_cidrs tcp dport 80 meta mark set 0x00000002 return\n")
 	if forceVPNOpts.Enabled && len(forceVPNOpts.StaticCIDRs) > 0 {
 		b.WriteString("        ip daddr @force_vpn_static meta mark set 0x00000001 return\n")
 	}
@@ -681,6 +728,7 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString("        meta mark 0x00000002 return\n") // Protector VPN-сокета и прямой WAN-сокет уже имеют mark 0x2
 	b.WriteString("        meta mark 0x00000001 return\n") // Явный VPN-сокет (fallback) уже имеет mark 0x1
 	b.WriteString("        ip daddr @local_cidrs return\n")
+	b.WriteString("        ip daddr @direct_wan_cidrs tcp dport 80 meta mark set 0x00000002 return\n")
 	if forceVPNOpts.Enabled && len(forceVPNOpts.StaticCIDRs) > 0 {
 		b.WriteString("        ip daddr @force_vpn_static meta mark set 0x00000001 return\n")
 	}
@@ -715,6 +763,10 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	// Chain forward (фильтрация LAN -> TUN + блокировка DoT + блокировка QUIC для YouTube)
 	b.WriteString("    chain forward {\n")
 	b.WriteString("        type filter hook forward priority 0; policy accept;\n")
+	if psnOpts.Enabled {
+		// QUIC к адресам PSN режем, чтобы клиент перешёл на TCP и попал в прокси
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @psn_proxy_cidrs udp dport 443 reject\n", lanIface))
+	}
 	if forceVPNOpts.Enabled && len(forceVPNOpts.StaticCIDRs) > 0 {
 		b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @force_vpn_static oifname \"%s\" accept\n", lanIface, tunName))
 	}

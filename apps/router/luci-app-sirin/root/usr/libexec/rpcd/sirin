@@ -150,7 +150,7 @@ method_set_config() {
         raw_input=$(cat 2>/dev/null)
     fi
 
-    eval $(awk -v json="$raw_input" '
+    eval "$(RAW_JSON="$raw_input" awk '
     function get_field(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
             val = substr(json, RSTART, RLENGTH)
@@ -175,6 +175,8 @@ method_set_config() {
         return ""
     }
     BEGIN {
+        json = ENVIRON["RAW_JSON"]
+        gsub(/[\r\n]/, "", json)
         gw = get_field("gateway")
         pw = get_field("password")
         did = get_field("device_id")
@@ -199,7 +201,7 @@ method_set_config() {
         gsub(/'\''/, "'\''\\'\'''\''", dd)
         printf "NEW_GW='\''%s'\''; NEW_PW='\''%s'\''; NEW_DID='\''%s'\''; NEW_RUD='\''%s'\''; NEW_MTU='\''%s'\''; NEW_KS='\''%s'\''; NEW_NORM_TTL='\''%s'\''; NEW_TARG_TTL='\''%s'\''; NEW_INT_DNS='\''%s'\''; NEW_BLK_DOT='\''%s'\''; NEW_DD='\''%s'\'';\n", gw, pw, did, rud, mtu, ks, norm_ttl, targ_ttl, int_dns, blk_dot, dd
     }
-    ')
+    ')"
 
     if [ -z "$NEW_GW" ] || echo "$NEW_GW" | grep -qE "[^a-zA-Z0-9.-]"; then
         printf '{"ok":false,"error":"gateway: неверный формат хоста или IP"}\n'
@@ -511,7 +513,7 @@ method_set_split_config() {
         raw_input=$(cat 2>/dev/null)
     fi
 
-    eval $(awk -v json="$raw_input" '
+    eval "$(RAW_JSON="$raw_input" awk '
     function get_str(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
             val = substr(json, RSTART, RLENGTH)
@@ -547,6 +549,8 @@ method_set_split_config() {
         return ""
     }
     BEGIN {
+        json = ENVIRON["RAW_JSON"]
+        gsub(/[\r\n]/, "", json)
         m = tolower(get_str("mode"))
         if (m == "") m = "bypass"
         rud = tolower(get_bool("use_ru_direct"))
@@ -566,7 +570,7 @@ method_set_split_config() {
 
         printf "SPLIT_MODE='\''%s'\''; SPLIT_RU='\''%s'\''; SPLIT_CIDRS='\''%s'\''; SPLIT_DOMAINS='\''%s'\''; SPLIT_PORTS='\''%s'\''; SPLIT_PORT_MODE='\''%s'\'';\n", m, rud, c, d, p, pm
     }
-    ')
+    ')"
 
     if [ "$SPLIT_MODE" != "bypass" ] && [ "$SPLIT_MODE" != "only" ]; then
         printf '{"ok":false,"error":"Недопустимый режим mode (только bypass или only)"}\n'
@@ -842,7 +846,7 @@ method_set_antidpi_config() {
         raw_input=$(cat 2>/dev/null)
     fi
 
-    eval $(awk -v json="$raw_input" '
+    eval "$(RAW_JSON="$raw_input" awk '
     function get_bool(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
             val = substr(json, RSTART, RLENGTH)
@@ -877,6 +881,8 @@ method_set_antidpi_config() {
         return ""
     }
     BEGIN {
+        json = ENVIRON["RAW_JSON"]
+        gsub(/[\r\n]/, "", json)
         en = tolower(get_bool("enabled"))
         if (en != "false") en = "true"
         p = get_int("port")
@@ -895,7 +901,7 @@ method_set_antidpi_config() {
         gsub(/'\''/, "'\''\\'\'''\''", cd)
         printf "NEW_AD_EN='\''%s'\''; NEW_AD_PORT='\''%s'\''; NEW_AD_SP='\''%s'\''; NEW_AD_QR='\''%s'\''; NEW_AD_YT='\''%s'\''; NEW_AD_IG='\''%s'\''; NEW_AD_DC='\''%s'\''; NEW_AD_CD='\''%s'\'';\n", en, p, sp, qr, yt, ig, dc, cd
     }
-    ')
+    ')"
 
     mkdir -p "$(dirname "$CONFIG_FILE")"
     TMP_CONF="/tmp/client.toml.tmp.$$"
@@ -1052,7 +1058,7 @@ method_set_whitelist_config() {
         raw_input=$(cat 2>/dev/null)
     fi
 
-    eval $(awk -v json="$raw_input" '
+    eval "$(RAW_JSON="$raw_input" awk '
     function get_bool(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
             val = substr(json, RSTART, RLENGTH)
@@ -1092,6 +1098,8 @@ method_set_whitelist_config() {
         return ""
     }
     BEGIN {
+        json = ENVIRON["RAW_JSON"]
+        gsub(/[\r\n]/, "", json)
         en = get_bool("enabled")
         mode = get_str("mode")
         port = get_int("gateway_port")
@@ -1121,7 +1129,7 @@ method_set_whitelist_config() {
         printf "NEW_WL_EN='\''%s'\''; NEW_WL_MODE='\''%s'\''; NEW_WL_PORT='\''%s'\''; NEW_WL_DTLS='\''%s'\''; NEW_WL_TURN='\''%s'\''; NEW_WL_REALM='\''%s'\''; NEW_WL_TARGET='\''%s'\''; NEW_WL_VK='\''%s'\''; NEW_WL_DION='\''%s'\'';", \
             en, mode, port, dtls, turn, realm, target, vk, dion
     }
-    ')
+    ')"
 
     TMP_CONF="/tmp/sirin_client_$$.tmp"
     awk -v en="$NEW_WL_EN" -v mode="$NEW_WL_MODE" -v port="$NEW_WL_PORT" \
@@ -1174,6 +1182,121 @@ method_set_whitelist_config() {
     else
         rm -f "$TMP_CONF"
         printf '{"ok":false,"error":"Не удалось записать настройки Whitelist Fallback"}\n'
+    fi
+}
+
+method_get_psn_proxy_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        printf '{"enabled":false,"type":"socks5","host":"","port":0,"username":"","password":"","via":"wan","include_downloads":false}\n'
+        return
+    fi
+    awk '
+    BEGIN { in_p = 0; enabled = "false"; type = "socks5"; host = ""; port = 0; user = ""; pass = ""; via = "wan"; dl = "false" }
+    /^\[psn_proxy\]/ { in_p = 1; next }
+    /^\[/ && !/^\[psn_proxy\]/ { in_p = 0 }
+    function qval(    v) { if (match($0, /"[^"]*"/)) { v = substr($0, RSTART + 1, RLENGTH - 2); gsub(/\\/, "\\\\", v); return v } return "" }
+    in_p && /^[ \t]*enabled[ \t]*=/ { enabled = ($0 ~ /true/) ? "true" : "false" }
+    in_p && /^[ \t]*type[ \t]*=/ { type = qval() }
+    in_p && /^[ \t]*host[ \t]*=/ { host = qval() }
+    in_p && /^[ \t]*port[ \t]*=/ { if (match($0, /[0-9]+/)) port = substr($0, RSTART, RLENGTH) }
+    in_p && /^[ \t]*username[ \t]*=/ { user = qval() }
+    in_p && /^[ \t]*password[ \t]*=/ { pass = qval() }
+    in_p && /^[ \t]*via[ \t]*=/ { via = qval() }
+    in_p && /^[ \t]*include_downloads[ \t]*=/ { dl = ($0 ~ /true/) ? "true" : "false" }
+    END {
+        masked = (pass != "") ? "********" : ""
+        printf "{\"enabled\":%s,\"type\":\"%s\",\"host\":\"%s\",\"port\":%d,\"username\":\"%s\",\"password\":\"%s\",\"via\":\"%s\",\"include_downloads\":%s}\n", \
+            enabled, type, host, port, user, masked, via, dl
+    }
+    ' "$CONFIG_FILE"
+}
+
+method_set_psn_proxy_config() {
+    raw_input="$1"
+    if [ -z "$raw_input" ]; then
+        raw_input=$(cat 2>/dev/null)
+    fi
+
+    eval "$(RAW_JSON="$raw_input" awk '
+    function get_bool(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
+            val = substr(json, RSTART, RLENGTH); sub(/^[^:]*:[ \t]*/, "", val); return val
+        }
+        return ""
+    }
+    function get_str(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"")) {
+            val = substr(json, RSTART, RLENGTH); sub("^\"" k "\"[ \t]*:[ \t]*\"", "", val); sub(/"$/, "", val); return val
+        }
+        return ""
+    }
+    function get_int(k,    val) {
+        if (match(json, "\"" k "\"[ \t]*:[ \t]*[0-9]+")) {
+            val = substr(json, RSTART, RLENGTH); sub(/^[^:]*:[ \t]*/, "", val); return val
+        }
+        return ""
+    }
+    BEGIN {
+        json = ENVIRON["RAW_JSON"]
+        gsub(/[\r\n]/, "", json)
+        en = get_bool("enabled"); typ = get_str("type"); host = get_str("host"); port = get_int("port")
+        user = get_str("username"); pass = get_str("password"); via = get_str("via"); dl = get_bool("include_downloads")
+        if (en == "") en = "false"
+        if (typ != "http") typ = "socks5"
+        if (via != "vpn") via = "wan"
+        if (dl == "") dl = "false"
+        if (port == "") port = "0"
+        gsub(/'\''/, "", host); gsub(/'\''/, "", user); gsub(/'\''/, "", pass)
+        printf "NEW_P_EN='\''%s'\''; NEW_P_TYPE='\''%s'\''; NEW_P_HOST='\''%s'\''; NEW_P_PORT='\''%s'\''; NEW_P_USER='\''%s'\''; NEW_P_PASS='\''%s'\''; NEW_P_VIA='\''%s'\''; NEW_P_DL='\''%s'\'';", \
+            en, typ, host, port, user, pass, via, dl
+    }
+    ')"
+
+    if [ "$NEW_P_EN" = "true" ]; then
+        if [ -z "$NEW_P_HOST" ] || ! echo "$NEW_P_HOST" | grep -qE '^[A-Za-z0-9.:-]+$'; then
+            printf '{"ok":false,"error":"psn_proxy: укажите корректный адрес прокси"}\n'
+            return
+        fi
+        if [ "$NEW_P_PORT" -lt 1 ] || [ "$NEW_P_PORT" -gt 65535 ]; then
+            printf '{"ok":false,"error":"psn_proxy: порт должен быть от 1 до 65535"}\n'
+            return
+        fi
+    fi
+
+    # Пароль "********" означает «не менять» — берём текущий из конфига
+    if [ "$NEW_P_PASS" = "********" ]; then
+        NEW_P_PASS=$(awk '/^\[psn_proxy\]/{p=1;next} /^\[/{p=0} p && /^[ \t]*password[ \t]*=/ { if (match($0, /"[^"]*"/)) print substr($0, RSTART+1, RLENGTH-2) }' "$CONFIG_FILE")
+    fi
+
+    TMP_CONF="/tmp/sirin_client_$$.tmp"
+    awk -v en="$NEW_P_EN" -v typ="$NEW_P_TYPE" -v host="$NEW_P_HOST" -v port="$NEW_P_PORT" \
+        -v user="$NEW_P_USER" -v pass="$NEW_P_PASS" -v via="$NEW_P_VIA" -v dl="$NEW_P_DL" '
+    function emit() {
+        print "[psn_proxy]"
+        print "enabled = " en
+        print "type = \"" typ "\""
+        print "host = \"" host "\""
+        print "port = " port
+        print "username = \"" user "\""
+        print "password = \"" pass "\""
+        print "via = \"" via "\""
+        print "include_downloads = " dl
+        print ""
+    }
+    BEGIN { in_p = 0; seen = 0 }
+    /^\[psn_proxy\]/ { in_p = 1; seen = 1; emit(); next }
+    /^\[/ && !/^\[psn_proxy\]/ { in_p = 0 }
+    !in_p { print $0 }
+    END { if (!seen) { print ""; emit() } }
+    ' "$CONFIG_FILE" > "$TMP_CONF" 2>/dev/null
+
+    if [ -s "$TMP_CONF" ]; then
+        mv "$TMP_CONF" "$CONFIG_FILE"
+        chmod 600 "$CONFIG_FILE" 2>/dev/null
+        printf '{"ok":true}\n'
+    else
+        rm -f "$TMP_CONF"
+        printf '{"ok":false,"error":"Не удалось записать настройки PSN-прокси"}\n'
     fi
 }
 
@@ -1268,7 +1391,7 @@ method_set_force_vpn_config() {
         raw_input=$(cat 2>/dev/null)
     fi
 
-    eval $(awk -v json="$raw_input" '
+    eval "$(RAW_JSON="$raw_input" awk '
     function get_bool(k,    val) {
         if (match(json, "\"" k "\"[ \t]*:[ \t]*(true|false)")) {
             val = substr(json, RSTART, RLENGTH)
@@ -1291,6 +1414,8 @@ method_set_force_vpn_config() {
         return ""
     }
     BEGIN {
+        json = ENVIRON["RAW_JSON"]
+        gsub(/[\r\n]/, "", json)
         en = get_bool("enabled")
         srv = get_array("services")
         dom = get_array("domains")
@@ -1304,7 +1429,7 @@ method_set_force_vpn_config() {
         printf "NEW_FV_EN='\''%s'\''; NEW_FV_SRV='\''%s'\''; NEW_FV_DOM='\''%s'\''; NEW_FV_CIDR='\''%s'\'';", \
             en, srv, dom, cidr
     }
-    ')
+    ')"
 
     TMP_CONF="/tmp/sirin_client_$$.tmp"
     awk -v en="$NEW_FV_EN" -v srv="$NEW_FV_SRV" -v dom="$NEW_FV_DOM" -v cidr="$NEW_FV_CIDR" '
@@ -1690,6 +1815,15 @@ method_upgrade() {
         return
     fi
 
+    # Строгий allowlist источника обновлений: запрещаем скачивание с произвольных URL
+    case "$url" in
+        https://github.com/goodbrat-lab/sirin-vpn/releases/download/*) ;;
+        *)
+            printf '{"ok":false,"error":"Недопустимый URL обновления (разрешены только официальные релизы GitHub)"}\n'
+            return
+            ;;
+    esac
+
     tmp_pkg="/tmp/sirin_update.pkg"
     rm -f "$tmp_pkg"
 
@@ -1704,6 +1838,28 @@ method_upgrade() {
         rm -f "$tmp_pkg"
         printf '{"ok":false,"error":"Скачанный файл повреждён или слишком мал (%d байт)"}\n' "$size"
         return
+    fi
+
+    # Проверка целостности SHA-256 по checksums.txt из того же релиза (если присутствует)
+    if command -v sha256sum >/dev/null 2>&1; then
+        checksums_url="${url%/*}/checksums.txt"
+        asset_file="${url##*/}"
+        tmp_sums="/tmp/sirin_checksums.$$.txt"
+        rm -f "$tmp_sums"
+        if download_file "$checksums_url" "$tmp_sums" && [ -s "$tmp_sums" ]; then
+            expected_sha=$(awk -v f="$asset_file" '$2 == f || $2 == "*" f { print $1; exit }' "$tmp_sums")
+            rm -f "$tmp_sums"
+            if [ -n "$expected_sha" ]; then
+                actual_sha=$(sha256sum "$tmp_pkg" | awk '{print $1}')
+                if [ "$actual_sha" != "$expected_sha" ]; then
+                    rm -f "$tmp_pkg"
+                    printf '{"ok":false,"error":"Ошибка проверки SHA-256 пакета обновления (ожидалось %s, получено %s)"}\n' "$expected_sha" "$actual_sha"
+                    return
+                fi
+            fi
+        else
+            rm -f "$tmp_sums"
+        fi
     fi
 
     install_out=""
@@ -1815,6 +1971,17 @@ case "$1" in
     "dion_slugs": "array"
   },
   "get_ru_direct_info": {},
+  "get_psn_proxy_config": {},
+  "set_psn_proxy_config": {
+    "enabled": "bool",
+    "type": "str",
+    "host": "str",
+    "port": "int",
+    "username": "str",
+    "password": "str",
+    "via": "str",
+    "include_downloads": "bool"
+  },
   "start": {},
   "stop": {},
   "restart": {},
@@ -1882,6 +2049,12 @@ case "$cmd" in
         ;;
     get_ru_direct_info)
         method_get_ru_direct_info
+        ;;
+    get_psn_proxy_config)
+        method_get_psn_proxy_config
+        ;;
+    set_psn_proxy_config)
+        method_set_psn_proxy_config "$(get_input)"
         ;;
     start|stop|restart|enable|disable)
         method_service "$cmd"

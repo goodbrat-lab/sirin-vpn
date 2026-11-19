@@ -77,6 +77,9 @@ type Config struct {
 
 	// Whitelist Fallback (аварийный обход блокировок через белые списки: WebRTC TURN VK Calls / DION / S3)
 	WhitelistFallback *WhitelistFallbackConfig `toml:"whitelist_fallback,omitempty"`
+
+	// PSN Proxy (трафик PlayStation Store / PSN через внешний SOCKS5/HTTP прокси)
+	PSNProxy *PSNProxyConfig `toml:"psn_proxy,omitempty"`
 }
 
 // WhitelistFallbackConfig задаёт параметры аварийного резервного канала через
@@ -551,6 +554,12 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.ForceVPN != nil {
 		if err := cfg.ForceVPN.Validate(); err != nil {
 			return nil, fmt.Errorf("ошибка валидации force_vpn: %w", err)
+		}
+	}
+
+	if cfg.PSNProxy != nil {
+		if err := cfg.PSNProxy.Validate(); err != nil {
+			return nil, fmt.Errorf("ошибка валидации psn_proxy: %w", err)
 		}
 	}
 
