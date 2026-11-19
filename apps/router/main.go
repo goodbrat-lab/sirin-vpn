@@ -131,6 +131,10 @@ func main() {
 			forceVPNActive = false
 			changed = true
 		}
+		if cfg.IsDNSFilterEnabled() {
+			removeDnsmasqDropIn(dnsFilterDnsmasqFilename)
+			changed = true
+		}
 		if changed {
 			restartDnsmasq()
 		}
@@ -170,7 +174,12 @@ func main() {
 				}
 				// Убираем «осиротевший» drop-in от прошлого запуска (если процесс был убит)
 				removeDnsmasqDropIn(psnProxyDnsmasqFilename)
+				removeDnsmasqDropIn(dnsFilterDnsmasqFilename)
 				needDnsmasqRestart = true
+				if cfg.IsDNSFilterEnabled() {
+					_ = writeDnsmasqDropIn(dnsFilterDnsmasqFilename, BuildDnsmasqBlocklistContent(cfg.DNSFilter))
+					log.Printf("[dnsfilter] Активирован DNS-фильтр (заблокировано доменов: %d)", len(cfg.DNSFilter.ResolveBlockedDomains()))
+				}
 				if antiDPIServer != nil {
 					antiDPIServer.Stop()
 					antiDPIServer = nil

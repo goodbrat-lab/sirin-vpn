@@ -1610,6 +1610,49 @@ method_test_connection() {
         "$public_ip" "$ip_ok" "$rudirect_via_tunnel" "$split_mode" "$raw" "$ru_status" "$zapret_enabled" "$zapret_ok" "$zapret_status"
 }
 
+method_leak_check() {
+    # 1. Проверка DNS-утечек и подмены провайдером (например, instagram.com -> 127.0.0.1)
+    dns_ok=true
+    dns_msg="Чистый DNS через туннель (OK)"
+    noresolv=$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || echo "0")
+    ig_ip=$(nslookup -type=A instagram.com 127.0.0.1 2>/dev/null | awk '/^Address:/{ip=$2} END{print ip}')
+    if [ "$ig_ip" = "127.0.0.1" ] || [ "$ig_ip" = "0.0.0.0" ]; then
+        dns_ok=false
+        dns_msg="Обнаружена подмена DNS провайдером (instagram.com -> $ig_ip). Включите strict-tunnel / noresolv=1"
+    elif [ "$noresolv" != "1" ] && [ ! -f /tmp/dnsmasq.d/sirin-forcevpn.conf ] && [ ! -f /tmp/dnsmasq.d/sirin-antidpi.conf ]; then
+        dns_ok=false
+        dns_msg="dnsmasq использует DNS провайдера (noresolv != 1): возможна утечка DNS"
+    fi
+
+    # 2. Проверка утечки IPv6 мимо IPv4-туннеля (Happy Eyeballs)
+    ipv6_ok=true
+    ipv6_msg="Утечек IPv6 не обнаружено (OK)"
+    has_v6_default=false
+    if ip -6 route show default 2>/dev/null | grep -q "default"; then
+        has_v6_default=true
+    fi
+    filter_aaaa=$(uci -q get dhcp.@dnsmasq[0].filter_aaaa 2>/dev/null || echo "0")
+    if [ "$has_v6_default" = "true" ] && [ "$filter_aaaa" != "1" ]; then
+        ipv6_ok=false
+        ipv6_msg="Активен IPv6 default-маршрут и не включён filter_aaaa=1: возможна утечка трафика мимо туннеля"
+    fi
+
+    # 3. Проверка потерь UDP-буфера ядра (/proc/net/udp)
+    udp_ok=true
+    udp_drops=0
+    if [ -r /proc/net/udp ]; then
+        udp_drops=$(awk 'NR>1 { sum += $NF } END { print sum+0 }' /proc/net/udp 2>/dev/null || echo 0)
+    fi
+    udp_msg="Потерь UDP-буфера ядра нет (drops=$udp_drops)"
+    if [ "$udp_drops" -gt 100 ] 2>/dev/null; then
+        udp_ok=false
+        udp_msg="Высокие потери UDP-буфера ядра (drops=$udp_drops): проверьте net.core.rmem_max"
+    fi
+
+    printf '{"ok":true,"dns_ok":%s,"dns_msg":"%s","ipv6_ok":%s,"ipv6_msg":"%s","udp_ok":%s,"udp_drops":%d,"udp_msg":"%s"}\n' \
+        "$dns_ok" "$dns_msg" "$ipv6_ok" "$ipv6_msg" "$udp_ok" "$udp_drops" "$udp_msg"
+}
+
 detect_pkg_mgr() {
     if [ -x /sbin/apk ] || command -v apk >/dev/null 2>&1; then
         echo "apk"
@@ -1991,6 +2034,7 @@ case "$1" in
     "lines": "int"
   },
   "test_connection": {},
+  "leak_check": {},
   "check_update": {},
   "upgrade": {
     "url": "str"
@@ -2064,6 +2108,9 @@ case "$cmd" in
         ;;
     test_connection)
         method_test_connection
+        ;;
+    leak_check)
+        method_leak_check
         ;;
     check_update)
         method_check_update

@@ -184,3 +184,10 @@ sid = "8283f99ec6a0f52e"
 # via = "wan"                # "wan" — к прокси напрямую; "vpn" — через туннель Sirin
 # include_downloads = false  # true — загрузки игр тоже через прокси
 # # domains = ["example-psn-partner.com"]   # дополнительные домены
+
+# Встроенный лёгкий DNS-фильтр рекламы, трекеров и фишинга (генерирует /tmp/dnsmasq.d/sirin-blocklist.conf)
+# [dns_filter]
+# enabled = true
+# categories = ["ads", "trackers", "phishing"]
+# custom_block = []
+# allowlist = []

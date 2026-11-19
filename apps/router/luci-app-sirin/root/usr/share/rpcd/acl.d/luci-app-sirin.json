@@ -14,6 +14,7 @@
           "get_psn_proxy_config",
           "get_logs",
           "test_connection",
+          "leak_check",
           "check_update"
         ]
       },
