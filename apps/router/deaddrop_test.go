@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -165,5 +168,50 @@ func TestBuildLadder_DeadDropFallback(t *testing.T) {
 	}
 	if len(hosts) != 1 || hosts[0] != "195.201.111.222" {
 		t.Errorf("Ожидался хост 195.201.111.222, получено %v", hosts)
+	}
+}
+
+func TestDeadDropSignedVerification(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+
+	rawPayload, _ := json.Marshal(ParamsResponse{
+		Version: 3,
+		Entries: []ParamsEntry{
+			{ID: "signed-node", Transport: "vless", Host: "203.0.113.55", Port: 443},
+		},
+	})
+
+	signedBlob, err := SignDeadDropPayload(rawPayload, priv)
+	if err != nil {
+		t.Fatalf("SignDeadDropPayload: %v", err)
+	}
+
+	// 1. Валидная подпись принимается
+	resp, err := ParseSignedDeadDropPayload(signedBlob, pub)
+	if err != nil {
+		t.Fatalf("Ожидалась успешная проверка подписи, получена ошибка: %v", err)
+	}
+	if len(resp.Entries) != 1 || resp.Entries[0].ID != "signed-node" {
+		t.Fatalf("Неожиданный payload: %+v", resp.Entries)
+	}
+
+	// 2. Подмена payload отвергается
+	tampered := []byte(strings.Replace(string(signedBlob), "203.0.113.55", "198.51.100.99", 1))
+	if _, err := ParseSignedDeadDropPayload(tampered, pub); err == nil {
+		t.Fatal("Ожидалась ошибка для подменённого payload")
+	}
+
+	// 3. Неподписанный JSON при заданном PublicKey отвергается
+	if _, err := ParseSignedDeadDropPayload(rawPayload, pub); err == nil {
+		t.Fatal("Ожидалась ошибка для неподписанного JSON при заданном PublicKey")
+	}
+
+	// 4. Чужой публичный ключ отвергается
+	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	if _, err := ParseSignedDeadDropPayload(signedBlob, otherPub); err == nil {
+		t.Fatal("Ожидалась ошибка при проверке чужим публичным ключом")
 	}
 }

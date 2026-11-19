@@ -29,7 +29,12 @@ func TestForceVPNConfig_ValidateAndResolve(t *testing.T) {
 	}
 
 	domains := f.ResolveTargetDomains()
-	mustHave := []string{"autodesk.com", "pingidentity.com", "openai.com", "claude.ai", "example.org", "sub.domain.net"}
+	mustHave := []string{
+		"autodesk.com", "pingidentity.com",
+		"openai.com", "api.openai.com", "api.anthropic.com", "claude.ai",
+		"openrouter.ai", "windsurf.com", "groq.com", "mistral.ai",
+		"example.org", "sub.domain.net",
+	}
 	for _, target := range mustHave {
 		found := false
 		for _, d := range domains {
@@ -53,6 +58,20 @@ func TestForceVPNConfig_InvalidInputs(t *testing.T) {
 	badDNS := &ForceVPNConfig{DNSServer: "not-an-ip"}
 	if err := badDNS.Validate(); err == nil {
 		t.Fatalf("Ожидалась ошибка для невалидного dns_server")
+	}
+}
+
+func TestForceVPNServicePresets_AllDomainsValid(t *testing.T) {
+	for _, preset := range []string{"ai", "dev", "media"} {
+		domains, ok := ForceVPNServicePresets[preset]
+		if !ok || len(domains) == 0 {
+			t.Fatalf("Ожидался непустой пресет %q", preset)
+		}
+		for _, d := range domains {
+			if _, err := ValidateDomain(d); err != nil {
+				t.Errorf("Невалидный домен %q в пресете %q: %v", d, preset, err)
+			}
+		}
 	}
 }
 

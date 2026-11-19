@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +17,33 @@ import (
 	"strings"
 	"time"
 )
+
+// SignedDeadDropEnvelope — подписанный Ed25519 конверт для Dead Drop JSON.
+// Подпись вычисляется от точных сырых байтов поля Payload.
+type SignedDeadDropEnvelope struct {
+	Payload   json.RawMessage `json:"payload"`
+	Signature string          `json:"signature"`
+	Timestamp int64           `json:"timestamp,omitempty"`
+}
+
+// SignDeadDropPayload подписывает канонизированный (compact) JSON-payload приватным ключом Ed25519
+// и возвращает сериализованный SignedDeadDropEnvelope.
+func SignDeadDropPayload(payload []byte, priv ed25519.PrivateKey) ([]byte, error) {
+	if len(priv) != ed25519.PrivateKeySize {
+		return nil, errors.New("неверная длина приватного ключа Ed25519")
+	}
+	var canonical bytes.Buffer
+	if err := json.Compact(&canonical, payload); err != nil {
+		return nil, fmt.Errorf("невалидный JSON payload для подписи: %w", err)
+	}
+	sig := ed25519.Sign(priv, canonical.Bytes())
+	env := SignedDeadDropEnvelope{
+		Payload:   json.RawMessage(canonical.Bytes()),
+		Signature: base64.StdEncoding.EncodeToString(sig),
+		Timestamp: time.Now().Unix(),
+	}
+	return json.MarshalIndent(env, "", "  ")
+}
 
 // YandexDiskDownloadResponse описывает ответ публичного REST API Яндекс Диска
 // на запрос получения прямой ссылки на скачивание публичного ресурса.
@@ -28,6 +58,7 @@ type YandexDiskDownloadResponse struct {
 type DeadDropFetcher struct {
 	Client    *http.Client
 	CachePath string
+	PublicKey ed25519.PublicKey // если задан — требуется валидная Ed25519-подпись конверта
 }
 
 // NewDeadDropFetcher создаёт экземпляр загрузчика с тайм-аутом и путём к кешу.
@@ -116,7 +147,34 @@ func FetchPayload(ctx context.Context, client *http.Client, targetURL string) ([
 }
 
 // ParseDeadDropPayload валидирует и парсит JSON с параметрами лестницы.
+// Для проверки криптографической подписи используйте ParseSignedDeadDropPayload.
 func ParseDeadDropPayload(data []byte) (*ParamsResponse, error) {
+	return ParseSignedDeadDropPayload(data, nil)
+}
+
+// ParseSignedDeadDropPayload проверяет Ed25519-подпись конверта (если задан pub)
+// и парсит JSON с параметрами лестницы.
+func ParseSignedDeadDropPayload(data []byte, pub ed25519.PublicKey) (*ParamsResponse, error) {
+	var env SignedDeadDropEnvelope
+	if err := json.Unmarshal(data, &env); err == nil && len(env.Payload) > 0 && env.Signature != "" {
+		if len(pub) == ed25519.PublicKeySize {
+			sig, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(env.Signature))
+			if decErr != nil || len(sig) != ed25519.SignatureSize {
+				return nil, errors.New("некорректный формат Ed25519-подписи Dead Drop")
+			}
+			var canonical bytes.Buffer
+			if err := json.Compact(&canonical, env.Payload); err != nil {
+				return nil, fmt.Errorf("повреждённый JSON payload Dead Drop: %w", err)
+			}
+			if !ed25519.Verify(pub, canonical.Bytes(), sig) {
+				return nil, errors.New("подпись Ed25519 Dead Drop недействительна (возможна подмена конфига)")
+			}
+		}
+		data = env.Payload
+	} else if len(pub) == ed25519.PublicKeySize {
+		return nil, errors.New("отсутствует обязательная Ed25519-подпись Dead Drop")
+	}
+
 	var resp ParamsResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("ошибка разбора JSON параметров: %w", err)
@@ -160,7 +218,7 @@ func (f *DeadDropFetcher) Fetch(ctx context.Context, urls []string) (*ParamsResp
 			continue
 		}
 
-		paramsResp, err := ParseDeadDropPayload(data)
+		paramsResp, err := ParseSignedDeadDropPayload(data, f.PublicKey)
 		if err != nil {
 			log.Printf("[deaddrop] Невалидный payload от %s: %v", rawURL, err)
 			lastErr = err

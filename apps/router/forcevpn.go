@@ -44,10 +44,15 @@ var ForceVPNServicePresets = map[string][]string{
 	},
 	"ai": {
 		"openai.com",
+		"api.openai.com",
+		"platform.openai.com",
+		"auth.openai.com",
 		"chatgpt.com",
 		"oaistatic.com",
 		"oaiusercontent.com",
 		"anthropic.com",
+		"api.anthropic.com",
+		"console.anthropic.com",
 		"claude.ai",
 		"gemini.google.com",
 		"aistudio.google.com",
@@ -57,9 +62,44 @@ var ForceVPNServicePresets = map[string][]string{
 		"grok.com",
 		"cursor.sh",
 		"cursor.com",
+		"windsurf.com",
+		"codeium.com",
+		"api.codeium.com",
+		"openrouter.ai",
+		"api.openrouter.ai",
+		"lmarena.ai",
+		"replicate.com",
+		"together.ai",
+		"groq.com",
+		"mistral.ai",
 		"githubcopilot.com",
 		"copilot.microsoft.com",
 		"huggingface.co",
+	},
+	"dev": {
+		"githubcopilot.com",
+		"docker.io",
+		"hub.docker.com",
+		"registry-1.docker.io",
+		"auth.docker.io",
+		"pkg.go.dev",
+		"proxy.golang.org",
+		"registry.npmjs.org",
+		"pypi.org",
+		"files.pythonhosted.org",
+		"vercel.com",
+		"supabase.com",
+	},
+	"media": {
+		"netflix.com",
+		"nflxvideo.net",
+		"nflxso.net",
+		"nflximg.net",
+		"twitch.tv",
+		"ttvnw.net",
+		"jtvnw.net",
+		"soundcloud.com",
+		"patreon.com",
 	},
 	"adobe": {
 		"adobe.com",
@@ -327,6 +367,12 @@ func BuildDnsmasqForceVPNContentExt(domains []string, dnsServer string, withNFTS
 			b.WriteString(fmt.Sprintf("nftset=/%s/4#ip#sirin#force_vpn_cidrs\n", joined))
 		}
 	}
+	for _, d := range domains {
+		if d == "playstation.net" {
+			b.WriteString(fmt.Sprintf("server=/dl.playstation.net/127.0.0.1#%d\n", DefaultDirectWANDNSPort))
+			break
+		}
+	}
 	return b.String()
 }
 
@@ -425,7 +471,6 @@ func warmForceVPNDomains(ctx context.Context, domains []string) {
 			"checkout.playstation.com",
 			"m.np.playstation.com",
 			"get.np.playstation.net",
-			"gs2.ww.prod.dl.playstation.net",
 		)
 	}
 	candidates = append(candidates, domains...)
