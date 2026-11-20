@@ -126,6 +126,9 @@ func buildIPv6TCPReset(origPkt []byte) []byte {
 	seqNum := binary.BigEndian.Uint32(l4[4:8])
 	ackNum := binary.BigEndian.Uint32(l4[8:12])
 	flags := l4[13]
+	if flags&0x04 != 0 { // Не отвечаем RST на входящий RST (исключаем петлю)
+		return nil
+	}
 
 	// RST ответ: меняем src/dst местами
 	const totalLen = 40 + 20
@@ -180,20 +183,85 @@ func buildIPv6TCPReset(origPkt []byte) []byte {
 	return pkt
 }
 
-// buildDNSEmptyAAAAResponse строит DNS-ответ NOERROR с 0 записями для AAAA-запроса.
-// Используется для подавления IPv6 адресов CDN-доменов на стороне TUN:
-// без этого ExoPlayer/Cronet получает AAAA ответы и пытается подключиться по IPv6,
-// который движок не поддерживает → 2–5 секундный таймаут Happy Eyeballs на каждое соединение.
+// buildICMPv6PortUnreachable строит ICMPv6 Destination Unreachable (Type 1, Code 4 — Port Unreachable)
+// в ответ на входящий IPv6 UDP-пакет (например, IPv6 QUIC :443 или IPv6 DNS :53).
+func buildICMPv6PortUnreachable(origPkt []byte) []byte {
+	if len(origPkt) < 48 || origPkt[0]>>4 != 6 {
+		return nil
+	}
+	quotedLen := len(origPkt)
+	if quotedLen > 512 {
+		quotedLen = 512
+	}
+	icmpLen := 8 + quotedLen
+	totalLen := 40 + icmpLen
+	pkt := make([]byte, totalLen)
+
+	// IPv6 header
+	pkt[0] = 0x60
+	binary.BigEndian.PutUint16(pkt[4:6], uint16(icmpLen))
+	pkt[6] = 58 // ICMPv6
+	pkt[7] = 64
+	copy(pkt[8:24], origPkt[24:40]) // src = orig dst
+	copy(pkt[24:40], origPkt[8:24]) // dst = orig src
+
+	// ICMPv6 header: Type 1 (Destination Unreachable), Code 4 (Port Unreachable)
+	icmp := pkt[40:]
+	icmp[0] = 1
+	icmp[1] = 4
+	copy(icmp[8:], origPkt[:quotedLen])
+
+	// ICMPv6 checksum (с псевдозаголовком IPv6)
+	var cs uint32
+	for i := 0; i < 16; i += 2 {
+		cs += uint32(binary.BigEndian.Uint16(pkt[8+i : 10+i]))
+		cs += uint32(binary.BigEndian.Uint16(pkt[24+i : 26+i]))
+	}
+	cs += uint32(icmpLen) >> 16
+	cs += uint32(icmpLen) & 0xffff
+	cs += 58 // next header = ICMPv6
+	cs += checksumBytes(icmp)
+	for cs>>16 > 0 {
+		cs = (cs & 0xffff) + (cs >> 16)
+	}
+	binary.BigEndian.PutUint16(icmp[2:4], ^uint16(cs))
+	return pkt
+}
+
+// buildDNSEmptyAAAAResponse строит RFC-совместимый DNS-ответ NOERROR с 0 записями для AAAA-запроса.
+// Обрезает секцию Additional (например, EDNS0 OPT), чтобы не оставлять висящих байтов при ARCOUNT=0.
 func buildDNSEmptyAAAAResponse(query []byte) []byte {
 	if len(query) < 12 {
 		return nil
 	}
-	resp := make([]byte, len(query))
-	copy(resp, query)
-	// QR=1 (response), OPCODE=0, AA=0, TC=0, RD=1, RA=1, RCODE=0 (NOERROR)
-	resp[2] = (query[2] & 0x01) | 0x81 // QR=1, RD=copy, RA=1
-	resp[3] = 0x80                      // RA=1, RCODE=0
-	// ANCOUNT=0, NSCOUNT=0, ARCOUNT=0 (оставляем нулями)
+	// Находим точную границу секции Questions (чтобы корректно отбросить EDNS0 OPT при ARCOUNT=0)
+	qdcount := int(binary.BigEndian.Uint16(query[4:6]))
+	pos := 12
+	for i := 0; i < qdcount && pos < len(query); i++ {
+		for pos < len(query) {
+			l := int(query[pos])
+			if l == 0 {
+				pos++
+				break
+			}
+			if l&0xC0 == 0xC0 {
+				pos += 2
+				break
+			}
+			pos += 1 + l
+		}
+		pos += 4 // QTYPE + QCLASS
+	}
+	if pos > len(query) {
+		pos = len(query)
+	}
+
+	resp := make([]byte, pos)
+	copy(resp, query[:pos])
+	// QR=1 (response), RD=copy, RA=1, RCODE=0 (NOERROR)
+	resp[2] = (query[2] & 0x01) | 0x80
+	resp[3] = 0x80
+	// ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
 	binary.BigEndian.PutUint16(resp[6:8], 0)
 	binary.BigEndian.PutUint16(resp[8:10], 0)
 	binary.BigEndian.PutUint16(resp[10:12], 0)
@@ -446,20 +514,35 @@ func (tz *tunZapret) isBypassedDest(dstIP [4]byte) bool {
 	return false
 }
 
-// handleOutbound обрабатывает пакет, прочитанный из TUN в tunToNet.
-// Возвращает true, если пакет обработан движком Zapret 2 локально (не нужно слать в VPS).
-// Возвращает false, если пакет должен идти через VPN-туннель на VPS.
-func (tz *tunZapret) handleOutbound(pkt []byte) bool {
-	// IPv6: движок не поддерживает IPv6 на VPS (нет маршрутизации/NAT6 на сервере).
-	// Вместо тихого дропа (→ 2–5 сек таймаут Happy Eyeballs) немедленно шлём TCP RST
-	// или ICMPv6 Destination Unreachable, чтобы приложения мгновенно перешли на IPv4.
-	if len(pkt) >= 40 && pkt[0]>>4 == 6 {
-		if pkt[6] == 6 && len(pkt) >= 60 { // IPv6+TCP
+// handleOutboundIPv6 мгновенно отклоняет исходящие IPv6-пакеты (TCP → RST, UDP → ICMPv6 Port Unreachable),
+// чтобы приложения (YouTube/Cronet/ExoPlayer) не висли 2–5 секунд на таймауте Happy Eyeballs,
+// а сразу переключались на IPv4.
+func (tz *tunZapret) handleOutboundIPv6(pkt []byte) {
+	if len(pkt) < 40 || pkt[0]>>4 != 6 {
+		return
+	}
+	switch pkt[6] {
+	case 6: // TCP
+		if len(pkt) >= 60 {
 			if rst := buildIPv6TCPReset(pkt); rst != nil {
 				_ = tz.writeTun(rst)
 			}
 		}
-		// Для UDP/ICMP6 — просто дропаем (нет смысла слать в VPS без v6 NAT)
+	case 17: // UDP (QUIC :443, IPv6 DNS :53 и др.)
+		if len(pkt) >= 48 {
+			if icmp6 := buildICMPv6PortUnreachable(pkt); icmp6 != nil {
+				_ = tz.writeTun(icmp6)
+			}
+		}
+	}
+}
+
+// handleOutbound обрабатывает пакет, прочитанный из TUN в tunToNet.
+// Возвращает true, если пакет обработан движком Zapret 2 локально (не нужно слать в VPS).
+// Возвращает false, если пакет должен идти через VPN-туннель на VPS.
+func (tz *tunZapret) handleOutbound(pkt []byte) bool {
+	if len(pkt) >= 40 && pkt[0]>>4 == 6 {
+		tz.handleOutboundIPv6(pkt)
 		return true
 	}
 
@@ -550,13 +633,9 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 		srcPort := binary.BigEndian.Uint16(l4[0:2])
 		dstPort := binary.BigEndian.Uint16(l4[2:4])
 
-		// Если целевой IP уже в VPN-фоллбэке — отправляем через VPS
-		if zapret.GlobalEngine.IsIPFallbackActive(net.IP(dstIP[:])) {
-			return false
-		}
-
-		// QUIC (UDP :443): отправляем мгновенный ICMP Port Unreachable, чтобы браузер/YouTube/Instagram
-		// без задержки перешёл на TCP :443, где работает разбиение TLS SNI и автоподбор стратегий Zapret 2.
+		// QUIC (UDP :443): отправляем мгновенный локальный ICMP Port Unreachable
+		// (даже для VPN-целей, т.к. VPS также отклоняет udp dport 443 и HTTP/2 TCP :443
+		// надёжнее проходит через TUN без фрагментации QUIC).
 		if dstPort == 443 {
 			if icmp := buildICMPPortUnreachable(pkt[:totalLen]); icmp != nil {
 				_ = tz.writeTun(icmp)
@@ -564,18 +643,35 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 			return true
 		}
 
-		// DNS (UDP :53): если VPS-туннель уже поднят — отправляем через него (return false).
-		// Если VPS спит или недоступен (lazyMode) — проксируем через DoH (1.1.1.1 / 8.8.8.8),
-		// чтобы провайдер/ТСПУ не подменял ответы и DNS работал даже без доступа к VPS.
+		// DNS (UDP :53):
+		// 1) AAAA-запросы (Type 28) ВСЕГДА глушим локально пустым NOERROR-ответом (даже при активном VPS),
+		//    поскольку VPS не поддерживает IPv6 — это полностью устраняет таймауты Happy Eyeballs.
+		// 2) Если VPS-туннель поднят — пропускаем A-запросы через него (ответ перехватит handleInboundFromUpstream
+		//    для DNS IP Snooping).
+		// 3) Если VPS спит (lazyMode) — проксируем через DoH (1.1.1.1 / 8.8.8.8) с DNS IP Snooping.
 		if dstPort == 53 {
+			dnsPayload := l4[8:]
+			if len(dnsPayload) >= 12 && dnsQueryType(dnsPayload) == 28 { // AAAA
+				if empty := buildDNSEmptyAAAAResponse(dnsPayload); empty != nil {
+					if respPkt := buildUDPIPv4Packet(dstIP, dstPort, srcIP, srcPort, empty); respPkt != nil {
+						_ = tz.writeTun(respPkt)
+					}
+				}
+				return true
+			}
 			if tz.s != nil && tz.s.hasActiveUpstream() {
 				return false
 			}
-			dnsReq := append([]byte(nil), l4[8:]...)
+			dnsReq := append([]byte(nil), dnsPayload...)
 			if len(dnsReq) > 0 {
 				go tz.handleOutboundDNS(srcIP, srcPort, dstIP, dstPort, dnsReq)
 				return true
 			}
+			return false
+		}
+
+		// Если целевой IP уже в VPN-фоллбэке — отправляем через VPS
+		if zapret.GlobalEngine.IsIPFallbackActive(net.IP(dstIP[:])) {
 			return false
 		}
 
@@ -795,13 +891,14 @@ func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]b
 		return
 	}
 
-	// DNS IP SNOOPING: если для CDN-домена (googlevideo.com, youtube.com и т.п.)
-	// в кэше уже активен VPN-фоллбэк (wildcard) — сразу регистрируем все разрезолвленные A-адреса
-	// в кэше как VPN-цели. Это устраняет повторный цикл Zapret 2 для каждого нового CDN IP.
+	// DNS IP SNOOPING: регистрируем все разрезолвленные IPv4-адреса для VPN-доменов
+	// (YouTube / GoogleVideo, GeoBlocked, активный кэш) до того, как приложение откроет TCP SYN.
+	// При необходимости проактивно пробуждаем VPS-туннель в фоне, чтобы первый SYN пошёл сразу по L3 fast-path.
 	if qname := dnsQueryName(query); qname != "" {
-		if bd := zapret.MatchBaseDomain(qname); bd != "" {
-			if ips := dnsParseARecords(respBytes); len(ips) > 0 {
-				zapret.GlobalEngine.RecordDNSResolvedIPs(bd, ips)
+		if ips := dnsParseARecords(respBytes); len(ips) > 0 {
+			zapret.GlobalEngine.RecordDNSResolvedIPs(qname, ips)
+			if (zapret.IsForceVPNDomain(qname) || zapret.IsGeoBlockedSNI(qname)) && !tz.s.hasActiveUpstream() {
+				go func() { _ = tz.s.ensureUpstream() }()
 			}
 		}
 	}
@@ -872,6 +969,15 @@ func (tz *tunZapret) serveInterceptedTCP(clientConn *tunTCPConn) {
 
 	if err := tz.s.ensureUpstream(); err != nil {
 		tz.s.logf("[zapret2] не удалось поднять резервный VPN-туннель до VPS: %v", err)
+		clientConn.sendRST()
+		return
+	}
+
+	// Для потоковых CDN-доменов (YouTube / GoogleVideo) НЕ используем userspace TCP-прокси
+	// dialUpstreamTCP — вместо этого сразу шлём быстрый RST. IP и подсеть уже внесены в кэш
+	// VPN-фоллбэка, поэтому мгновенный повторный SYN от ExoPlayer/Cronet пройдёт напрямую через
+	// ядерный L3 VPN-туннель на полной скорости (с BBR/CUBIC и SACK).
+	if zapret.IsForceVPNDomain(sni) {
 		clientConn.sendRST()
 		return
 	}
@@ -967,14 +1073,38 @@ func (tz *tunZapret) removeUpstreamConn(localPort uint16) {
 }
 
 // handleInboundFromUpstream проверяет входящий из VPS-туннеля (netToTun) пакет:
-// если он адресован активному соединению dialUpstreamTCP (порт 61000..64999), передаёт его в tunTCPConn.
+// 1) Для UDP ответов DNS (srcPort == 53) выполняет read-only DNS IP Snooping,
+//    регистрируя разрезолвленные IPv4-адреса VPN-доменов (YouTube, GoogleVideo, GeoBlocked)
+//    в кэше fast-path (сам DNS-ответ продолжает идти в TUN обычным путём).
+// 2) Если TCP-пакет адресован активному соединению dialUpstreamTCP (порт 61000..64999),
+//    передаёт его в tunTCPConn.
 func (tz *tunZapret) handleInboundFromUpstream(pkt []byte) bool {
-	if len(pkt) < 40 || pkt[0]>>4 != 4 || pkt[9] != 6 {
+	if len(pkt) < 28 || pkt[0]>>4 != 4 {
 		return false
 	}
 	ihl := int(pkt[0]&0x0f) * 4
 	totalLen := int(binary.BigEndian.Uint16(pkt[2:4]))
-	if ihl < 20 || totalLen < ihl+20 || totalLen > len(pkt) {
+	if ihl < 20 || totalLen < ihl+8 || totalLen > len(pkt) {
+		return false
+	}
+
+	// 1. DNS IP Snooping для входящих DNS-ответов через активный VPS (UDP srcPort == 53)
+	if pkt[9] == 17 {
+		l4 := pkt[ihl:totalLen]
+		srcPort := binary.BigEndian.Uint16(l4[0:2])
+		if srcPort == 53 && len(l4) > 8+12 {
+			dnsResp := l4[8:]
+			if qname := dnsQueryName(dnsResp); qname != "" {
+				if ips := dnsParseARecords(dnsResp); len(ips) > 0 {
+					zapret.GlobalEngine.RecordDNSResolvedIPs(qname, ips)
+				}
+			}
+		}
+		return false
+	}
+
+	// 2. TCP-сегменты для активного dialUpstreamTCP
+	if pkt[9] != 6 || totalLen < ihl+20 {
 		return false
 	}
 	l4 := pkt[ihl:totalLen]
@@ -1044,10 +1174,13 @@ type tunTCPConn struct {
 
 	mu            sync.Mutex
 	mySeq         uint32
+	peerAck       uint32
+	peerWin       uint32
 	peerNext      uint32
 	outOfOrder    map[uint32][]byte
 	rxBuf         bytes.Buffer
 	rxNotify      chan struct{}
+	ackNotify     chan struct{}
 	established   bool
 	establishedCh chan struct{}
 	peerEOF       bool
@@ -1057,13 +1190,17 @@ type tunTCPConn struct {
 }
 
 func newPassiveTunTCPConn(tz *tunZapret, key tcpFlowKey, clientISN uint32) *tunTCPConn {
+	isn := rand.Uint32()
 	return &tunTCPConn{
 		tz:            tz,
 		key:           key,
-		mySeq:         rand.Uint32(),
+		mySeq:         isn,
+		peerAck:       isn,
+		peerWin:       32768,
 		peerNext:      clientISN + 1,
 		outOfOrder:    make(map[uint32][]byte),
 		rxNotify:      make(chan struct{}, 1),
+		ackNotify:     make(chan struct{}, 1),
 		established:   true,
 		establishedCh: make(chan struct{}),
 		closedCh:      make(chan struct{}),
@@ -1071,14 +1208,18 @@ func newPassiveTunTCPConn(tz *tunZapret, key tcpFlowKey, clientISN uint32) *tunT
 }
 
 func newActiveTunTCPConn(tz *tunZapret, key tcpFlowKey, upPort uint16) *tunTCPConn {
+	isn := rand.Uint32()
 	return &tunTCPConn{
 		tz:            tz,
 		key:           key,
 		activeMode:    true,
 		upPort:        upPort,
-		mySeq:         rand.Uint32(),
+		mySeq:         isn,
+		peerAck:       isn,
+		peerWin:       32768,
 		outOfOrder:    make(map[uint32][]byte),
 		rxNotify:      make(chan struct{}, 1),
+		ackNotify:     make(chan struct{}, 1),
 		establishedCh: make(chan struct{}),
 		closedCh:      make(chan struct{}),
 	}
@@ -1087,6 +1228,13 @@ func newActiveTunTCPConn(tz *tunZapret, key tcpFlowKey, upPort uint16) *tunTCPCo
 func (c *tunTCPConn) notifyRx() {
 	select {
 	case c.rxNotify <- struct{}{}:
+	default:
+	}
+}
+
+func (c *tunTCPConn) notifyAck() {
+	select {
+	case c.ackNotify <- struct{}{}:
 	default:
 	}
 }

@@ -864,21 +864,34 @@ func (e *Engine) PromoteDomainGroupToVPN(baseDomain string, now time.Time) {
 	}
 }
 
-// RecordDNSResolvedIPs записывает все IP-адреса из DNS-ответа для CDN-доменов в кэш VPN-фоллбэка.
-// Вызывается из handleOutboundDNS при обработке DNS-ответов для доменов из DefaultBaseDomains.
-// Это обеспечивает мгновенный L3 fast-path для новых CDN IP-адресов (rr*.googlevideo.com и т.п.)
-// без повторного запуска цикла Zapret 2 для каждого нового IP.
-func (e *Engine) RecordDNSResolvedIPs(baseDomain string, ips []net.IP) {
-	if !e.IsFallbackActive("", "", baseDomain) {
+// RecordDNSResolvedIPs записывает IPv4-адреса из DNS-ответа в кэш VPN-фоллбэка,
+// если домен относится к GeoBlocked, ForceVPN (YouTube/GoogleVideo) или уже находится в VPN-кэше.
+// Вызывается как для DoH-ответов (спящий VPS), так и для входящих UDP:53 ответов от активного VPS.
+// Это обеспечивает мгновенный ядерный L3 fast-path уже с самого первого TCP SYN.
+func (e *Engine) RecordDNSResolvedIPs(domain string, ips []net.IP) {
+	domain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(domain), "."))
+	if domain == "" || len(ips) == 0 {
+		return
+	}
+	baseDomain := MatchBaseDomain(domain)
+	forceVPN := IsForceVPNDomain(domain)
+	geoBlocked := IsGeoBlockedSNI(domain)
+	if !forceVPN && !geoBlocked && !e.IsFallbackActive(domain, "", baseDomain) {
 		return
 	}
 	now := time.Now()
+	if forceVPN && baseDomain != "" {
+		e.PromoteDomainGroupToVPN(baseDomain, now)
+	}
 	for _, ip := range ips {
 		if ip4 := ip.To4(); ip4 != nil {
 			ipStr := ip4.String()
-			e.vpnFallbackCache.Store(ipStr, now.Add(WildcardBlockedTTL))
-			if sub := ipSubnet24(ipStr); sub != "" {
-				e.vpnFallbackCache.Store(sub, now.Add(WildcardBlockedTTL))
+			e.vpnFallbackCache.Store(ipStr, now.Add(ExactHostBlockedTTL))
+			// Для CDN googlevideo.com кэшируем также /24 подсеть, т.к. узлы кластера ротируются.
+			if baseDomain == "googlevideo.com" {
+				if sub := ipSubnet24(ipStr); sub != "" {
+					e.vpnFallbackCache.Store(sub, now.Add(WildcardBlockedTTL))
+				}
 			}
 		}
 	}
@@ -980,11 +993,34 @@ func (e *Engine) DialAndDesync(
 		domainKey = hostIP
 	}
 
-	if IsGeoBlockedSNI(sni) {
+	if IsGeoBlockedSNI(sni) || IsForceVPNDomain(sni) {
+		now := time.Now()
+		if hostIP != "" {
+			e.vpnFallbackCache.Store(hostIP, now.Add(ExactHostBlockedTTL))
+			if baseDomain == "googlevideo.com" {
+				if sub := ipSubnet24(hostIP); sub != "" {
+					e.vpnFallbackCache.Store(sub, now.Add(WildcardBlockedTTL))
+				}
+			}
+		}
+		if sni != "" {
+			e.vpnFallbackCache.Store(sni, now.Add(ExactHostBlockedTTL))
+		}
+		if IsForceVPNDomain(sni) && baseDomain != "" {
+			e.PromoteDomainGroupToVPN(baseDomain, now)
+		}
+		if IsForceVPNDomain(sni) {
+			return nil, nil, errors.New("потоковый CDN подвержен троттлингу ТСПУ -> VPN fast-path")
+		}
 		return nil, nil, errors.New("сервис требует иностранный IP (GeoIP-блок для РФ)")
 	}
 
 	if e.IsFallbackActive(sni, hostIP, baseDomain) {
+		// Если сработал wildcard по домену, но сам IP ещё не в кэше — записываем IP,
+		// чтобы следующее соединение сразу прошло через ядерный L3 fast-path без перехвата.
+		if hostIP != "" {
+			e.vpnFallbackCache.Store(hostIP, time.Now().Add(ExactHostBlockedTTL))
+		}
 		return nil, nil, errors.New("активен кэш VPN-фоллбэка для узла")
 	}
 

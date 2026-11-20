@@ -2138,8 +2138,11 @@ func (s *session) tunToNet() {
 		// любой другой: один байт, без разбора заголовка.
 		if buf[0]>>4 == 6 {
 			if s.v6Dropped.Add(1) == 1 {
-				s.logf("IPv6 из TUN отброшен: шлюз v6 не несёт, " +
-					"маршрут забран в туннель чтобы не текло мимо")
+				s.logf("IPv6 из TUN отклонён (RST/ICMPv6): шлюз v6 не несёт, " +
+					"приложения мгновенно переходят на IPv4 без таймаута Happy Eyeballs")
+			}
+			if s.tz != nil {
+				s.tz.handleOutboundIPv6(buf[:n])
 			}
 			continue
 		}
