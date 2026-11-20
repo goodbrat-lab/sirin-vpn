@@ -786,6 +786,24 @@ func (e *Engine) IsIPFallbackActive(ip net.IP) bool {
 	return e.IsFallbackActive("", ipStr, "")
 }
 
+// MarkIPFallback принудительно переводит IP-адрес (и при необходимости домен / подсеть)
+// в кэш VPN-фоллбэка (например, при обнаружении троттлинга скорости на прямом канале).
+func (e *Engine) MarkIPFallback(ipStr, sni string) {
+	now := time.Now()
+	if ipStr != "" {
+		e.vpnFallbackCache.Store(ipStr, now.Add(ExactHostBlockedTTL))
+		if sub := ipSubnet24(ipStr); sub != "" {
+			e.vpnFallbackCache.Store(sub, now.Add(WildcardBlockedTTL))
+		}
+	}
+	if sni != "" {
+		e.vpnFallbackCache.Store(sni, now.Add(ExactHostBlockedTTL))
+		if base := MatchBaseDomain(sni); base != "" {
+			e.PromoteDomainGroupToVPN(base, now)
+		}
+	}
+}
+
 // RecordFailure фиксирует отказ всех стратегий Zapret 2 для данного SNI/IP и переводит его на VPN.
 // При 2+ сбоях активирует wildcard и продвигает всю группу сервисов (например, все домены YouTube)
 // в VPN fast-path через PromoteDomainGroupToVPN.

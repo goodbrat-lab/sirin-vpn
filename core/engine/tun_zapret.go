@@ -964,13 +964,15 @@ func (tz *tunZapret) serveInterceptedTCP(clientConn *tunTCPConn) {
 		}
 
 		var monitor *streamMonitor
-		if isStreaming {
-			monitor = newStreamMonitor(func() {
+		if isStreaming || clientConn.key.targetPort == 443 {
+			minActive := int64(16 * 1024) // 16 КБ/с для обычных HTTPS-потоков (игнорируем push/keepalive)
+			if isStreaming {
+				minActive = 1 // для видеосервисов ловим даже жёсткий троттлинг 112 Б/с
+			}
+			monitor = newStreamMonitorWithMin(minActive, func() {
 				tz.s.logf("[stream] прямая скорость WAN для %q (%s) ниже %d кбит/с — эскалация на быстрый VPN",
 					sni, targetAddr, streamMinKbps)
-				if baseDomain != "" {
-					zapret.GlobalEngine.PromoteDomainGroupToVPN(baseDomain, time.Now())
-				}
+				zapret.GlobalEngine.MarkIPFallback(targetIPStr, sni)
 				maybeEscalate(tz.s.escalateVPN)
 				_ = remoteConn.Close()
 				clientConn.sendRST()

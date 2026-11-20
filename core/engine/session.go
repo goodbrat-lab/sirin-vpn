@@ -545,6 +545,7 @@ type session struct {
 	upstreamTunIP [4]byte
 	lastUpstream  atomic.Int64
 	upCancel      context.CancelFunc
+	ladderCh      chan struct{}
 
 	// wg — три насоса перекачки. Пока хоть один жив, сессия не считается
 	// остановленной: закрытый сокет ещё не значит завершённую горутину.
@@ -563,6 +564,7 @@ func newSession(log Logger) *session {
 		vk:            newVKCache(),
 		localTunIP:    [4]byte{10, 77, 77, 2},
 		upstreamTunIP: [4]byte{10, 77, 77, 2},
+		ladderCh:      make(chan struct{}, 1),
 	}
 }
 
@@ -2036,6 +2038,7 @@ func (s *session) ensureUpstream() error {
 		go func() { defer s.wg.Done(); s.netToTun(r) }()
 	}
 	go s.lazyIdleWatch(upCtx)
+	go s.l3ThroughputWatch(upCtx)
 
 	s.logf("[zapret2] VPN-туннель до VPS поднят (ступень %s, адрес %s)", s.winner, assigned)
 	return nil
@@ -2078,10 +2081,21 @@ func (s *session) escalateVPN() {
 	notifyQualityDegraded("низкая скорость потока (буферизация)")
 
 	lastWinner := s.winner
+	// Очищаем старый сигнал обновления лестницы перед запросом нового
+	select {
+	case <-s.ladderCh:
+	default:
+	}
+
 	s.parkUpstream("низкая скорость CDN: переключение на более быстрый маршрут")
 	go func() {
-		// Даём 200 мс платформе для параллельного обновления лестницы с сервера
-		time.Sleep(200 * time.Millisecond)
+		// Ждём до 2.5 сек, пока платформа запросит /v1/params?escalate=1 и вызовет UpdateLazyLadder
+		select {
+		case <-s.ladderCh:
+		case <-time.After(2500 * time.Millisecond):
+		case <-s.ctx.Done():
+			return
+		}
 		s.lazyMu.Lock()
 		if s.lazyLadder != nil && lastWinner != "" && lastWinner != "zapret2-direct" {
 			for i := range s.lazyLadder.items {
@@ -2102,9 +2116,61 @@ func (s *session) escalateVPN() {
 
 func (s *session) updateLazyLadder(ladder *Ladder) {
 	s.lazyMu.Lock()
-	defer s.lazyMu.Unlock()
 	s.lazyLadder = ladder
+	s.lazyMu.Unlock()
 	s.logf("[zapret2] лестница узлов обновлена: %d ступеней", len(ladder.items))
+	select {
+	case s.ladderCh <- struct{}{}:
+	default:
+	}
+}
+
+// l3ThroughputWatch отслеживает реальную скорость входящего L3 VPN-трафика (YouTube / видео-CDN).
+// Если идёт активное скачивание (>= 32 КБ/с и есть исходящие ACK/запросы), но скорость ниже
+// 5 Мбит/с (625 КБ/с) 4 секунды подряд — инициирует переключение на более быстрый сервер.
+func (s *session) l3ThroughputWatch(ctx context.Context) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	const (
+		minActiveBytes = 32 * 1024                // 32 КБ/с (отсекаем простой и фоновый keepalive)
+		minFastBytes   = streamMinKbps * 1000 / 8 // 625 КБ/с = 5 Мбит/с
+		lowSecTrigger  = 4
+	)
+
+	prevRx := s.rxBytes.Load()
+	prevTx := s.txBytes.Load()
+	lowCount := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			curRx := s.rxBytes.Load()
+			curTx := s.txBytes.Load()
+			dRx := curRx - prevRx
+			dTx := curTx - prevTx
+			prevRx = curRx
+			prevTx = curTx
+
+			if dRx >= minFastBytes {
+				lowCount = 0
+				continue
+			}
+			if dTx > 0 && dRx >= minActiveBytes && dRx < minFastBytes {
+				lowCount++
+				if lowCount >= lowSecTrigger {
+					s.logf("[stream] скорость L3 VPN упала до %d кбит/с (<%d кбит/с %dс подряд) -> эскалация на быстрый сервер",
+						(dRx*8)/1000, streamMinKbps, lowSecTrigger)
+					maybeEscalate(s.escalateVPN)
+					return
+				}
+			} else {
+				lowCount = 0
+			}
+		}
+	}
 }
 
 func (s *session) lazyIdleWatch(ctx context.Context) {

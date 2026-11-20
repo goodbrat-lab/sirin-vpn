@@ -155,6 +155,12 @@ var callUpgrade = rpc.declare({
 	expect: {}
 });
 
+var callUpgradeStatus = rpc.declare({
+	object: 'sirin',
+	method: 'upgrade_status',
+	expect: {}
+});
+
 function formatUptime(sec) {
 	if (!sec || sec <= 0) return '—';
 	var days = Math.floor(sec / 86400);
@@ -274,17 +280,51 @@ return view.extend({
 					progressDiv.style.display = 'block';
 
 					return callUpgrade(info.asset_url).then(function(res) {
-						if (res && res.ok) {
-							progressDiv.innerHTML = '<div style="color: #28a745; font-size: 16px; font-weight: bold; margin-bottom: 8px;">✓ ' +
-								(res.message || 'Обновление успешно установлено!') + '</div>' +
-								'<p>Обновление страницы через 3 секунды...</p>';
-							setTimeout(function() { location.reload(); }, 3000);
-						} else {
+						if (!res || !res.ok) {
 							progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка обновления</div>' +
 								'<p style="word-break: break-all;">' + ((res && res.error) || 'Неизвестная ошибка') + '</p>';
 							btnCancel.disabled = false;
 							btnCancel.textContent = 'Закрыть';
+							return;
 						}
+						if (!res.started) {
+							progressDiv.innerHTML = '<div style="color: #28a745; font-size: 16px; font-weight: bold; margin-bottom: 8px;">✓ ' +
+								(res.message || 'Обновление успешно установлено!') + '</div>' +
+								'<p>Обновление страницы через 3 секунды...</p>';
+							setTimeout(function() { location.reload(); }, 3000);
+							return;
+						}
+						var pollCount = 0;
+						var stepP = progressDiv.querySelector('p');
+						function pollStatus() {
+							pollCount++;
+							if (pollCount > 90) {
+								progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Превышено время ожидания</div>' +
+									'<p>Обновление заняло слишком много времени. Проверьте доступность GitHub на роутере.</p>';
+								btnCancel.disabled = false;
+								btnCancel.textContent = 'Закрыть';
+								return;
+							}
+							callUpgradeStatus().then(function(st) {
+								if (st && st.state === 'done') {
+									progressDiv.innerHTML = '<div style="color: #28a745; font-size: 16px; font-weight: bold; margin-bottom: 8px;">✓ ' +
+										(st.message || 'Обновление успешно установлено!') + '</div>' +
+										'<p>Обновление страницы через 3 секунды...</p>';
+									setTimeout(function() { location.reload(); }, 3000);
+								} else if (st && st.state === 'error') {
+									progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка обновления</div>' +
+										'<p style="word-break: break-all;">' + (st.error || 'Неизвестная ошибка') + '</p>';
+									btnCancel.disabled = false;
+									btnCancel.textContent = 'Закрыть';
+								} else {
+									if (stepP && st && st.step) stepP.textContent = st.step;
+									setTimeout(pollStatus, 2000);
+								}
+							}).catch(function() {
+								setTimeout(pollStatus, 2500);
+							});
+						}
+						setTimeout(pollStatus, 1500);
 					}).catch(function(e) {
 						progressDiv.innerHTML = '<div style="color: #d9534f; font-size: 15px; font-weight: bold; margin-bottom: 8px;">✗ Ошибка запроса</div>' +
 							'<p>' + (e.message || 'Ошибка RPC') + '</p>';

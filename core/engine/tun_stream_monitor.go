@@ -44,17 +44,28 @@ const (
 // streamMonitor отслеживает скорость одного соединения.
 type streamMonitor struct {
 	mu             sync.Mutex
+	minActiveBytes int64     // минимальный порог активности в секунду (чтобы игнорировать keepalive)
 	currentBucket  int64     // байты входящего потока за текущую секунду
-	lowCount       int       // число секунд подряд со скоростью > 0 и < streamMinKbps
+	lowCount       int       // число секунд подряд со скоростью >= minActiveBytes и < streamMinKbps
 	lastClientSend time.Time // время последнего запроса клиента
 	totalRecv      int64
 	done           chan struct{}
 	once           sync.Once
 }
 
-// newStreamMonitor создаёт монитор и запускает фоновый анализ скорости.
+// newStreamMonitor создаёт монитор для потоковых доменов (с порогом активности 1 байт/с)
+// и запускает фоновый анализ скорости.
 func newStreamMonitor(escalateFn func()) *streamMonitor {
+	return newStreamMonitorWithMin(1, escalateFn)
+}
+
+// newStreamMonitorWithMin создаёт монитор с заданным минимальным порогом активности (байт/с).
+func newStreamMonitorWithMin(minActiveBytes int64, escalateFn func()) *streamMonitor {
+	if minActiveBytes < 1 {
+		minActiveBytes = 1
+	}
 	m := &streamMonitor{
+		minActiveBytes: minActiveBytes,
 		done:           make(chan struct{}),
 		lastClientSend: time.Now(),
 	}
@@ -104,12 +115,12 @@ func (m *streamMonitor) run(escalateFn func()) {
 			m.currentBucket = 0
 			clientActive := !m.lastClientSend.IsZero() && time.Since(m.lastClientSend) <= 5*time.Second
 
-			if clientActive && bytesInSec > 0 && bytesInSec < thresholdBytes {
+			if clientActive && bytesInSec >= m.minActiveBytes && bytesInSec < thresholdBytes {
 				m.lowCount++
 			} else if bytesInSec >= thresholdBytes {
 				m.lowCount = 0
 			} else {
-				// 0 байт или клиент не активен — сбрасываем счётчик
+				// 0 байт, фоновый keepalive или клиент не активен — сбрасываем счётчик
 				m.lowCount = 0
 			}
 

@@ -1874,52 +1874,34 @@ method_check_update() {
         "$update_avail" "$VERSION" "$latest_ver" "$rel_tag" "$pkg_mgr" "$arch" "$asset_name" "$asset_url" "$notes"
 }
 
-method_upgrade() {
-    input="$1"
-    url=""
-    if [ -n "$input" ]; then
-        url=$(echo "$input" | awk -F'"url"[ \t]*:[ \t]*"' '{print $2}' | cut -d'"' -f1)
-    fi
+UPGRADE_STATUS_FILE="/tmp/sirin_upgrade.json"
 
-    pkg_mgr=$(detect_pkg_mgr)
-    arch=$(detect_arch)
+set_upgrade_status() {
+    printf '%s\n' "$1" > "$UPGRADE_STATUS_FILE"
+}
 
-    if [ -z "$url" ]; then
-        chk=$(method_check_update)
-        url=$(echo "$chk" | awk -F'"asset_url"[ \t]*:[ \t]*"' '{print $2}' | cut -d'"' -f1)
-    fi
-
-    if [ -z "$url" ]; then
-        printf '{"ok":false,"error":"Не найден URL для скачивания пакета обновления (%s/%s)"}\n' "$arch" "$pkg_mgr"
-        return
-    fi
-
-    # Строгий allowlist источника обновлений: запрещаем скачивание с произвольных URL
-    case "$url" in
-        https://github.com/goodbrat-lab/sirin-vpn/releases/download/*) ;;
-        *)
-            printf '{"ok":false,"error":"Недопустимый URL обновления (разрешены только официальные релизы GitHub)"}\n'
-            return
-            ;;
-    esac
-
+run_upgrade_bg() {
+    url="$1"
+    pkg_mgr="$2"
+    arch="$3"
     tmp_pkg="/tmp/sirin_update.pkg"
     rm -f "$tmp_pkg"
 
+    set_upgrade_status '{"state":"running","step":"Скачивание пакета обновления..."}'
     if ! download_file "$url" "$tmp_pkg"; then
         rm -f "$tmp_pkg"
-        printf '{"ok":false,"error":"Ошибка скачивания пакета обновления с %s"}\n' "$url"
+        set_upgrade_status "$(printf '{"state":"error","error":"Ошибка скачивания пакета обновления с %s"}' "$url")"
         return
     fi
 
     size=$(wc -c < "$tmp_pkg" 2>/dev/null || echo 0)
     if [ "$size" -lt 50000 ]; then
         rm -f "$tmp_pkg"
-        printf '{"ok":false,"error":"Скачанный файл повреждён или слишком мал (%d байт)"}\n' "$size"
+        set_upgrade_status "$(printf '{"state":"error","error":"Скачанный файл повреждён или слишком мал (%d байт)"}' "$size")"
         return
     fi
 
-    # Проверка целостности SHA-256 по checksums.txt из того же релиза (если присутствует)
+    set_upgrade_status '{"state":"running","step":"Проверка контрольной суммы SHA-256..."}'
     if command -v sha256sum >/dev/null 2>&1; then
         checksums_url="${url%/*}/checksums.txt"
         asset_file="${url##*/}"
@@ -1932,7 +1914,7 @@ method_upgrade() {
                 actual_sha=$(sha256sum "$tmp_pkg" | awk '{print $1}')
                 if [ "$actual_sha" != "$expected_sha" ]; then
                     rm -f "$tmp_pkg"
-                    printf '{"ok":false,"error":"Ошибка проверки SHA-256 пакета обновления (ожидалось %s, получено %s)"}\n' "$expected_sha" "$actual_sha"
+                    set_upgrade_status "$(printf '{"state":"error","error":"Ошибка проверки SHA-256 (ожидалось %s, получено %s)"}' "$expected_sha" "$actual_sha")"
                     return
                 fi
             fi
@@ -1941,6 +1923,7 @@ method_upgrade() {
         fi
     fi
 
+    set_upgrade_status '{"state":"running","step":"Установка пакета..."}'
     install_out=""
     ret=0
     if [ "$pkg_mgr" = "apk" ]; then
@@ -1982,11 +1965,53 @@ method_upgrade() {
     rm -f "$tmp_pkg"
 
     if [ $ret -eq 0 ]; then
-        printf '{"ok":true,"message":"Обновление успешно установлено, служба перезапущена"}\n'
+        set_upgrade_status '{"state":"done","message":"Обновление успешно установлено, служба перезапущена"}'
         ( sleep 1; /etc/init.d/rpcd reload >/dev/null 2>&1 || true; /etc/init.d/sirin restart >/dev/null 2>&1 || true ) </dev/null >/dev/null 2>&1 &
     else
         clean_out=$(echo "$install_out" | tr '\r\n"\\`' '     ' | head -c 300)
-        printf '{"ok":false,"error":"Ошибка установки: %s"}\n' "$clean_out"
+        set_upgrade_status "$(printf '{"state":"error","error":"Ошибка установки: %s"}' "$clean_out")"
+    fi
+}
+
+method_upgrade() {
+    input="$1"
+    url=""
+    if [ -n "$input" ]; then
+        url=$(echo "$input" | awk -F'"url"[ \t]*:[ \t]*"' '{print $2}' | cut -d'"' -f1)
+    fi
+
+    pkg_mgr=$(detect_pkg_mgr)
+    arch=$(detect_arch)
+
+    if [ -z "$url" ]; then
+        chk=$(method_check_update)
+        url=$(echo "$chk" | awk -F'"asset_url"[ \t]*:[ \t]*"' '{print $2}' | cut -d'"' -f1)
+    fi
+
+    if [ -z "$url" ]; then
+        printf '{"ok":false,"error":"Не найден URL для скачивания пакета обновления (%s/%s)"}\n' "$arch" "$pkg_mgr"
+        return
+    fi
+
+    # Строгий allowlist источника обновлений: запрещаем скачивание с произвольных URL
+    case "$url" in
+        https://github.com/goodbrat-lab/sirin-vpn/releases/download/*) ;;
+        *)
+            printf '{"ok":false,"error":"Недопустимый URL обновления (разрешены только официальные релизы GitHub)"}\n'
+            return
+            ;;
+    esac
+
+    set_upgrade_status '{"state":"running","step":"Запуск обновления..."}'
+    run_upgrade_bg "$url" "$pkg_mgr" "$arch" </dev/null >/dev/null 2>&1 &
+    printf '{"ok":true,"started":true}\n'
+}
+
+method_upgrade_status() {
+    if [ -f "$UPGRADE_STATUS_FILE" ]; then
+        cat "$UPGRADE_STATUS_FILE"
+    else
+        printf '{"state":"idle"}\n'
     fi
 }
 
@@ -2074,7 +2099,8 @@ case "$1" in
   "check_update": {},
   "upgrade": {
     "url": "str"
-  }
+  },
+  "upgrade_status": {}
 }
 EOF
         exit 0
@@ -2153,6 +2179,9 @@ case "$cmd" in
         ;;
     upgrade)
         method_upgrade "$(get_input)"
+        ;;
+    upgrade_status)
+        method_upgrade_status
         ;;
     *)
         printf '{"error":"Unknown method: %s"}\n' "$cmd"
