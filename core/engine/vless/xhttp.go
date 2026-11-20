@@ -19,6 +19,67 @@ type XHTTPConfig struct {
 	Reality *RealityConfig
 	Path    string
 	Mode    string
+	CDNHost string // хост назначения за CDN (для :authority и Host), при этом SNI в TLS остаётся фронт-доменом
+}
+
+// buildXHTTPRequest формирует HTTP/2 POST запрос для XHTTP соединения с учётом CDN фронтинга.
+func buildXHTTPRequest(ctx context.Context, cfg *XHTTPConfig, pr io.Reader) (*http.Request, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sni := ""
+	if cfg.Reality != nil {
+		sni = cfg.Reality.SNI
+		if sni == "" && len(cfg.Reality.SNIList) > 0 {
+			sni = cfg.Reality.SNIList[0]
+		}
+	}
+	if sni == "" {
+		sni = DefaultRealitySNIs[0]
+	}
+
+	normPath := cfg.Path
+	if normPath == "" {
+		normPath = "/s1r1nxhttp2026k"
+	}
+	if !strings.HasPrefix(normPath, "/") {
+		normPath = "/" + normPath
+	}
+	if !strings.HasSuffix(normPath, "/") {
+		normPath = normPath + "/"
+	}
+
+	// Для CDN фронтинга: TLS ClientHello SNI остаётся доменом CDN (cfg.Reality.SNI),
+	// а HTTP/2 :authority и Host заголовок указывают на фактический бэкенд (cfg.CDNHost).
+	hostHeader := sni
+	if cfg.CDNHost != "" {
+		hostHeader = cfg.CDNHost
+	}
+
+	reqURL := fmt.Sprintf("https://%s%s", hostHeader, normPath)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, pr)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Host = hostHeader
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152."+"0.0.0 Safari/537.36")
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Priority", "u=1, i")
+	req.Header.Set("Referer", fmt.Sprintf("https://%s%s?x_padding=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", hostHeader, normPath))
+	req.Header.Set("Sec-CH-UA", `"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"`)
+	req.Header.Set("Sec-CH-UA-Mobile", "?0")
+	req.Header.Set("Sec-CH-UA-Platform", `"Windows"`)
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Accel-Buffering", "no")
+
+	return req, nil
 }
 
 // DialXHTTP выполняет TLS Reality рукопожатие, инициирует HTTP/2 POST стрим
@@ -56,48 +117,13 @@ func DialXHTTP(ctx context.Context, uuid [16]byte, target string, cfg *XHTTPConf
 
 	pr, pw := io.Pipe()
 
-	sni := cfg.Reality.SNI
-	if sni == "" && len(cfg.Reality.SNIList) > 0 {
-		sni = cfg.Reality.SNIList[0]
-	}
-	if sni == "" {
-		sni = DefaultRealitySNIs[0]
-	}
-
-	normPath := cfg.Path
-	if normPath == "" {
-		normPath = "/s1r1nxhttp2026k"
-	}
-	if !strings.HasPrefix(normPath, "/") {
-		normPath = "/" + normPath
-	}
-	if !strings.HasSuffix(normPath, "/") {
-		normPath = normPath + "/"
-	}
-
-	reqURL := fmt.Sprintf("https://%s%s", sni, normPath)
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, pr)
+	req, err := buildXHTTPRequest(ctx, cfg, pr)
 	if err != nil {
 		pw.Close()
 		cc.Close()
 		conn.Close()
-		return nil, fmt.Errorf("new request: %w", err)
+		return nil, err
 	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152."+"0.0.0 Safari/537.36")
-	req.Header.Set("Content-Type", "application/grpc")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Priority", "u=1, i")
-	req.Header.Set("Referer", fmt.Sprintf("https://%s%s?x_padding=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", sni, normPath))
-	req.Header.Set("Sec-CH-UA", `"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"`)
-	req.Header.Set("Sec-CH-UA-Mobile", "?0")
-	req.Header.Set("Sec-CH-UA-Platform", `"Windows"`)
-	req.Header.Set("Sec-Fetch-Dest", "empty")
-	req.Header.Set("Sec-Fetch-Mode", "cors")
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("X-Accel-Buffering", "no")
 
 	go func() {

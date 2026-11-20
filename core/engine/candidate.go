@@ -111,6 +111,7 @@ type candidate struct {
 	vlessTarget    string   // "127.0.0.1:56006"
 	xhttpPath      string   // например, "/s1r1nxhttp2026k"
 	xhttpMode      string   // "stream-one"
+	cdnHost        string   // хост за CDN (для :authority / req.Host при CDN-фронтинге)
 
 	// turnAddr — ЗАПАСНОЙ адрес релея из настроек.
 	//
@@ -346,8 +347,8 @@ func (l *Ladder) AddVLESS(
 	return nil
 }
 
-// AddXHTTP — СТУПЕНЬ 6: VLESS+XHTTP+Reality (stream-one).
-func (l *Ladder) AddXHTTP(
+// AddXHTTPWithCDN — СТУПЕНЬ 6: VLESS+XHTTP+Reality (stream-one) с поддержкой CDN-фронтинга (раздельный cdnHost и SNI).
+func (l *Ladder) AddXHTTPWithCDN(
 	name, host string, port int32,
 	uuidStr string,
 	pubKeyBase64 string,
@@ -357,6 +358,7 @@ func (l *Ladder) AddXHTTP(
 	sniListCSV string,
 	path string,
 	mode string,
+	cdnHost string,
 ) error {
 	uuid, err := vless.ParseUUID(uuidStr)
 	if err != nil {
@@ -411,9 +413,25 @@ func (l *Ladder) AddXHTTP(
 		vlessTarget:    target,
 		xhttpPath:      path,
 		xhttpMode:      mode,
+		cdnHost:        cdnHost,
 		mtu:            mtuFor(false),
 	})
 	return nil
+}
+
+// AddXHTTP — СТУПЕНЬ 6: VLESS+XHTTP+Reality (stream-one).
+func (l *Ladder) AddXHTTP(
+	name, host string, port int32,
+	uuidStr string,
+	pubKeyBase64 string,
+	shortIDHex string,
+	sni string,
+	target string,
+	sniListCSV string,
+	path string,
+	mode string,
+) error {
+	return l.AddXHTTPWithCDN(name, host, port, uuidStr, pubKeyBase64, shortIDHex, sni, target, sniListCSV, path, mode, "")
 }
 
 // AddDirectRemembered добавляет прямую ступень, запомненную как рабочая

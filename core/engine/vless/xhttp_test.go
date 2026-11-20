@@ -2,6 +2,7 @@ package vless
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"strings"
@@ -93,5 +94,65 @@ func TestXHTTPPathTrailingSlash(t *testing.T) {
 		if normPath != tc.expected {
 			t.Errorf("for input %q: expected %q, got %q", tc.input, tc.expected, normPath)
 		}
+	}
+}
+
+func TestBuildXHTTPRequest_StandardSNI(t *testing.T) {
+	cfg := &XHTTPConfig{
+		Reality: &RealityConfig{
+			SNI: "sun8-21.userapi.com",
+		},
+		Path: "/custom-xhttp",
+		Mode: "stream-one",
+	}
+
+	req, err := buildXHTTPRequest(context.Background(), cfg, bytes.NewBuffer([]byte("body")))
+	if err != nil {
+		t.Fatalf("buildXHTTPRequest failed: %v", err)
+	}
+
+	if req.Host != "sun8-21.userapi.com" {
+		t.Errorf("expected req.Host sun8-21.userapi.com, got %s", req.Host)
+	}
+	if req.URL.Host != "sun8-21.userapi.com" {
+		t.Errorf("expected req.URL.Host sun8-21.userapi.com, got %s", req.URL.Host)
+	}
+	if req.URL.Path != "/custom-xhttp/" {
+		t.Errorf("expected normalized path /custom-xhttp/, got %s", req.URL.Path)
+	}
+	if !strings.Contains(req.Header.Get("Referer"), "sun8-21.userapi.com") {
+		t.Errorf("expected Referer to contain SNI host, got %s", req.Header.Get("Referer"))
+	}
+}
+
+func TestBuildXHTTPRequest_CDNFronting(t *testing.T) {
+	cfg := &XHTTPConfig{
+		Reality: &RealityConfig{
+			SNI: "cdn-front.cloudflare.net",
+		},
+		CDNHost: "backend-origin.sirin-vpn.internal",
+		Path:    "/s1r1nxhttp2026k",
+		Mode:    "stream-one",
+	}
+
+	req, err := buildXHTTPRequest(context.Background(), cfg, bytes.NewBuffer([]byte("body")))
+	if err != nil {
+		t.Fatalf("buildXHTTPRequest failed: %v", err)
+	}
+
+	// For CDN fronting:
+	// 1) TLS ClientHello SNI remains cdn-front.cloudflare.net
+	if cfg.Reality.SNI != "cdn-front.cloudflare.net" {
+		t.Errorf("expected TLS SNI cdn-front.cloudflare.net, got %s", cfg.Reality.SNI)
+	}
+	// 2) HTTP/2 authority / Host header points to the target CDN backend origin
+	if req.Host != "backend-origin.sirin-vpn.internal" {
+		t.Errorf("expected req.Host backend-origin.sirin-vpn.internal, got %s", req.Host)
+	}
+	if req.URL.Host != "backend-origin.sirin-vpn.internal" {
+		t.Errorf("expected req.URL.Host backend-origin.sirin-vpn.internal, got %s", req.URL.Host)
+	}
+	if !strings.Contains(req.Header.Get("Referer"), "backend-origin.sirin-vpn.internal") {
+		t.Errorf("expected Referer to contain CDNHost, got %s", req.Header.Get("Referer"))
 	}
 }

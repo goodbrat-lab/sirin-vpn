@@ -166,3 +166,33 @@ func TestDialXHTTP_CalledForXHTTP(t *testing.T) {
 		t.Fatalf("expected stream transport transXHTTP, got %v", streams[0].transport)
 	}
 }
+
+func TestLadderAddXHTTPWithCDN(t *testing.T) {
+	ladder := NewLadder()
+	uuidStr := "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+	pubKeyBase64 := "4ll5_ouUJr8P8CCxasWNcNu0Lb7tSIDacGmRskweoH4"
+	shortIDHex := "a4b2c1d3e5f67890"
+	sni := "front-cdn.example.org"
+	cdnHost := "origin-vless.sirin.internal"
+	path := "/s1r1nxhttp2026k"
+	mode := "stream-one"
+
+	err := ladder.AddXHTTPWithCDN("xhttp-cdn", "198.51.100.1", 8443, uuidStr, pubKeyBase64, shortIDHex, sni, "127.0.0.1:56006", "", path, mode, cdnHost)
+	if err != nil {
+		t.Fatalf("AddXHTTPWithCDN failed: %v", err)
+	}
+
+	if ladder.Len() != 1 {
+		t.Fatalf("expected 1 item, got %d", ladder.Len())
+	}
+	c := ladder.items[0]
+	if c.transport != transXHTTP {
+		t.Errorf("expected transXHTTP, got %v", c.transport)
+	}
+	if c.sni != sni {
+		t.Errorf("expected sni %s, got %s", sni, c.sni)
+	}
+	if c.cdnHost != cdnHost {
+		t.Errorf("expected cdnHost %s, got %s", cdnHost, c.cdnHost)
+	}
+}

@@ -66,12 +66,18 @@ func (c *Client) DialUDP(ctx context.Context, target string) (net.Conn, error) {
 	return NewVisionConn(conn, hdr, c.uuid), nil
 }
 
-// DialXHTTP устанавливает VLESS-соединение через XHTTP поверх Reality.
-func (c *Client) DialXHTTP(ctx context.Context, target string, path string, mode string) (net.Conn, error) {
+// DialXHTTPWithCDN устанавливает VLESS-соединение через XHTTP поверх Reality с поддержкой CDN фронтинга.
+func (c *Client) DialXHTTPWithCDN(ctx context.Context, target string, path string, mode string, cdnHost string) (net.Conn, error) {
 	cfg := &XHTTPConfig{
 		Reality: c.cfg,
 		Path:    path,
 		Mode:    mode,
+		CDNHost: cdnHost,
 	}
 	return DialXHTTP(ctx, c.uuid, target, cfg)
+}
+
+// DialXHTTP устанавливает VLESS-соединение через XHTTP поверх Reality.
+func (c *Client) DialXHTTP(ctx context.Context, target string, path string, mode string) (net.Conn, error) {
+	return c.DialXHTTPWithCDN(ctx, target, path, mode, "")
 }

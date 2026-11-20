@@ -106,7 +106,7 @@ func (s *session) dialStream(
 			target = "127.0.0.1:56006"
 		}
 
-		conn, err := client.DialXHTTP(ctx, target, c.xhttpPath, c.xhttpMode)
+		conn, err := client.DialXHTTPWithCDN(ctx, target, c.xhttpPath, c.xhttpMode, c.cdnHost)
 		if err != nil {
 			return nil, fmt.Errorf("%s: xhttp dial: %w", c.name, err)
 		}
