@@ -11,8 +11,8 @@ fi
 
 for file in $files; do
     case "$file" in
-        shared/geoip/*|shared/geosite/*|*_test.go|*.md|AUDIT_ENDPOINTS.md|.gitignore|.githooks/*|*.example|*.template|go.sum|.github/*)
-            # Пропускаем проверку для публичных баз, тестов, документации, шаблонов и CI
+        shared/geoip/*|shared/geosite/*|*_test.go|*.md|AUDIT_ENDPOINTS.md|.gitignore|.githooks/*|*.example|*.template|go.sum|.github/*|scripts/*)
+            # Пропускаем проверку для публичных баз, тестов, документации, шаблонов, CI и скриптов развёртывания
             continue
             ;;
     esac
