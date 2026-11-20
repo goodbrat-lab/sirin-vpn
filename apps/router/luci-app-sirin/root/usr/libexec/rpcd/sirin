@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
-VERSION="2.0.0"
+VERSION="2.1.0"
 
 # ВЫЗОВ ЧЕРЕЗ GO-БИНАРНИК (W3.1).
 # Если скомпилированный sirin-client доступен в системе, передаём обработку
@@ -14,27 +14,17 @@ fi
 
 if [ -n "$BIN" ] && [ -x "$BIN" ]; then
     case "$1" in
-        list)
-            exec "$BIN" rpc list
-            ;;
         call)
             cmd="$2"
-            input="$3"
-            if [ -z "$input" ]; then
-                input="$(cat 2>/dev/null)"
-            fi
-            if [ "$cmd" = "start" ] || [ "$cmd" = "stop" ] || [ "$cmd" = "restart" ] || [ "$cmd" = "enable" ] || [ "$cmd" = "disable" ]; then
-                /etc/init.d/sirin "$cmd" >/dev/null 2>&1
-                printf '{"success":true}\n'
-                exit 0
-            elif [ "$cmd" = "get_logs" ]; then
-                lines=$(echo "$input" | grep -oE '[0-9]+' | head -n1)
-                [ -z "$lines" ] && lines=200
-                logs=$( (logread 2>/dev/null || cat /var/log/messages 2>/dev/null) | grep -i sirin | tail -n "$lines" )
-                printf '{"logs":%s}\n' "$(echo "$logs" | awk 'BEGIN{printf "["} {if (NR>1) printf ","; gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "\"%s\"", $0} END{printf "]\n"}')"
-                exit 0
-            fi
-            exec "$BIN" --config "$CONFIG_FILE" rpc "$cmd" "$input"
+            case "$cmd" in
+                status|get_config|set_config|get_split_config|set_split_config|get_antidpi_config|set_antidpi_config|get_force_vpn_config|set_force_vpn_config|get_whitelist_config|set_whitelist_config|get_psn_proxy_config|set_psn_proxy_config|get_service_proxy_config|set_service_proxy_config|get_ru_direct_info|leak_check|test_connection)
+                    input="$3"
+                    if [ -z "$input" ]; then
+                        input="$(cat 2>/dev/null)"
+                    fi
+                    exec "$BIN" --config "$CONFIG_FILE" rpc "$cmd" "$input"
+                    ;;
+            esac
             ;;
     esac
 fi

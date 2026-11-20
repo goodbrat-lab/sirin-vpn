@@ -12,10 +12,13 @@
           "get_whitelist_config",
           "get_ru_direct_info",
           "get_psn_proxy_config",
+          "get_service_proxy_config",
+          "get_dns_filter_config",
           "get_logs",
           "test_connection",
           "leak_check",
-          "check_update"
+          "check_update",
+          "upgrade_status"
         ]
       },
       "file": {
@@ -31,6 +34,8 @@
           "set_force_vpn_config",
           "set_whitelist_config",
           "set_psn_proxy_config",
+          "set_service_proxy_config",
+          "set_dns_filter_config",
           "start",
           "stop",
           "restart",

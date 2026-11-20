@@ -98,7 +98,12 @@ func RPCSchema() map[string]any {
 		},
 		"get_ru_direct_info": map[string]any{},
 		"leak_check":         map[string]any{},
-		"test_connection":   map[string]any{},
+		"test_connection":    map[string]any{},
+		"check_update":       map[string]any{},
+		"upgrade": map[string]any{
+			"url": "str",
+		},
+		"upgrade_status": map[string]any{},
 	}
 }
 
@@ -290,6 +295,38 @@ func rpcStatus(configPath string) map[string]any {
 				uptimeSec = int64(time.Since(stat.ModTime()).Seconds())
 				if uptimeSec < 0 {
 					uptimeSec = 0
+				}
+			}
+		}
+	}
+
+	if !running {
+		myPID := os.Getpid()
+		entries, err := os.ReadDir("/proc")
+		if err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				p, err := strconv.Atoi(e.Name())
+				if err != nil || p <= 0 || p == myPID {
+					continue
+				}
+				cmdBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", p))
+				if err != nil || len(cmdBytes) == 0 {
+					continue
+				}
+				cmdStr := strings.ReplaceAll(string(cmdBytes), "\x00", " ")
+				if strings.Contains(cmdStr, "sirin-client") && !strings.Contains(cmdStr, " rpc ") {
+					running = true
+					pid = p
+					if stat, err := os.Stat(fmt.Sprintf("/proc/%d", p)); err == nil {
+						uptimeSec = int64(time.Since(stat.ModTime()).Seconds())
+						if uptimeSec < 0 {
+							uptimeSec = 0
+						}
+					}
+					break
 				}
 			}
 		}
