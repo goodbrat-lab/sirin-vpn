@@ -198,7 +198,7 @@ func TestFormatDaysLeft(t *testing.T) {
 		t.Errorf("expected бессрочно for zero time")
 	}
 
-	future := time.Now().Add(5 * 24 * time.Hour)
+	future := time.Now().Add(5*24*time.Hour + time.Minute)
 	if formatDaysLeft(&future) != "5д" {
 		t.Errorf("expected 5д, got %q", formatDaysLeft(&future))
 	}

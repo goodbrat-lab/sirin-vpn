@@ -62,6 +62,7 @@ jobs:
       - name: Test & Vet apps/desktop
         working-directory: apps/desktop
         run: |
+          if (!(Test-Path "frontend/dist")) { New-Item -ItemType Directory -Force -Path "frontend/dist" | Out-Null; Set-Content -Path "frontend/dist/index.html" -Value "<html></html>" }
           go vet ./...
           go test ./...
 
