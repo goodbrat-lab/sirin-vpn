@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -571,6 +572,67 @@ func TestRateLimitMiddleware(t *testing.T) {
 	h.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200 for different IP, got %d", w2.Code)
+	}
+}
+
+func TestSelectBestRelay_AdaptiveLoadBalancing(t *testing.T) {
+	srv, storage := testServer(t)
+	dir := t.TempDir()
+	rStorage, err := relays.NewStorage(filepath.Join(dir, "relays.json"))
+	if err != nil {
+		t.Fatalf("relays storage: %v", err)
+	}
+
+	// Обновляем Relay 1 с MaxClients=5 и добавляем Relay 2
+	_ = rStorage.Update(relays.Relay{
+		ID:         1,
+		Name:       "Relay 1 (Москва, RU)",
+		Host:       "185.182.65.219",
+		PortVLESS:  443,
+		PortXHTTP:  8443,
+		MaxClients: 5,
+		Enabled:    true,
+	})
+	_, _ = rStorage.Add(relays.Relay{
+		ID:         2,
+		Name:       "Relay 2 (Германия, DE)",
+		Host:       "45.38.228.142",
+		PortVLESS:  9443,
+		PortXHTTP:  9444,
+		MaxClients: 10,
+		Enabled:    true,
+	})
+	srv.SetRelaysStorage(rStorage)
+
+	// 1. Москва показывает отличный RTT (15ms, 0% loss), Германия 50ms, NL 80ms
+	srv.SetNodeStatusForTest("moscow", "ok", 15.0, 0.0)
+	srv.SetNodeStatusForTest("germany", "ok", 50.0, 0.0)
+	srv.SetNodeStatusForTest("nl", "ok", 80.0, 0.0)
+
+	bestID, reason := srv.SelectBestRelay(-1)
+	if bestID != 1 {
+		t.Fatalf("expected best relay 1 (Moscow), got %d (%s)", bestID, reason)
+	}
+
+	// 2. Заполняем релей 1 клиентами до предела (5/5)
+	for i := 0; i < 5; i++ {
+		_, _ = storage.AddWithRelay(fmt.Sprintf("UserLoad%d", i), 30, 1)
+	}
+
+	// Теперь, несмотря на низкий RTT Москвы, из-за переполнения лучшим должен стать релей 2 (Германия)
+	bestID, reason = srv.SelectBestRelay(-1)
+	if bestID != 2 {
+		t.Fatalf("expected overloaded relay 1 to be skipped in favor of relay 2, got %d (%s)", bestID, reason)
+	}
+
+	// 3. Авто-балансировка через /v1/params при relay_id = -1
+	cAuto, _ := storage.AddWithRelay("AutoUser", 30, -1)
+	req := httptest.NewRequest(http.MethodGet, "/v1/params?key="+cAuto.UUID, nil)
+	w := httptest.NewRecorder()
+	srv.HandleParams(w, req)
+
+	if w.Header().Get("X-Effective-Relay") != "2" {
+		t.Errorf("expected X-Effective-Relay=2 for auto user, got %s", w.Header().Get("X-Effective-Relay"))
 	}
 }
 

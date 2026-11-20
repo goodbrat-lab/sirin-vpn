@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -195,6 +196,126 @@ func (s *Server) GetNodeReports() map[string]NodeReport {
 		res[k] = v
 	}
 	return res
+}
+
+// GetNodeReport возвращает отчёт мониторинга по узлу с учётом 3-минутного TTL.
+func (s *Server) GetNodeReport(node string) (NodeReport, bool) {
+	s.monitorMu.RLock()
+	defer s.monitorMu.RUnlock()
+
+	rep, ok := s.nodeStatus[node]
+	if !ok || time.Since(rep.UpdatedAt) > 3*time.Minute {
+		return NodeReport{}, false
+	}
+	return rep, true
+}
+
+// SelectBestRelay адаптивно выбирает лучший узел подключения (0 = Direct NL, >0 = Relay ID)
+// на основе RTT, потерь пакетов, статуса деградации и текущей загрузки.
+func (s *Server) SelectBestRelay(preferredID int) (int, string) {
+	candidates := []int{0} // 0 = Direct NL всегда кандидат
+
+	if s.relays != nil {
+		for _, r := range s.relays.GetAll() {
+			if r.Enabled {
+				candidates = append(candidates, r.ID)
+			}
+		}
+	}
+
+	bestID := 0
+	bestScore := 1e9
+	bestReason := "direct"
+
+	// Собираем активных клиентов для расчёта текущей нагрузки на релеи
+	var activeClients []*Client
+	if s.storage != nil {
+		for _, cl := range s.storage.List() {
+			if cl.IsActive() {
+				activeClients = append(activeClients, cl)
+			}
+		}
+	}
+
+	for _, id := range candidates {
+		var nodeKey string
+		var maxClients int
+		var isPreferred bool = (id == preferredID)
+
+		switch id {
+		case 0:
+			nodeKey = "nl"
+			maxClients = 1000
+		case 1:
+			nodeKey = "moscow"
+		case 2:
+			nodeKey = "germany"
+		default:
+			nodeKey = fmt.Sprintf("relay_%d", id)
+		}
+
+		if id > 0 && s.relays != nil {
+			if r, found := s.relays.GetByID(id); found {
+				maxClients = r.MaxClients
+				nameLower := strings.ToLower(r.Name)
+				if strings.Contains(nameLower, "москва") || strings.Contains(nameLower, "moscow") {
+					nodeKey = "moscow"
+				} else if strings.Contains(nameLower, "герман") || strings.Contains(nameLower, "germany") {
+					nodeKey = "germany"
+				} else if strings.Contains(nameLower, "спб") || strings.Contains(nameLower, "spb") || strings.Contains(nameLower, "питер") {
+					nodeKey = "spb"
+				}
+			}
+		}
+
+		rep, hasReport := s.GetNodeReport(nodeKey)
+		rtt := 30.0
+		loss := 0.0
+		isDegraded := false
+
+		if hasReport {
+			rtt = rep.RTTMs
+			loss = rep.LossPct
+			isDegraded = (rep.Status == "degraded")
+		} else {
+			if s.IsRelayDegraded(id) {
+				isDegraded = true
+				rtt = 250.0
+				loss = 25.0
+			}
+		}
+
+		// Расчёт интегрального веса: меньше — лучше
+		score := rtt + (loss * 20.0)
+
+		// Учёт загруженности узла
+		if id > 0 && maxClients > 0 {
+			activeOnRelay := relays.CountActiveOnRelay(activeClients, id)
+			ratio := float64(activeOnRelay) / float64(maxClients)
+			score += ratio * 40.0
+			if activeOnRelay >= maxClients {
+				score += 500.0 // штраф за переполнение
+			}
+		}
+
+		// Штраф за деградацию канала
+		if isDegraded {
+			score += 1000.0
+		}
+
+		// Бонус за preferred ID (гистерезис против флаппинга)
+		if isPreferred && !isDegraded {
+			score -= 15.0
+		}
+
+		if score < bestScore {
+			bestScore = score
+			bestID = id
+			bestReason = fmt.Sprintf("node=%s rtt=%.1f loss=%.1f%% score=%.1f", nodeKey, rtt, loss, score)
+		}
+	}
+
+	return bestID, bestReason
 }
 
 // IsNodeDegraded проверяет, помечен ли узел как degraded (с TTL 3 минуты).

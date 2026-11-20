@@ -182,24 +182,14 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		c := client
 		effectiveRelayID = c.RelayID
 
-		// Проверяем, деградирован ли назначенный маршрут
-		if effectiveRelayID > 0 && s.IsRelayDegraded(effectiveRelayID) {
-			log.Printf("[WARN] /v1/params: client %s assigned relay_id=%d is DEGRADED! Finding healthy fallback", c.UUID, effectiveRelayID)
-			isFallbackActive = true
-			if !s.IsRelayDegraded(0) {
-				effectiveRelayID = 0
-			} else if effectiveRelayID != 2 && s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
-				effectiveRelayID = 2
-			} else if effectiveRelayID != 1 && s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
-				effectiveRelayID = 1
-			}
-		} else if effectiveRelayID == 0 && s.IsRelayDegraded(0) {
-			log.Printf("[WARN] /v1/params: client %s Direct NL is DEGRADED! Finding healthy relay fallback", c.UUID)
-			isFallbackActive = true
-			if s.isRelayAvailable(2) && !s.IsRelayDegraded(2) {
-				effectiveRelayID = 2
-			} else if s.isRelayAvailable(1) && !s.IsRelayDegraded(1) {
-				effectiveRelayID = 1
+		// Проверяем, деградирован ли назначенный маршрут, либо запрошена авто-балансировка (relay_id < 0)
+		if effectiveRelayID < 0 || s.IsRelayDegraded(effectiveRelayID) {
+			bestID, reason := s.SelectBestRelay(effectiveRelayID)
+			if bestID != effectiveRelayID {
+				log.Printf("[WARN] /v1/params: client %s (orig relay_id=%d) is DEGRADED! Auto-balancing to relay_id=%d (%s)",
+					c.UUID, effectiveRelayID, bestID, reason)
+				isFallbackActive = true
+				effectiveRelayID = bestID
 			}
 		}
 
