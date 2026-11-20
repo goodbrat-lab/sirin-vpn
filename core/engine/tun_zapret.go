@@ -947,6 +947,14 @@ func (tz *tunZapret) serveInterceptedTCP(clientConn *tunTCPConn) {
 		2,
 		zapret.DefaultWanProbeTimeout,
 	)
+
+	sni, _ := zapret.ExtractSNI(clientHello)
+	if sni == "" {
+		sni, _ = zapret.ExtractHTTPHost(clientHello)
+	}
+	baseDomain := zapret.MatchBaseDomain(sni)
+	isStreaming := zapret.IsForceVPNDomain(sni) || baseDomain == "googlevideo.com" || baseDomain == "youtube.com"
+
 	if desyncErr == nil && remoteConn != nil {
 		defer remoteConn.Close()
 		if len(firstReply) > 0 {
@@ -954,16 +962,26 @@ func (tz *tunZapret) serveInterceptedTCP(clientConn *tunTCPConn) {
 				return
 			}
 		}
-		bridgeConns(clientConn, remoteConn)
+
+		var monitor *streamMonitor
+		if isStreaming {
+			monitor = newStreamMonitor(func() {
+				tz.s.logf("[stream] прямая скорость WAN для %q (%s) ниже %d кбит/с — эскалация на быстрый VPN",
+					sni, targetAddr, streamMinKbps)
+				if baseDomain != "" {
+					zapret.GlobalEngine.PromoteDomainGroupToVPN(baseDomain, time.Now())
+				}
+				maybeEscalate(tz.s.escalateVPN)
+				_ = remoteConn.Close()
+				clientConn.sendRST()
+			})
+		}
+		bridgeMonitored(clientConn, remoteConn, monitor)
 		return
 	}
 
 	// 2. Прямой обход Zapret 2 не сработал (IP заблокирован ТСПУ или геоблок сервиса).
 	// Бесшовно поднимаем ленивый VPN-туннель до VPS и проводим текущее соединение через него!
-	sni, _ := zapret.ExtractSNI(clientHello)
-	if sni == "" {
-		sni, _ = zapret.ExtractHTTPHost(clientHello)
-	}
 	tz.s.logf("[zapret2] прямой обход не прошёл для %q (%s: %v) -> бесшовное переключение на VPS VPN",
 		sni, targetAddr, desyncErr)
 
@@ -997,22 +1015,69 @@ func (tz *tunZapret) serveInterceptedTCP(clientConn *tunTCPConn) {
 			return
 		}
 	}
-	bridgeConns(clientConn, upConn)
+
+	var upMonitor *streamMonitor
+	if isStreaming {
+		upMonitor = newStreamMonitor(func() {
+			tz.s.logf("[stream] VPN скорость для %q ниже %d кбит/с — переключение на более быстрый сервер",
+				sni, streamMinKbps)
+			maybeEscalate(tz.s.escalateVPN)
+		})
+	}
+	bridgeMonitored(clientConn, upConn, upMonitor)
 }
 
-func bridgeConns(c1, c2 net.Conn) {
+func bridgeMonitored(c1, c2 net.Conn, monitor *streamMonitor) {
 	done := make(chan struct{}, 2)
-	cp := func(dst, src net.Conn) {
+	// c2 (remote) -> c1 (client): incoming data
+	go func() {
 		buf := make([]byte, 32*1024)
-		_, _ = io.CopyBuffer(dst, src, buf)
+		for {
+			nr, rerr := c2.Read(buf)
+			if nr > 0 {
+				if monitor != nil {
+					monitor.AddServerBytes(nr)
+				}
+				if _, werr := c1.Write(buf[:nr]); werr != nil {
+					break
+				}
+			}
+			if rerr != nil {
+				break
+			}
+		}
 		done <- struct{}{}
-	}
-	go cp(c1, c2)
-	go cp(c2, c1)
+	}()
+	// c1 (client) -> c2 (remote): outgoing data
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			nr, rerr := c1.Read(buf)
+			if nr > 0 {
+				if monitor != nil {
+					monitor.AddClientBytes(nr)
+				}
+				if _, werr := c2.Write(buf[:nr]); werr != nil {
+					break
+				}
+			}
+			if rerr != nil {
+				break
+			}
+		}
+		done <- struct{}{}
+	}()
 	<-done
 	_ = c1.Close()
 	_ = c2.Close()
+	if monitor != nil {
+		monitor.Close()
+	}
 	<-done
+}
+
+func bridgeConns(c1, c2 net.Conn) {
+	bridgeMonitored(c1, c2, nil)
 }
 
 // dialUpstreamTCP открывает исходящее TCP-соединение внутри L3 VPN-туннеля (r.link)

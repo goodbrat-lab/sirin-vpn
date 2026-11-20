@@ -2061,6 +2061,52 @@ func (s *session) parkUpstream(reason string) {
 	s.logf("[zapret2] VPN-туннель до VPS переведён в спящий режим (%s) — трафик на VPS = 0", reason)
 }
 
+// escalateVPN — перезапускает VPN-туннель к более быстрому серверу.
+//
+// Вызывается из streamMonitor при обнаружении низкой пропускной способности
+// (ниже streamMinKbps на протяжении streamLowSeconds секунд подряд).
+// Алгоритм:
+//  1. Оповещаем платформу через notifyQualityDegraded.
+//  2. Гасим текущий ленивый upstream (parkUpstream).
+//  3. Пенализируем прежнюю ступень (delay = 2s) в лестнице, чтобы гонка выбрала более быстрый сервер.
+//  4. Немедленно запускаем ensureUpstream — поднимается свежий туннель на быстрейшем релее.
+func (s *session) escalateVPN() {
+	if !s.lazyMode {
+		return
+	}
+	s.logf("[stream] низкая пропускная способность потока — переключаю на более быстрый сервер")
+	notifyQualityDegraded("низкая скорость потока (буферизация)")
+
+	lastWinner := s.winner
+	s.parkUpstream("низкая скорость CDN: переключение на более быстрый маршрут")
+	go func() {
+		// Даём 200 мс платформе для параллельного обновления лестницы с сервера
+		time.Sleep(200 * time.Millisecond)
+		s.lazyMu.Lock()
+		if s.lazyLadder != nil && lastWinner != "" && lastWinner != "zapret2-direct" {
+			for i := range s.lazyLadder.items {
+				if s.lazyLadder.items[i].name == lastWinner {
+					s.lazyLadder.items[i].delay = 2 * time.Second
+				}
+			}
+		}
+		s.lazyMu.Unlock()
+
+		if err := s.ensureUpstream(); err != nil {
+			s.logf("[stream] не удалось переключиться: %v", err)
+		} else {
+			s.logf("[stream] переключено на новый маршрут (ступень %s)", s.winner)
+		}
+	}()
+}
+
+func (s *session) updateLazyLadder(ladder *Ladder) {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	s.lazyLadder = ladder
+	s.logf("[zapret2] лестница узлов обновлена: %d ступеней", len(ladder.items))
+}
+
 func (s *session) lazyIdleWatch(ctx context.Context) {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()

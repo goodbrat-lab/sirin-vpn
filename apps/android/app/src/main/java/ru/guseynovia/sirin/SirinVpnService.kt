@@ -21,6 +21,7 @@ import engine.Ladder
 import engine.Logger
 import engine.NetworkGuard
 import engine.Protector
+import engine.QualityListener
 import engine.StateListener
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -608,6 +609,28 @@ class SirinVpnService : VpnService() {
         Params.attach(this)
         KillSwitch.attach(this)
         updateAttach(this)
+        Engine.setQualityListener(object : QualityListener {
+            override fun onQualityDegraded(reason: String) {
+                TunnelLog.add("монитор качества: $reason -> эскалация на быстрый сервер")
+                kotlin.concurrent.thread(name = "sirin-quality-escalate") {
+                    try {
+                        Params.refreshWithEscalation()
+                        val netKey = PathMemory.networkKey(this@SirinVpnService)
+                        val knownId = PathMemory.remembered(this@SirinVpnService, netKey)
+                        val ladder = buildLadder(
+                            knownId = knownId,
+                            skipDirect = false,
+                            secondRoundMs = Params.secondRoundMs(),
+                            skipStreams = false,
+                            avoidHosts = emptySet()
+                        )
+                        Engine.updateLazyLadder(ladder)
+                    } catch (e: Throwable) {
+                        TunnelLog.add("эскалация: ошибка обновления лестницы: ${e.message}")
+                    }
+                }
+            }
+        })
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -2553,6 +2576,22 @@ class SirinVpnService : VpnService() {
                         ladder.addVLESS(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "", snisCsv)
                     } catch (e: Throwable) {
                         TunnelLog.add("узел $code: vless ошибка — ${e.message}")
+                    }
+                }
+                "xhttp" -> {
+                    val vlessUUID = "5f26ebc3-6eb0-45fb-a490-c8c92b86b644"
+                    streams.add(code)
+                    val snisCsv = if (n.snis.isNotEmpty()) n.snis.joinToString(",") else n.sni
+                    val xhttpPath = if (n.path.isNotEmpty()) n.path else "/s1r1nxhttp2026k"
+                    val xhttpMode = if (n.mode.isNotEmpty()) n.mode else "stream-one"
+                    try {
+                        if (n.cdnHost.isNotEmpty()) {
+                            ladder.addXHTTPWithCDN(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "", snisCsv, xhttpPath, xhttpMode, n.cdnHost)
+                        } else {
+                            ladder.addXHTTP(code, n.host, n.port, vlessUUID, n.pbk, n.sid, n.sni, "", snisCsv, xhttpPath, xhttpMode)
+                        }
+                    } catch (e: Throwable) {
+                        TunnelLog.add("узел $code: xhttp ошибка — ${e.message}")
                     }
                 }
 

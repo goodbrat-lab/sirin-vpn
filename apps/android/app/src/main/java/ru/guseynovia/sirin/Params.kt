@@ -179,6 +179,24 @@ object Params {
         fetch("не сработал ни один узел")
     }
 
+    /**
+     * Повод 3: эскалация пропускной способности при просмотре видео (YouTube / 4K).
+     * Запрашивает у сервера автобалансировку на самый быстрый релей (?escalate=1).
+     */
+    fun refreshWithEscalation() {
+        val ctx = appCtx ?: return
+        if (Config.SKIP_API_PARAMS_FETCH) return
+        val key = Access.password()
+        val query = HashMap<String, String>()
+        query["transports"] = "udp,tcp,tls,vless,xhttp"
+        query["escalate"] = "1"
+        if (key.isNotEmpty()) query["key"] = key
+        when (val r = ApiClient.call("/v1/params", query)) {
+            is ApiClient.Result.Ok -> accept(ctx, r.body, "эскалация скорости")
+            else -> {}
+        }
+    }
+
     // ------------------------------------------------------------------
     // Запрос
     // ------------------------------------------------------------------
@@ -200,7 +218,7 @@ object Params {
         // обратная совместимость: старому клиенту незнакомый транспорт
         // просто не присылают, а не надеются, что он «пропустит».
         val query = HashMap<String, String>()
-        query["transports"] = "udp,tcp,tls,vless"
+        query["transports"] = "udp,tcp,tls,vless,xhttp"
         if (key.isNotEmpty()) query["key"] = key
         when (val r = ApiClient.call("/v1/params", query)) {
             is ApiClient.Result.Ok -> accept(ctx, r.body, why)
@@ -312,13 +330,16 @@ object Params {
         val host: String,
         val port: Int,
         val dtls: Boolean,
-        /** "udp" (умолчание), "tcp", "tls", "vless". */
+        /** "udp" (умолчание), "tcp", "tls", "vless", "xhttp". */
         val transport: String,
         /** SNI для tls/vless-ступени; для прочих пусто. Привязан к IP. */
         val sni: String,
         val snis: List<String> = emptyList(),
         val pbk: String = "",
         val sid: String = "",
+        val path: String = "",
+        val mode: String = "",
+        val cdnHost: String = "",
     )
 
     /**
@@ -380,7 +401,9 @@ object Params {
                         snis = snisList,
                         pbk = o.optString("pbk"),
                         sid = o.optString("sid"),
-                        
+                        path = o.optString("path"),
+                        mode = o.optString("mode"),
+                        cdnHost = o.optString("cdn_host"),
                     )
                 )
             }

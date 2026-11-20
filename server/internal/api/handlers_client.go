@@ -182,8 +182,8 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		c := client
 		effectiveRelayID = c.RelayID
 
-		// Проверяем, деградирован ли назначенный маршрут, либо запрошена авто-балансировка (relay_id < 0)
-		if effectiveRelayID < 0 || s.IsRelayDegraded(effectiveRelayID) {
+		// Проверяем, деградирован ли назначенный маршрут, либо запрошена авто-балансировка (relay_id < 0) или эскалация скорости (escalate=1)
+		if effectiveRelayID < 0 || s.IsRelayDegraded(effectiveRelayID) || r.URL.Query().Get("escalate") == "1" {
 			bestID, reason := s.SelectBestRelay(effectiveRelayID)
 			if bestID != effectiveRelayID {
 				log.Printf("[WARN] /v1/params: client %s (orig relay_id=%d) is DEGRADED! Auto-balancing to relay_id=%d (%s)",

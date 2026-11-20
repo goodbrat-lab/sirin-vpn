@@ -294,6 +294,62 @@ func SuspectNetwork(why string) bool {
 	return s.probeNow(why)
 }
 
+// QualityListener — обратный вызов платформе (Android/Desktop) при обнаружении
+// деградации качества потока или падения скорости ниже порога комфортного видео.
+type QualityListener interface {
+	OnQualityDegraded(reason string)
+}
+
+var (
+	qualityMu       sync.Mutex
+	qualityListener QualityListener
+)
+
+// SetQualityListener регистрирует слушателя качества потока от платформы.
+func SetQualityListener(l QualityListener) {
+	qualityMu.Lock()
+	defer qualityMu.Unlock()
+	qualityListener = l
+}
+
+func notifyQualityDegraded(reason string) {
+	qualityMu.Lock()
+	l := qualityListener
+	qualityMu.Unlock()
+	if l != nil {
+		go l.OnQualityDegraded(reason)
+	}
+}
+
+// UpdateLazyLadder обновляет набор ступеней ленивой лестницы узлов в работающей сессии.
+func UpdateLazyLadder(ladder *Ladder) {
+	mu.Lock()
+	s := current
+	mu.Unlock()
+	if s == nil || ladder == nil {
+		return
+	}
+	s.updateLazyLadder(ladder)
+}
+
+// EscalateVPN — экстренное переключение на более быстрый VPN-сервер.
+//
+// Вызывается из Kotlin, когда пользователь вручную выбирает более высокое
+// разрешение видео и хочет немедленно переключиться на более быстрый маршрут.
+// Также вызывается автоматически движком при обнаружении низкой пропускной
+// способности (streamMonitor → maybeEscalate).
+//
+// Безопасно вызывать, когда сессии нет — просто ничего не делает.
+func EscalateVPN() {
+	mu.Lock()
+	s := current
+	mu.Unlock()
+	if s == nil {
+		return
+	}
+	s.escalateVPN()
+}
+
 // Stop гасит сессию целиком и закрывает дескриптор TUN.
 //
 // Возвращается СРАЗУ, не дожидаясь завершения насосов: её зовут в том
