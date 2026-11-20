@@ -618,7 +618,7 @@ class SirinVpnService : VpnService() {
                         val netKey = PathMemory.networkKey(this@SirinVpnService)
                         val knownId = PathMemory.remembered(this@SirinVpnService, netKey)
                         val ladder = buildLadder(
-                            knownId = knownId,
+                            known = knownId,
                             skipDirect = false,
                             secondRoundMs = Params.secondRoundMs(),
                             skipStreams = false,
@@ -2482,7 +2482,7 @@ class SirinVpnService : VpnService() {
             mode == Config.TransportMode.RELAY_ONLY -> emptyList()
             nodes.isNotEmpty() -> {
                 val primary = nodes.map {
-                    Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid)
+                    Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid, it.path, it.mode, it.cdnHost)
                 }
                 val existingEndpoints = primary.map { Triple(it.transport, it.host, it.port) }.toHashSet()
                 val usedIds = primary.map { it.id }.toHashSet()
@@ -2490,12 +2490,12 @@ class SirinVpnService : VpnService() {
                     .filter { Triple(it.transport, it.host, it.port) !in existingEndpoints }
                     .map {
                         val fbId = if (it.id in usedIds) "fallback-${it.id}" else it.id
-                        Node(fbId, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid)
+                        Node(fbId, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid, it.path, it.mode, it.cdnHost)
                     }
                 primary + fallbacks
             }
             else -> Params.DEFAULT_NODES.map {
-                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid)
+                Node(it.id, it.host, it.port, it.dtls, it.transport, it.sni, it.snis, it.pbk, it.sid, it.path, it.mode, it.cdnHost)
             }
         }
 
@@ -2742,6 +2742,9 @@ class SirinVpnService : VpnService() {
         val snis: List<String> = emptyList(),
         val pbk: String = "",
         val sid: String = "",
+        val path: String = "",
+        val mode: String = "",
+        val cdnHost: String = "",
     )
 
     /**
