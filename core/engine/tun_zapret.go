@@ -1304,7 +1304,9 @@ func (c *tunTCPConn) onPeerPacket(l4 []byte) {
 		return
 	}
 	seq := binary.BigEndian.Uint32(l4[4:8])
+	ackNum := binary.BigEndian.Uint32(l4[8:12])
 	flags := l4[13]
+	win := uint32(binary.BigEndian.Uint16(l4[14:16]))
 	payload := l4[dataOff:]
 
 	c.mu.Lock()
@@ -1321,8 +1323,18 @@ func (c *tunTCPConn) onPeerPacket(l4 []byte) {
 			close(c.closedCh)
 		}
 		c.notifyRx()
+		c.notifyAck()
 		c.mu.Unlock()
 		return
+	}
+
+	// Обновляем подтверждённый ACK и размер окна приёма собеседника (flow control).
+	if flags&0x10 != 0 { // ACK
+		if int32(ackNum-c.peerAck) > 0 {
+			c.peerAck = ackNum
+		}
+		c.peerWin = win
+		c.notifyAck()
 	}
 
 	// В активном режиме ждём SYN+ACK от сервера
@@ -1427,27 +1439,70 @@ func (c *tunTCPConn) Read(b []byte) (int, error) {
 
 func (c *tunTCPConn) Write(b []byte) (int, error) {
 	total := 0
+	const maxInFlight = 48 * 1024 // Безопасный лимит ниже 64 КБ немасштабируемого окна TCP на TUN
+
 	for len(b) > 0 {
 		chunk := b
 		if len(chunk) > tunTCPMaxSeg {
 			chunk = b[:tunTCPMaxSeg]
 		}
-		b = b[len(chunk):]
 
-		c.mu.Lock()
-		if c.closed {
+		// Flow control: ждём, пока в полёте меньше окна приёма собеседника,
+		// чтобы не переполнять буфер TUN/TCP-сокета ОС и не терять пакеты.
+		for {
+			c.mu.Lock()
+			if c.closed {
+				c.mu.Unlock()
+				return total, io.ErrClosedPipe
+			}
+			inFlight := int32(c.mySeq - c.peerAck)
+			effWin := int32(c.peerWin)
+			if effWin > maxInFlight {
+				effWin = maxInFlight
+			}
+			if inFlight < 0 || inFlight < effWin {
+				seq := c.mySeq
+				c.mySeq += uint32(len(chunk))
+				ack := c.peerNext
+				c.mu.Unlock()
+
+				if err := c.writePacket(0x18, chunk, seq, ack); err != nil { // PSH | ACK
+					return total, err
+				}
+				b = b[len(chunk):]
+				total += len(chunk)
+				break
+			}
 			c.mu.Unlock()
-			return total, io.ErrClosedPipe
-		}
-		seq := c.mySeq
-		c.mySeq += uint32(len(chunk))
-		ack := c.peerNext
-		c.mu.Unlock()
 
-		if err := c.writePacket(0x18, chunk, seq, ack); err != nil { // PSH | ACK
-			return total, err
+			t := time.NewTimer(50 * time.Millisecond)
+			select {
+			case <-c.ackNotify:
+				t.Stop()
+			case <-c.closedCh:
+				t.Stop()
+				return total, io.ErrClosedPipe
+			case <-t.C:
+				// Защита от дедлока при потере ACK на TUN: отправляем один сегмент-зонд.
+				c.mu.Lock()
+				if c.closed {
+					c.mu.Unlock()
+					return total, io.ErrClosedPipe
+				}
+				seq := c.mySeq
+				c.mySeq += uint32(len(chunk))
+				ack := c.peerNext
+				c.mu.Unlock()
+
+				if err := c.writePacket(0x18, chunk, seq, ack); err != nil {
+					return total, err
+				}
+				b = b[len(chunk):]
+				total += len(chunk)
+				goto nextChunk
+			}
 		}
-		total += len(chunk)
+	nextChunk:
 	}
 	return total, nil
 }
@@ -1468,6 +1523,7 @@ func (c *tunTCPConn) Close() error {
 		close(c.closedCh)
 	}
 	c.notifyRx()
+	c.notifyAck()
 	c.mu.Unlock()
 
 	if c.activeMode && c.upPort != 0 {
