@@ -242,7 +242,7 @@ return view.extend({
 				E('table', { class: 'table', style: 'margin: 10px 0;' }, [
 					E('tr', { class: 'tr' }, [
 						E('td', { class: 'td', style: 'width: 35%; font-weight: bold;' }, 'Текущая версия:'),
-						E('td', { class: 'td' }, info.current_version || '1.8.0')
+						E('td', { class: 'td' }, info.current_version || '2.0.0')
 					]),
 					E('tr', { class: 'tr' }, [
 						E('td', { class: 'td', style: 'font-weight: bold;' }, 'Новая версия:'),
@@ -350,7 +350,7 @@ return view.extend({
 		}, status.transport ? formatTransportHuman(status.transport) : '—');
 
 		var uptimeNode = E('span', { id: 'sirin-uptime' }, formatUptime(status.uptime_sec));
-		var versionNode = E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '1.8.0');
+		var versionNode = E('span', { id: 'sirin-version', style: 'font-weight: bold;' }, status.version || '2.0.0');
 
 		var btnStart = E('button', {
 			class: 'btn cbi-button cbi-button-action',
@@ -411,7 +411,7 @@ return view.extend({
 			statusBadge.className = isRunning ? 'label success' : 'label warning';
 			statusBadge.textContent = isRunning ? ('Защита активна (PID: ' + (currentStatus.pid || '—') + ')') : 'Защита остановлена';
 
-			versionNode.textContent = currentStatus.version || '1.8.0';
+			versionNode.textContent = currentStatus.version || '2.0.0';
 			transportNode.textContent = isRunning ? formatTransportHuman(currentStatus.transport) : '—';
 			uptimeNode.textContent = isRunning ? formatUptime(currentStatus.uptime_sec) : '—';
 
@@ -1107,7 +1107,7 @@ return view.extend({
 					var lines = (res && res.lines) ? res.lines.join('\n') : '';
 					var report = [
 						'=== Отчёт диагностики Sirin VPN Router ===',
-						'Версия: ' + (currentStatus.version || '1.8.0'),
+						'Версия: ' + (currentStatus.version || '2.0.0'),
 						'Статус: ' + (currentStatus.running ? 'Работает (PID ' + currentStatus.pid + ')' : 'Остановлен'),
 						'Транспорт: ' + (currentStatus.transport || '—'),
 						'Профиль: ' + detectActivePreset(),

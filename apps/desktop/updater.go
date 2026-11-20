@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const DesktopVersion = "1.8.5"
+const DesktopVersion = "2.0.0"
 
 // UpdateInfo содержит информацию о доступном обновлении
 type UpdateInfo struct {

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CONFIG_FILE="${CONFIG_FILE:-/etc/sirin/client.toml}"
-VERSION="1.8.0"
+VERSION="2.0.0"
 
 # ВЫЗОВ ЧЕРЕЗ GO-БИНАРНИК (W3.1).
 # Если скомпилированный sirin-client доступен в системе, передаём обработку
