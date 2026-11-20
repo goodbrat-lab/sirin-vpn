@@ -385,10 +385,9 @@ class SirinVpnService : VpnService() {
             // нельзя, но и ронять заглушку из-за него нельзя тоже.
             try {
                 // IPv6 для заглушки Kill Switch: активирует IPv6 на интерфейсе
+                // (IPv6 DNS не добавляем: шлюз не несёт IPv6, и запросы к 2606:4700:: зависали бы)
                 builder.addAddress("fd00::1", 128)
                 builder.addRoute("::", 0)
-                builder.addDnsServer("2606:4700:4700::1111")
-                builder.addDnsServer("2001:4860:4860::8888")
             } catch (e: Throwable) {
                 TunnelLog.add(
                     "Kill Switch: IPv6 в заглушку забрать не вышло (${e.message})"
@@ -1422,11 +1421,11 @@ class SirinVpnService : VpnService() {
                     // IPv6 для туннеля: ULA-адрес (RFC 4193) активирует IPv6
                     // на tun-интерфейсе. Без него Android игнорирует addRoute("::", 0),
                     // и весь IPv6 уходит мимо туннеля (утечка).
+                    // IPv6 DNS (2606:4700:: / 2001:4860::) НЕ объявляем: шлюз не маршрутизирует v6,
+                    // поэтому системный резолвер не должен тратить время на таймауты по IPv6 DNS.
                     builder.addAddress("fd00::1", 128)
                     builder.addRoute("::", 0)
-                    builder.addDnsServer("2606:4700:4700::1111")
-                    builder.addDnsServer("2001:4860:4860::8888")
-                    TunnelLog.add("IPv6 забран в туннель и глушится — шлюз его не несёт")
+                    TunnelLog.add("IPv6 забран в туннель и быстро отклоняется (RST/ICMPv6) — шлюз его не несёт")
                 } catch (e: Throwable) {
                     TunnelLog.add(
                         "IPv6 В ТУННЕЛЬ ЗАБРАТЬ НЕ ВЫШЛО (${e.message}) — " +
