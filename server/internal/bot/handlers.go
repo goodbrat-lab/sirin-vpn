@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"sort"
@@ -101,20 +102,26 @@ func (b *Bot) handleMyKey(c tele.Context) error {
 	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", uk.UUID)
 	btn := &tele.ReplyMarkup{}
 	btnOpen := btn.URL("🕊 Открыть в Сирин", openURL)
+	btnQR := btn.Data("📷 QR-код", "my_qr:"+uk.UUID)
 	btnDevices := btn.Data("📱 Мои устройства", "my_dev:"+uk.UUID)
 	btnStars := btn.Data("⭐ Продлить через Stars", "my_stars:"+uk.UUID)
 	btn.Inline(
 		btn.Row(btnOpen),
-		btn.Row(btnDevices, btnStars),
+		btn.Row(btnQR, btnDevices),
+		btn.Row(btnStars),
 	)
 
-	text := fmt.Sprintf("🔑 *Твой ключ*\n\n"+
+	openwrtCmd := fmt.Sprintf("wget -O- https://crp.guseynovia.ru/install.sh | sh -s -- %s", uk.UUID)
+	text := fmt.Sprintf("🔑 *Твой ключ доступа*\n\n"+
 		"Имя: `%s`\n"+
 		"Ключ: `%s`\n"+
 		"Срок: *%s*\n"+
 		"Устройств: `%d / %d`\n\n"+
-		"Нажми на кнопку ниже, чтобы открыть приложение «Сирин» и применить ключ:\n"+
-		"[Открыть в Сирин](%s)", uk.Name, maskUUID(uk.UUID), expiryText, devicesCount, maxDevices, openURL)
+		"📱 *На телефоне:*\n"+
+		"Нажмите на кнопку *«🕊 Открыть в Сирин»* ниже, чтобы активировать ключ в 1 клик, либо откройте *«📷 QR-код»*.\n\n"+
+		"💻 *На роутере OpenWrt (вставьте в терминал):*\n"+
+		"`%s`\n\n"+
+		"[Открыть в Сирин](%s)", uk.Name, maskUUID(uk.UUID), expiryText, devicesCount, maxDevices, openwrtCmd, openURL)
 
 	return c.Send(text, btn, tele.ModeMarkdown)
 }
@@ -1097,6 +1104,39 @@ func (b *Bot) handleCallback(c tele.Context) error {
 			}
 		}
 		return c.Respond(&tele.CallbackResponse{Text: "Тариф не найден", ShowAlert: true})
+	}
+
+	// 16. Показ QR-кода ключа my_qr:<uuid>
+	if strings.HasPrefix(data, "my_qr:") {
+		uuidKey := strings.TrimPrefix(data, "my_qr:")
+		openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", uuidKey)
+		pngBytes, err := GenerateKeyQR(openURL)
+		if err != nil {
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка генерации QR", ShowAlert: true})
+		}
+
+		photo := &tele.Photo{
+			File: tele.FromReader(bytes.NewReader(pngBytes)),
+		}
+
+		caption := fmt.Sprintf(
+			"🕊 *QR-код для подключения к Sirin VPN*\n\n"+
+				"📱 *На телефоне:*\n"+
+				"• Отсканируйте этот QR-код камерой или встроенным сканером в приложении\n"+
+				"• Либо нажмите кнопку *«🕊 Открыть в Сирин»* ниже\n\n"+
+				"💻 *На роутере OpenWrt (1 строка в терминале):*\n"+
+				"`wget -O- https://crp.guseynovia.ru/install.sh | sh -s -- %s`\n\n"+
+				"🔑 *Ваш ключ:* `%s`",
+			uuidKey, maskUUID(uuidKey),
+		)
+
+		markup := &tele.ReplyMarkup{}
+		btnOpen := markup.URL("🕊 Открыть в Сирин", openURL)
+		btnDevs := markup.Data("📱 Мои устройства", "my_dev:"+uuidKey)
+		markup.Inline(markup.Row(btnOpen), markup.Row(btnDevs))
+
+		_ = c.Respond()
+		return c.Send(photo, caption, markup, tele.ModeMarkdown)
 	}
 
 	return c.Respond()

@@ -19,6 +19,7 @@ type Server struct {
 	storage       *Storage
 	relays        *relays.Storage
 	http          *http.Server
+	startTime     time.Time
 	monitorMu     sync.RWMutex
 	nodeStatus    map[string]NodeReport
 	consecutiveOk map[string]int
@@ -38,6 +39,7 @@ func New(cfg *Config, storage *Storage) *Server {
 		cfg:           cfg,
 		storage:       storage,
 		relays:        rs,
+		startTime:     time.Now(),
 		nodeStatus:    make(map[string]NodeReport),
 		consecutiveOk: make(map[string]int),
 		lastAlert:     make(map[string]string),
@@ -56,6 +58,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/v1/key", s.HandleKey)
 	mux.HandleFunc("/v1/params", s.HandleParams)
 	mux.HandleFunc("/health", s.HandleHealth)
+	mux.HandleFunc("/metrics", s.HandleMetrics)
 
 	// Админские (Bearer)
 	mux.HandleFunc("/v1/admin/health", s.requireAdmin(s.HandleAdminHealth))

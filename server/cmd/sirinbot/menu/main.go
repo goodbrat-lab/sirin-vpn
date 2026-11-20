@@ -568,6 +568,10 @@ func (m *Manager) handleCallback(c tele.Context) error {
 			if len(args) > 0 {
 				return m.HandleAddDevicePlatformCallback(c, args[0])
 			}
+		case "qr":
+			if len(args) > 0 {
+				return m.ShowClientQR(c, args[0])
+			}
 		}
 
 	case "diag":

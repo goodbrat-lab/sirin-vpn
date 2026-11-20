@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"strings"
@@ -55,8 +56,9 @@ func (m *Manager) ShowClientHome(c tele.Context, edit bool) error {
 
 		openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", client.UUID)
 		btnOpen := markup.URL("🕊 Открыть в Сирин", openURL)
+		btnQR := markup.Data("📷 QR-код", "my", "qr", client.UUID)
 		btnKey := markup.Data("🔑 Мой ключ", "my", "key")
-		btnTariffs := markup.Data("💳 Продлить доступ", "my", "tariffs")
+		btnTariffs := markup.Data("⭐ Продлить доступ", "my", "tariffs")
 		btnDiag := markup.Data("🩺 Проверить соединение", "my", "diag")
 		btnTickets := markup.Data("📋 Мои обращения", "ticket", "user_list")
 		btnFAQ := markup.Data("📖 Частые вопросы (FAQ)", "my", "faq")
@@ -73,7 +75,7 @@ func (m *Manager) ShowClientHome(c tele.Context, edit bool) error {
 		var allRows []tele.Row
 		allRows = append(allRows, warnRows...)
 		allRows = append(allRows,
-			markup.Row(btnOpen),
+			markup.Row(btnOpen, btnQR),
 			markup.Row(btnKey, btnTariffs),
 			markup.Row(btnDiag),
 			markup.Row(btnTickets, btnFAQ),
@@ -221,6 +223,42 @@ func (m *Manager) ShowClientKey(c tele.Context, edit bool) error {
 		return EditOrSend(c, text, markup)
 	}
 	return c.Send(text, markup, tele.ModeMarkdown)
+}
+
+// ShowClientQR отправляет QR-код и инструкцию по подключению.
+func (m *Manager) ShowClientQR(c tele.Context, uuidKey string) error {
+	openURL := fmt.Sprintf("https://crp.guseynovia.ru/key?uuid=%s", uuidKey)
+	pngBytes, err := bot.GenerateKeyQR(openURL)
+	if err != nil {
+		RespondAlert(c, "Ошибка генерации QR-кода")
+		return err
+	}
+
+	photo := &tele.Photo{
+		File: tele.FromReader(bytes.NewReader(pngBytes)),
+	}
+
+	caption := fmt.Sprintf(
+		"🕊 *QR-код для подключения к Сирин*\n\n"+
+			"📱 *На телефоне:*\n"+
+			"• Отсканируйте этот QR-код камерой или сканером в приложении «Сирин»\n"+
+			"• Либо нажмите кнопку *«🕊 Открыть в Сирин»* ниже\n\n"+
+			"💻 *На роутере OpenWrt (1 строка в терминале):*\n"+
+			"`wget -O- https://crp.guseynovia.ru/install.sh | sh -s -- %s`\n\n"+
+			"🔑 *Ваш ключ:* `%s`",
+		uuidKey, MaskUUID(uuidKey),
+	)
+
+	markup := &tele.ReplyMarkup{}
+	btnOpen := markup.URL("🕊 Открыть в Сирин", openURL)
+	btnHome := markup.Data("◀ В меню", "my", "home")
+	markup.Inline(
+		markup.Row(btnOpen),
+		markup.Row(btnHome),
+	)
+
+	_ = c.Respond()
+	return c.Send(photo, caption, markup, tele.ModeMarkdown)
 }
 
 // ShowAddDevicePrompt шаг 1 добавления устройства: ввод UUID.
