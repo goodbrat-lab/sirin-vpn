@@ -1696,6 +1696,10 @@ func (s *session) auth(
 		if err != nil {
 			return "", fmt.Errorf("Noise NK, сборка msg1: %w", err)
 		}
+		// Защита от классификаторов DPI: отправка фиктивного RTP-кадра (junk) для имитации WebRTC аудиопотока
+		if injector, ok := link.(interface{ InjectJunk(int) error }); ok {
+			_ = injector.InjectJunk(96)
+		}
 		s.logf("отправка UDP-пакета (Noise NK msg1)...")
 		_ = link.SetWriteDeadline(time.Now().Add(budget))
 		if _, err := link.Write(msg1); err != nil {

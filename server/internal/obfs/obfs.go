@@ -15,6 +15,7 @@ const (
 	PayloadType = 111 // Opus audio
 	PaddingMax  = 24  // Audio padding max
 	TagLen      = 16
+	DummyPrefix = "SIRIN_JUNK\x00"
 )
 
 // State хранит состояние обфускации для одного направления RTP-потока.
@@ -102,8 +103,22 @@ func (s *State) Wrap(payload []byte) ([]byte, error) {
 	return out, nil
 }
 
+// WrapDummy формирует валидный RTP-пакет заданной длины со случайным заполнением и меткой Junk.
+func (s *State) WrapDummy(payloadLen int) ([]byte, error) {
+	if payloadLen < len(DummyPrefix) {
+		payloadLen = len(DummyPrefix) + 32
+	}
+	payload := make([]byte, payloadLen)
+	copy(payload, DummyPrefix)
+	if _, err := rand.Read(payload[len(DummyPrefix):]); err != nil {
+		return nil, err
+	}
+	return s.Wrap(payload)
+}
+
 // Unwrap разбирает входящий RTP-пакет и расшифровывает полезную нагрузку.
 // Возвращает полезную нагрузку или ошибку, если пакет повреждён или не является валидным RTP.
+// Для фиктивных junk-пакетов возвращает пустой срез []byte{} без ошибки.
 func (s *State) Unwrap(wire []byte) ([]byte, error) {
 	if len(wire) < HeaderLen+1 {
 		return nil, errors.New("пакет короче минимальной длины RTP")
@@ -134,6 +149,9 @@ func (s *State) Unwrap(wire []byte) ([]byte, error) {
 	plain, err := s.aead.Open(nil, nonce[:], wire[HeaderLen:payloadEnd], wire[:HeaderLen])
 	if err != nil {
 		return nil, err
+	}
+	if len(plain) >= len(DummyPrefix) && string(plain[:len(DummyPrefix)]) == DummyPrefix {
+		return []byte{}, nil
 	}
 	return plain, nil
 }

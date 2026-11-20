@@ -14,6 +14,7 @@ const (
 	obfsPayloadType = 111 // audio; video было бы 96
 	obfsPaddingMax  = 24  // audio; video было бы 60
 	obfsTagLen      = 16
+	obfsDummyPrefix = "SIRIN_JUNK\x00"
 )
 
 // obfsState — состояние обфускации на одно направление одной сессии.
@@ -113,8 +114,23 @@ func (s *obfsState) wrap(payload []byte) ([]byte, error) {
 	return out, nil
 }
 
+// wrapDummy формирует валидный зашифрованный RTP-пакет заданной длины с фиктивной полезной нагрузкой (junk),
+// предназначенный для маскировки паттернов рукопожатия и keepalive от DPI анализаторов всплесков.
+func (s *obfsState) wrapDummy(payloadLen int) ([]byte, error) {
+	if payloadLen < len(obfsDummyPrefix) {
+		payloadLen = len(obfsDummyPrefix) + 32
+	}
+	payload := make([]byte, payloadLen)
+	copy(payload, obfsDummyPrefix)
+	if _, err := rand.Read(payload[len(obfsDummyPrefix):]); err != nil {
+		return nil, err
+	}
+	return s.wrap(payload)
+}
+
 // unwrap разбирает встречный пакет. Возвращает длину и признак успеха;
 // чужой или битый пакет — это не ошибка, а повод молча его выбросить.
+// Если встретился фиктивный junk-пакет (префикс obfsDummyPrefix), возвращается (0, true).
 func (s *obfsState) unwrap(wire []byte, dst []byte) (int, bool) {
 	if len(wire) < obfsHeaderLen+1 {
 		return 0, false
@@ -145,6 +161,10 @@ func (s *obfsState) unwrap(wire []byte, dst []byte) (int, bool) {
 	plain, err := s.aead.Open(nil, nonce[:], wire[obfsHeaderLen:payloadEnd], wire[:obfsHeaderLen])
 	if err != nil {
 		return 0, false
+	}
+	// Проверка на фиктивный (junk/decoy) пакет
+	if len(plain) >= len(obfsDummyPrefix) && string(plain[:len(obfsDummyPrefix)]) == obfsDummyPrefix {
+		return 0, true
 	}
 	if len(plain) > len(dst) {
 		return 0, false

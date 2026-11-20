@@ -99,6 +99,87 @@ type obfsPacketConn struct {
 	// они как поломка. Насос чтения (netToTun) про снятие знал и молчал
 	// правильно, а слой под ним — нет.
 	retired atomic.Bool
+
+	// pacer выполняет микросекундное сглаживание UDP-всплесков для предотвращения QoS-дропов операторов
+	pacer *udpPacer
+}
+
+// udpPacer реализует микросекундный шейпинг (token bucket) для устранения пиковых микро-всплесков UDP.
+type udpPacer struct {
+	enabled         bool
+	rateBytesPerSec int64         // 0 = без ограничения полосы (только минимальный интервал)
+	burstCapacity   int64         // максимальный размер всплеска в байтах
+	tokens          int64         // текущие доступные токены
+	minInterval     time.Duration // минимальный интервал между последовательными отправками датаграмм (например, 50 мкс)
+	lastSend        time.Time
+}
+
+func newUDPPacer(rateBytesPerSec int64, minInterval time.Duration) *udpPacer {
+	if minInterval < 0 {
+		minInterval = 0
+	}
+	burst := rateBytesPerSec / 10
+	if burst < 65536 {
+		burst = 65536
+	}
+	return &udpPacer{
+		enabled:         true,
+		rateBytesPerSec: rateBytesPerSec,
+		burstCapacity:   burst,
+		tokens:          burst,
+		minInterval:     minInterval,
+		lastSend:        time.Now(),
+	}
+}
+
+func (p *udpPacer) Pace(packetLen int) {
+	if p == nil || !p.enabled {
+		return
+	}
+	now := time.Now()
+
+	// 1. Минимальный микросекундный интервал между последовательными пакетами
+	if p.minInterval > 0 && !p.lastSend.IsZero() {
+		elapsed := now.Sub(p.lastSend)
+		if elapsed < p.minInterval {
+			sleepTime := p.minInterval - elapsed
+			if sleepTime > 0 && sleepTime < 10*time.Millisecond {
+				time.Sleep(sleepTime)
+				now = time.Now()
+			}
+		}
+	}
+
+	// 2. Token Bucket для ограничения пиковой полосы при установленном rateBytesPerSec
+	if p.rateBytesPerSec > 0 {
+		elapsed := now.Sub(p.lastSend)
+		if elapsed > 0 {
+			refill := int64(elapsed.Seconds() * float64(p.rateBytesPerSec))
+			p.tokens += refill
+			if p.tokens > p.burstCapacity {
+				p.tokens = p.burstCapacity
+			}
+		}
+
+		needed := int64(packetLen)
+		if p.tokens < needed {
+			deficit := needed - p.tokens
+			sleepSec := float64(deficit) / float64(p.rateBytesPerSec)
+			sleepDur := time.Duration(sleepSec * float64(time.Second))
+			if sleepDur > 50*time.Millisecond {
+				sleepDur = 50 * time.Millisecond
+			}
+			if sleepDur > 0 {
+				time.Sleep(sleepDur)
+				now = time.Now()
+			}
+			p.tokens = 0
+		} else {
+			p.tokens -= needed
+		}
+	}
+
+	p.lastSend = now
 }
 
 // maxWire — самый крупный пакет после обфускации, без обвязки TURN.
@@ -112,6 +193,7 @@ func newObfsPacketConn(inner net.PacketConn, state *obfsState, logf func(string,
 		state: state,
 		rbuf:  make([]byte, 2048),
 		logf:  logf,
+		pacer: newUDPPacer(0, 50*time.Microsecond),
 	}
 }
 
@@ -151,13 +233,11 @@ func (c *obfsPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 			// СЧИТАЕМ, ХОТЬ И МОЛЧИМ. Это наше единственное слепое
 			// место: пакет мог прийти и не пройти проверку целостности,
 			// и снаружи это неотличимо от «не пришёл вовсе».
-			//
-			// При анализе шлюза зафиксировано, что он ВТОРУЮ метку получил, расшифровал
-			// и отправил эхо без ошибки. Мы её не увидели. Осталось два
-			// объяснения: эхо потерялось на обратном проводе — или
-			// пришло, а мы его отбросили здесь. Число ниже разделяет их
-			// без единой догадки.
 			c.dropped.Add(1)
+			continue
+		}
+		if out == 0 {
+			// Фиктивный junk-пакет — пропускаем молча и продолжаем приём
 			continue
 		}
 		return out, addr, nil
@@ -168,6 +248,10 @@ func (c *obfsPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	// Присвоение номера и отправка — под одним замком, см. wmu.
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+
+	if c.pacer != nil {
+		c.pacer.Pace(len(p))
+	}
 
 	wire, err := c.state.wrap(p)
 	if err != nil {
@@ -237,6 +321,32 @@ func (c *obfsPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 		return 0, fmt.Errorf("неполная запись: ушло %d из %d байт", nw, len(wire))
 	}
 	return len(p), nil
+}
+
+// InjectJunk отправляет зашифрованный фиктивный RTP-пакет для маскировки перед DPI.
+func (c *obfsPacketConn) InjectJunk(addr net.Addr, payloadLen int) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+
+	wire, err := c.state.wrapDummy(payloadLen)
+	if err != nil {
+		return err
+	}
+	_, err = c.inner.WriteTo(wire, addr)
+	return err
+}
+
+// SetPacing настраивает параметры микросекундного шейпинга пакетов.
+func (c *obfsPacketConn) SetPacing(rateBytesPerSec int64, minInterval time.Duration) {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	if rateBytesPerSec == 0 && minInterval <= 0 {
+		if c.pacer != nil {
+			c.pacer.enabled = false
+		}
+		return
+	}
+	c.pacer = newUDPPacer(rateBytesPerSec, minInterval)
 }
 
 func (c *obfsPacketConn) Close() error                       { return c.inner.Close() }

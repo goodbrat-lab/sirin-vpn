@@ -326,7 +326,7 @@ func (s *Server) handleExistingSession(sess *Session, pkt []byte) {
 
 	// 1. Распаковка RTP/ChaCha20-Poly1305
 	plain, err := sess.obfsRx.Unwrap(pkt)
-	if err != nil {
+	if err != nil || len(plain) == 0 {
 		return
 	}
 

@@ -102,3 +102,11 @@ func (l *rawLink) Write(p []byte) (int, error) {
 func (l *rawLink) Close() error                       { return l.pc.Close() }
 func (l *rawLink) SetReadDeadline(t time.Time) error  { return l.pc.SetReadDeadline(t) }
 func (l *rawLink) SetWriteDeadline(t time.Time) error { return l.pc.SetWriteDeadline(t) }
+
+// InjectJunk отправляет фиктивный RTP-пакет для маскировки перед DPI.
+func (l *rawLink) InjectJunk(payloadLen int) error {
+	if l.pc == nil {
+		return nil
+	}
+	return l.pc.InjectJunk(l.raddr, payloadLen)
+}
