@@ -11,7 +11,14 @@ import (
 )
 
 func TestVerifyIPK(t *testing.T) {
-	distDir := filepath.Join("..", "dist")
+	distDir := t.TempDir()
+	routerRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("Abs routerRoot: %v", err)
+	}
+	if err := buildLuciPackages(routerRoot, distDir, "1.4.0"); err != nil {
+		t.Fatalf("buildLuciPackages: %v", err)
+	}
 	ipkPath := filepath.Join(distDir, "luci-app-sirin_1.4.0-1_all.ipk")
 
 	f, err := os.Open(ipkPath)
@@ -107,7 +114,14 @@ func TestVerifyIPK(t *testing.T) {
 }
 
 func TestVerifyAPK(t *testing.T) {
-	distDir := filepath.Join("..", "dist")
+	distDir := t.TempDir()
+	routerRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("Abs routerRoot: %v", err)
+	}
+	if err := buildLuciPackages(routerRoot, distDir, "1.4.0"); err != nil {
+		t.Fatalf("buildLuciPackages: %v", err)
+	}
 	apkPath := filepath.Join(distDir, "luci-app-sirin-1.4.0-r1.apk")
 
 	f, err := os.Open(apkPath)
