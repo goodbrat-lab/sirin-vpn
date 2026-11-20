@@ -136,3 +136,54 @@ func TestAutoStrategyPromotionAndFallback(t *testing.T) {
 		t.Fatalf("expected StrategyOOBSplit to be promoted as preferred for instagram.com, got %v", pref)
 	}
 }
+
+func TestForceVPNYouTubeAndDNSSnooping(t *testing.T) {
+	eng := NewEngine(nil)
+
+	if !IsForceVPNDomain("rr1---sn-gvnuxaxjvh-n8me.googlevideo.com") {
+		t.Fatalf("expected googlevideo subdomain to be ForceVPN")
+	}
+	if !IsForceVPNDomain("www.youtube.com.") {
+		t.Fatalf("expected youtube.com to be ForceVPN")
+	}
+	if IsForceVPNDomain("vk.com") {
+		t.Fatalf("vk.com must not be ForceVPN")
+	}
+
+	// 1. DNS Snooping должен мгновенно кэшировать IP для googlevideo.com и продвинуть всю группу YouTube
+	eng.RecordDNSResolvedIPs("rr3---sn-abc.googlevideo.com.", []net.IP{net.IPv4(173, 194, 76, 12)})
+	if !eng.IsIPFallbackActive(net.IPv4(173, 194, 76, 12)) {
+		t.Fatalf("expected resolved googlevideo IP to be active in VPN fallback cache")
+	}
+	if !eng.IsIPFallbackActive(net.IPv4(173, 194, 76, 99)) {
+		t.Fatalf("expected /24 subnet of googlevideo IP to be active in VPN fallback cache")
+	}
+	if !eng.IsFallbackActive("i.ytimg.com", "", "ytimg.com") {
+		t.Fatalf("expected related YouTube group domain ytimg.com to be promoted to VPN fallback")
+	}
+
+	// Обычные домены не должны попадать в VPN-кэш через DNS Snooping
+	eng.RecordDNSResolvedIPs("vk.com.", []net.IP{net.IPv4(87, 240, 137, 158)})
+	if eng.IsIPFallbackActive(net.IPv4(87, 240, 137, 158)) {
+		t.Fatalf("vk.com IP must not be added to VPN fallback cache")
+	}
+
+	// 2. DialAndDesync для googlevideo.com НЕ должен звонить в WAN (избегаем 112 B/s троттлинга ТСПУ)
+	dialCalled := false
+	dialFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dialCalled = true
+		return nil, context.DeadlineExceeded
+	}
+	ch := BuildFakeClientHello("rr5---sn-xyz.googlevideo.com")
+	eng2 := NewEngine(nil)
+	_, _, err := eng2.DialAndDesync(context.Background(), dialFunc, "142.250.74.202:443", ch, 2, 200*time.Millisecond)
+	if err == nil {
+		t.Fatalf("expected DialAndDesync to reject direct WAN for googlevideo.com")
+	}
+	if dialCalled {
+		t.Fatalf("DialAndDesync must not dial WAN for ForceVPN domain googlevideo.com")
+	}
+	if !eng2.IsIPFallbackActive(net.IPv4(142, 250, 74, 202)) {
+		t.Fatalf("expected target IP to be recorded in VPN fallback cache for next L3 fast-path SYN")
+	}
+}
