@@ -284,6 +284,25 @@ func buildLadder(resp *ParamsResponse) (*engine.Ladder, string, error) {
 				target,
 				sniCSV,
 			)
+		case "xhttp":
+			sniCSV := strings.Join(entry.SNIs, ",")
+			if sniCSV == "" {
+				sniCSV = entry.SNI
+			}
+			target := "127.0.0.1:56006"
+			_ = ladder.AddXHTTP(
+				entry.ID,
+				entry.Host,
+				int32(entry.Port),
+				vlessUUID,
+				entry.PBK,
+				entry.SID,
+				entry.SNI,
+				target,
+				sniCSV,
+				"/s1r1nxhttp2026k",
+				"stream-one",
+			)
 		}
 	}
 
