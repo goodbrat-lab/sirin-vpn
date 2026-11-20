@@ -9,10 +9,14 @@ import (
 	"unsafe"
 )
 
-// sendOOB отправляет префикс данных и 1 байт TCP Urgent (Out-of-Band, MSG_OOB)
-// в сокет. Анализаторы ТСПУ (stateful DPI) включают этот байт в общий поток
-// при сборке TLS ClientHello (ломая парсинг SNI), тогда как целевой сервер
-// (при стандартном SO_OOBINLINE=0) отбрасывает срочный байт вне потока.
+// sendOOB отправляет data через обычный write, затем 1 байт TCP Urgent (MSG_OOB).
+// Анализаторы ТСПУ (stateful DPI) склеивают OOB-байт с TLS-потоком (ломая SNI),
+// тогда как целевой TLS-сервер (SO_OOBINLINE=0 по умолчанию) отбрасывает его.
+//
+// ИСПРАВЛЕНИЕ: старая реализация копировала data+oobByte в один buf и отправляла
+// всё с флагом MSG_OOB — это некорректно. MSG_OOB должен содержать ровно 1 байт
+// срочных данных, отправляемый отдельным syscall. Результат: TLS-запись на сервере
+// получалась повреждённой (лишний байт в конце), соединение падало с TLS Alert.
 func sendOOB(conn net.Conn, data []byte, oobByte byte) error {
 	tc, ok := conn.(*net.TCPConn)
 	if !ok {
@@ -25,17 +29,20 @@ func sendOOB(conn net.Conn, data []byte, oobByte byte) error {
 		return werr
 	}
 
-	buf := make([]byte, len(data)+1)
-	copy(buf, data)
-	buf[len(data)] = oobByte
+	// Шаг 1: отправляем data обычным write (без MSG_OOB).
+	if _, err := tc.Write(data); err != nil {
+		return err
+	}
 
+	// Шаг 2: отправляем ровно 1 байт с флагом MSG_OOB.
+	oobBuf := [1]byte{oobByte}
 	var sendErr error
 	cerr := rc.Write(func(fd uintptr) bool {
 		_, _, errno := syscall.Syscall6(
 			syscall.SYS_SENDTO,
 			fd,
-			uintptr(unsafe.Pointer(&buf[0])),
-			uintptr(len(buf)),
+			uintptr(unsafe.Pointer(&oobBuf[0])),
+			1,
 			uintptr(syscall.MSG_OOB),
 			0,
 			0,

@@ -106,6 +106,214 @@ func checksumBytes(b []byte) uint32 {
 	return sum
 }
 
+// buildIPv6TCPReset строит IPv6 TCP RST в ответ на входящий IPv6 TCP пакет.
+// Используется для мгновенного отклонения IPv6-соединений: движок не поддерживает IPv6 на VPS,
+// поэтому вместо тихого дропа (→ таймаут Happy Eyeballs 2–5 сек) шлём RST,
+// и приложения моментально переходят на IPv4.
+func buildIPv6TCPReset(origPkt []byte) []byte {
+	// IPv6 header = 40 bytes, TCP header min = 20 bytes
+	if len(origPkt) < 60 || origPkt[0]>>4 != 6 || origPkt[6] != 6 {
+		return nil
+	}
+	srcIP := origPkt[8:24]
+	dstIP := origPkt[24:40]
+	l4 := origPkt[40:]
+	if len(l4) < 20 {
+		return nil
+	}
+	srcPort := l4[0:2]
+	dstPort := l4[2:4]
+	seqNum := binary.BigEndian.Uint32(l4[4:8])
+	ackNum := binary.BigEndian.Uint32(l4[8:12])
+	flags := l4[13]
+
+	// RST ответ: меняем src/dst местами
+	const totalLen = 40 + 20
+	pkt := make([]byte, totalLen)
+
+	// IPv6 header
+	pkt[0] = 0x60 // version=6, traffic class=0
+	// payload length = 20 (TCP header)
+	binary.BigEndian.PutUint16(pkt[4:6], 20)
+	pkt[6] = 6  // next header = TCP
+	pkt[7] = 64 // hop limit
+	copy(pkt[8:24], dstIP)
+	copy(pkt[24:40], srcIP)
+
+	// TCP header
+	tcp := pkt[40:]
+	copy(tcp[0:2], dstPort)
+	copy(tcp[2:4], srcPort)
+
+	// seq/ack для RST
+	var rstSeq, rstAck uint32
+	if flags&0x10 != 0 { // ACK set → seq = peer's ack
+		rstSeq = ackNum
+	} else {
+		rstSeq = 0
+		rstAck = seqNum + 1
+		tcp[13] = 0x14 // RST|ACK
+	}
+	binary.BigEndian.PutUint32(tcp[4:8], rstSeq)
+	binary.BigEndian.PutUint32(tcp[8:12], rstAck)
+	tcp[12] = 5 << 4 // data offset = 5 (20 bytes)
+	if tcp[13] == 0 {
+		tcp[13] = 0x04 // RST
+	}
+
+	// TCP checksum (pseudo-header IPv6)
+	var cs uint32
+	for i := 0; i < 16; i += 2 {
+		cs += uint32(binary.BigEndian.Uint16(pkt[8+i : 10+i]))
+		cs += uint32(binary.BigEndian.Uint16(pkt[24+i : 26+i]))
+	}
+	cs += 6  // next header = TCP
+	cs += 20 // TCP length
+	for i := 0; i < 20; i += 2 {
+		cs += uint32(binary.BigEndian.Uint16(tcp[i : i+2]))
+	}
+	for cs>>16 > 0 {
+		cs = (cs & 0xffff) + (cs >> 16)
+	}
+	binary.BigEndian.PutUint16(tcp[16:18], ^uint16(cs))
+
+	return pkt
+}
+
+// buildDNSEmptyAAAAResponse строит DNS-ответ NOERROR с 0 записями для AAAA-запроса.
+// Используется для подавления IPv6 адресов CDN-доменов на стороне TUN:
+// без этого ExoPlayer/Cronet получает AAAA ответы и пытается подключиться по IPv6,
+// который движок не поддерживает → 2–5 секундный таймаут Happy Eyeballs на каждое соединение.
+func buildDNSEmptyAAAAResponse(query []byte) []byte {
+	if len(query) < 12 {
+		return nil
+	}
+	resp := make([]byte, len(query))
+	copy(resp, query)
+	// QR=1 (response), OPCODE=0, AA=0, TC=0, RD=1, RA=1, RCODE=0 (NOERROR)
+	resp[2] = (query[2] & 0x01) | 0x81 // QR=1, RD=copy, RA=1
+	resp[3] = 0x80                      // RA=1, RCODE=0
+	// ANCOUNT=0, NSCOUNT=0, ARCOUNT=0 (оставляем нулями)
+	binary.BigEndian.PutUint16(resp[6:8], 0)
+	binary.BigEndian.PutUint16(resp[8:10], 0)
+	binary.BigEndian.PutUint16(resp[10:12], 0)
+	return resp
+}
+
+// dnsQueryType извлекает тип запроса (QTYPE) из DNS-пакета (первый вопрос).
+func dnsQueryType(query []byte) uint16 {
+	if len(query) < 12 {
+		return 0
+	}
+	pos := 12
+	for pos < len(query) {
+		l := int(query[pos])
+		if l == 0 {
+			pos++
+			break
+		}
+		if l&0xC0 == 0xC0 {
+			pos += 2
+			break
+		}
+		pos += 1 + l
+	}
+	if pos+4 > len(query) {
+		return 0
+	}
+	return binary.BigEndian.Uint16(query[pos : pos+2])
+}
+
+// dnsQueryName извлекает первое имя запроса из DNS-пакета.
+func dnsQueryName(query []byte) string {
+	if len(query) < 12 {
+		return ""
+	}
+	var name []byte
+	pos := 12
+	for pos < len(query) {
+		l := int(query[pos])
+		if l == 0 {
+			break
+		}
+		if l&0xC0 == 0xC0 {
+			break
+		}
+		if len(name) > 0 {
+			name = append(name, '.')
+		}
+		end := pos + 1 + l
+		if end > len(query) {
+			break
+		}
+		name = append(name, query[pos+1:end]...)
+		pos = end
+	}
+	return string(name)
+}
+
+// dnsParseARecords извлекает все A-записи из DNS-ответа.
+func dnsParseARecords(resp []byte) []net.IP {
+	if len(resp) < 12 {
+		return nil
+	}
+	ancount := int(binary.BigEndian.Uint16(resp[6:8]))
+	if ancount == 0 {
+		return nil
+	}
+	// Пропускаем секцию вопросов
+	pos := 12
+	qdcount := int(binary.BigEndian.Uint16(resp[4:6]))
+	for i := 0; i < qdcount; i++ {
+		for pos < len(resp) {
+			l := int(resp[pos])
+			if l == 0 {
+				pos++
+				break
+			}
+			if l&0xC0 == 0xC0 {
+				pos += 2
+				break
+			}
+			pos += 1 + l
+		}
+		pos += 4 // QTYPE + QCLASS
+	}
+
+	var ips []net.IP
+	for i := 0; i < ancount && pos < len(resp); i++ {
+		// Имя (может быть pointer или labels)
+		for pos < len(resp) {
+			l := int(resp[pos])
+			if l == 0 {
+				pos++
+				break
+			}
+			if l&0xC0 == 0xC0 {
+				pos += 2
+				break
+			}
+			pos += 1 + l
+		}
+		if pos+10 > len(resp) {
+			break
+		}
+		rtype := binary.BigEndian.Uint16(resp[pos : pos+2])
+		rdlen := int(binary.BigEndian.Uint16(resp[pos+8 : pos+10]))
+		pos += 10
+		if pos+rdlen > len(resp) {
+			break
+		}
+		if rtype == 1 && rdlen == 4 { // A record
+			ip := make(net.IP, 4)
+			copy(ip, resp[pos:pos+4])
+			ips = append(ips, ip)
+		}
+		pos += rdlen
+	}
+	return ips
+}
+
 // buildICMPPortUnreachable конструирует IPv4 ICMP Type 3 Code 3 (Port Unreachable) в ответ на UDP-пакет (например, QUIC :443).
 // Мгновенно переключает браузеры/приложения с QUIC на TCP :443 без ожидания таймаута.
 func buildICMPPortUnreachable(origPkt []byte) []byte {
@@ -242,6 +450,19 @@ func (tz *tunZapret) isBypassedDest(dstIP [4]byte) bool {
 // Возвращает true, если пакет обработан движком Zapret 2 локально (не нужно слать в VPS).
 // Возвращает false, если пакет должен идти через VPN-туннель на VPS.
 func (tz *tunZapret) handleOutbound(pkt []byte) bool {
+	// IPv6: движок не поддерживает IPv6 на VPS (нет маршрутизации/NAT6 на сервере).
+	// Вместо тихого дропа (→ 2–5 сек таймаут Happy Eyeballs) немедленно шлём TCP RST
+	// или ICMPv6 Destination Unreachable, чтобы приложения мгновенно перешли на IPv4.
+	if len(pkt) >= 40 && pkt[0]>>4 == 6 {
+		if pkt[6] == 6 && len(pkt) >= 60 { // IPv6+TCP
+			if rst := buildIPv6TCPReset(pkt); rst != nil {
+				_ = tz.writeTun(rst)
+			}
+		}
+		// Для UDP/ICMP6 — просто дропаем (нет смысла слать в VPS без v6 NAT)
+		return true
+	}
+
 	if len(pkt) < 20 || pkt[0]>>4 != 4 {
 		return false
 	}
@@ -515,6 +736,19 @@ func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]b
 	if tz.s == nil {
 		return
 	}
+
+	// ФИЛЬТР AAAA: если запрос — Type AAAA (28) для CDN-домена (или вообще для любого домена
+	// из DefaultBaseDomains), немедленно возвращаем пустой NOERROR-ответ.
+	// Это устраняет 2–5 сек задержки Happy Eyeballs без отключения IPv6 в системе.
+	if dnsQueryType(query) == 28 { // AAAA
+		if empty := buildDNSEmptyAAAAResponse(query); empty != nil {
+			if pkt := buildUDPIPv4Packet(dstIP, dstPort, srcIP, srcPort, empty); pkt != nil {
+				_ = tz.writeTun(pkt)
+			}
+		}
+		return
+	}
+
 	tz.initDoHClients()
 
 	var respBytes []byte
@@ -560,6 +794,18 @@ func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]b
 	if len(respBytes) == 0 {
 		return
 	}
+
+	// DNS IP SNOOPING: если для CDN-домена (googlevideo.com, youtube.com и т.п.)
+	// в кэше уже активен VPN-фоллбэк (wildcard) — сразу регистрируем все разрезолвленные A-адреса
+	// в кэше как VPN-цели. Это устраняет повторный цикл Zapret 2 для каждого нового CDN IP.
+	if qname := dnsQueryName(query); qname != "" {
+		if bd := zapret.MatchBaseDomain(qname); bd != "" {
+			if ips := dnsParseARecords(respBytes); len(ips) > 0 {
+				zapret.GlobalEngine.RecordDNSResolvedIPs(bd, ips)
+			}
+		}
+	}
+
 	if pkt := buildUDPIPv4Packet(dstIP, dstPort, srcIP, srcPort, respBytes); pkt != nil {
 		_ = tz.writeTun(pkt)
 	}

@@ -112,3 +112,6 @@ core/engine/vless/cmd/e2e-test/e2e-test*
 
 
 scratch/
+
+.kotlin/
+apps/android/.kotlin/

@@ -204,11 +204,41 @@ var GeoBlockedDomains = []string{
 // IsGeoBlockedSNI возвращает true, если домен блокирует российские IP-адреса со своей стороны (GeoIP)
 // и должен маршрутизироваться через зарубежный VPS-туннель, а не через прямой WAN с Zapret 2.
 func IsGeoBlockedSNI(sni string) bool {
-	sni = strings.ToLower(strings.TrimSpace(sni))
+	sni = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(sni), "."))
 	if sni == "" {
 		return false
 	}
 	for _, d := range GeoBlockedDomains {
+		if sni == d || strings.HasSuffix(sni, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// ForceVPNDomains — домены потоковых сервисов и CDN, для которых ТСПУ на мобильных сетях РФ
+// пропускает TLS Handshake, но жёстко душит пропускную способность потока (~112 Б/с).
+// Zapret 2 в этом случае ошибочно считает обход успешным (ServerHello получен), но видео
+// бесконечно буферизируется. Такие домены должны сразу идти через L3 fast-path VPS-туннеля.
+var ForceVPNDomains = []string{
+	"googlevideo.com",
+	"youtube.com",
+	"ytimg.com",
+	"ggpht.com",
+	"youtu.be",
+	"youtubei.googleapis.com",
+	"yt3.ggpht.com",
+	"wide-youtube.l.google.com",
+}
+
+// IsForceVPNDomain возвращает true, если домен подвержен скоростному троттлингу ТСПУ
+// (YouTube / GoogleVideo CDN) и должен всегда маршрутизироваться через VPN fast-path.
+func IsForceVPNDomain(sni string) bool {
+	sni = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(sni), "."))
+	if sni == "" {
+		return false
+	}
+	for _, d := range ForceVPNDomains {
 		if sni == d || strings.HasSuffix(sni, "."+d) {
 			return true
 		}
@@ -757,6 +787,8 @@ func (e *Engine) IsIPFallbackActive(ip net.IP) bool {
 }
 
 // RecordFailure фиксирует отказ всех стратегий Zapret 2 для данного SNI/IP и переводит его на VPN.
+// При 2+ сбоях активирует wildcard и продвигает всю группу сервисов (например, все домены YouTube)
+// в VPN fast-path через PromoteDomainGroupToVPN.
 func (e *Engine) RecordFailure(exactSNI, ipStr, baseDomain string) {
 	now := time.Now()
 	if exactSNI != "" {
@@ -777,6 +809,77 @@ func (e *Engine) RecordFailure(exactSNI, ipStr, baseDomain string) {
 			}
 			e.log("[zapret2] %d сбоев прямого обхода для %s -> активирован бесшовный VPN-фоллбэк %q на %v",
 				fails, baseDomain, wildcardKey, WildcardBlockedTTL)
+			// Продвигаем всю группу (YouTube → все CDN-домены) в VPN fast-path.
+			e.PromoteDomainGroupToVPN(baseDomain, now)
+		}
+	}
+}
+
+// relatedServiceDomains возвращает все домены одной группы сервиса для данного baseDomain.
+// Используется для группового перевода в VPN при блокировке любого из доменов группы.
+func relatedServiceDomains(baseDomain string) []string {
+	ytGroup := []string{
+		"youtube.com", "googlevideo.com", "ytimg.com", "ggpht.com",
+		"youtu.be", "youtubei.googleapis.com", "yt3.ggpht.com", "wide-youtube.l.google.com",
+	}
+	for _, d := range ytGroup {
+		if baseDomain == d {
+			return ytGroup
+		}
+	}
+	igGroup := []string{
+		"instagram.com", "cdninstagram.com", "fbcdn.net",
+		"facebook.com", "twitter.com", "x.com", "twimg.com", "t.co",
+	}
+	for _, d := range igGroup {
+		if baseDomain == d {
+			return igGroup
+		}
+	}
+	dcGroup := []string{
+		"discord.com", "discordapp.com", "discordapp.net",
+		"discord.gg", "discord.media", "discordapp.io", "dis.gd",
+	}
+	for _, d := range dcGroup {
+		if baseDomain == d {
+			return dcGroup
+		}
+	}
+	return []string{baseDomain}
+}
+
+// PromoteDomainGroupToVPN переводит всю группу доменов заблокированного сервиса
+// (например, YouTube: youtube.com + googlevideo.com + ytimg.com + ...) в wildcard VPN-фоллбэк.
+// Это устраняет повторные 4-секундные таймауты на каждом новом CDN IP-адресе группы.
+func (e *Engine) PromoteDomainGroupToVPN(baseDomain string, now time.Time) {
+	group := relatedServiceDomains(baseDomain)
+	promoted := false
+	for _, d := range group {
+		if _, loaded := e.vpnFallbackCache.LoadOrStore("*."+d, now.Add(WildcardBlockedTTL)); !loaded {
+			promoted = true
+		}
+	}
+	if promoted {
+		e.log("[zapret2] Группа доменов %v переведена в VPN fast-path (wildcard) на %v", group, WildcardBlockedTTL)
+	}
+}
+
+// RecordDNSResolvedIPs записывает все IP-адреса из DNS-ответа для CDN-доменов в кэш VPN-фоллбэка.
+// Вызывается из handleOutboundDNS при обработке DNS-ответов для доменов из DefaultBaseDomains.
+// Это обеспечивает мгновенный L3 fast-path для новых CDN IP-адресов (rr*.googlevideo.com и т.п.)
+// без повторного запуска цикла Zapret 2 для каждого нового IP.
+func (e *Engine) RecordDNSResolvedIPs(baseDomain string, ips []net.IP) {
+	if !e.IsFallbackActive("", "", baseDomain) {
+		return
+	}
+	now := time.Now()
+	for _, ip := range ips {
+		if ip4 := ip.To4(); ip4 != nil {
+			ipStr := ip4.String()
+			e.vpnFallbackCache.Store(ipStr, now.Add(WildcardBlockedTTL))
+			if sub := ipSubnet24(ipStr); sub != "" {
+				e.vpnFallbackCache.Store(sub, now.Add(WildcardBlockedTTL))
+			}
 		}
 	}
 }
