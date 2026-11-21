@@ -2,6 +2,7 @@ package engine
 
 import (
 	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -17,6 +18,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 )
 
 // Анонимная цепочка vkcalls: приложение само добывает креды TURN.
@@ -846,18 +850,13 @@ func (c *vkChain) retryWithCaptcha(
 // readBody читает тело, распаковывая при необходимости.
 //
 // РАСПАКОВЫВАТЬ ПРИХОДИТСЯ САМИМ, и это прямое следствие требования
-// ставить свой Accept-Encoding. Go добавляет gzip и распаковывает
-// прозрачно ТОЛЬКО когда заголовок пуст — условие
+// ставить свой Accept-Encoding (gzip, deflate, br, zstd). Go добавляет
+// gzip и распаковывает прозрачно ТОЛЬКО когда заголовок пуст — условие
 // `req.Header.Get("Accept-Encoding") == ""` в net/http/transport.go.
-// Мы его ставим, значит авто-распаковка выключена, и сырой gzip дошёл
-// бы до json.Unmarshal.
-//
-// br и zstd в стандартной библиотеке отсутствуют. Если сервер ответит
-// ими, честно скажем об этом, а не отдадим наверх мусор.
 func readBody(resp *http.Response) ([]byte, error) {
 	r := io.LimitReader(resp.Body, 1<<20)
 
-	switch enc := strings.ToLower(resp.Header.Get("Content-Encoding")); enc {
+	switch enc := strings.TrimSpace(strings.ToLower(resp.Header.Get("Content-Encoding"))); enc {
 	case "", "identity":
 		return io.ReadAll(r)
 	case "gzip":
@@ -867,10 +866,25 @@ func readBody(resp *http.Response) ([]byte, error) {
 		}
 		defer zr.Close()
 		return io.ReadAll(io.LimitReader(zr, 1<<20))
+	case "deflate":
+		zr, err := zlib.NewReader(r)
+		if err != nil {
+			return nil, fmt.Errorf("распаковка deflate: %w", err)
+		}
+		defer zr.Close()
+		return io.ReadAll(io.LimitReader(zr, 1<<20))
+	case "br":
+		br := brotli.NewReader(r)
+		return io.ReadAll(io.LimitReader(br, 1<<20))
+	case "zstd":
+		zr, err := zstd.NewReader(r)
+		if err != nil {
+			return nil, fmt.Errorf("распаковка zstd: %w", err)
+		}
+		defer zr.Close()
+		return io.ReadAll(io.LimitReader(zr, 1<<20))
 	default:
-		return nil, fmt.Errorf(
-			"ответ сжат как %q, а распаковать этим мы не умеем — "+
-				"в стандартной библиотеке нет ни br, ни zstd", enc)
+		return nil, fmt.Errorf("неподдерживаемый Content-Encoding %q", enc)
 	}
 }
 
