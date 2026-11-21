@@ -660,6 +660,9 @@ func TestGenerateNftablesRules_AntiDPI(t *testing.T) {
 	if !strings.Contains(rules, `ip daddr @antidpi_cidrs meta mark set 0x00000002 return`) {
 		t.Fatalf("Ожидался прямой выход трафика в WAN с маркой 0x2")
 	}
+	if !strings.Contains(rules, `iifname "br-lan" oifname "sirin0" udp dport 443 reject`) {
+		t.Fatalf("Ожидалась локальная блокировка QUIC (UDP 443) на выходе в sirin0")
+	}
 	if !strings.Contains(rules, `iifname "br-lan" ip daddr @antidpi_cidrs udp dport 443 reject`) {
 		t.Fatalf("Ожидалась блокировка QUIC (UDP 443) для форсирования TCP/HTTP2")
 	}

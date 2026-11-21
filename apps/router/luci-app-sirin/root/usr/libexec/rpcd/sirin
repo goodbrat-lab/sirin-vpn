@@ -17,7 +17,7 @@ if [ -n "$BIN" ] && [ -x "$BIN" ]; then
         call)
             cmd="$2"
             case "$cmd" in
-                status|get_config|set_config|get_split_config|set_split_config|get_antidpi_config|set_antidpi_config|get_force_vpn_config|set_force_vpn_config|get_whitelist_config|set_whitelist_config|get_psn_proxy_config|set_psn_proxy_config|get_service_proxy_config|set_service_proxy_config|get_ru_direct_info|leak_check|test_connection)
+                status|get_config|set_config|get_split_config|set_split_config|get_antidpi_config|set_antidpi_config|get_force_vpn_config|set_force_vpn_config|get_whitelist_config|set_whitelist_config|get_psn_proxy_config|set_psn_proxy_config|get_service_proxy_config|set_service_proxy_config)
                     input="$3"
                     if [ -z "$input" ]; then
                         input="$(cat 2>/dev/null)"
@@ -2074,6 +2074,21 @@ case "$1" in
     "username": "str",
     "password": "str",
     "via": "str",
+    "include_downloads": "bool"
+  },
+  "get_service_proxy_config": {},
+  "set_service_proxy_config": {
+    "enabled": "bool",
+    "services": "array",
+    "type": "str",
+    "host": "str",
+    "port": "int",
+    "username": "str",
+    "password": "str",
+    "via": "str",
+    "fallback": "str",
+    "domains": "array",
+    "exclude_domains": "array",
     "include_downloads": "bool"
   },
   "start": {},

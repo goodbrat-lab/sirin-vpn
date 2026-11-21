@@ -195,10 +195,14 @@ func main() {
 					directWANDNS.Stop()
 					directWANDNS = nil
 				}
+				var psnCfg *PSNProxyConfig
+				if sp := cfg.GetServiceProxyConfig(); sp != nil && sp.Enabled != nil && *sp.Enabled {
+					psnCfg = sp.ToPSNProxyConfig()
+				}
 				// Запускаем DNS-форвардер для прямых загрузок игр PS5 (dl.playstation.net -> WAN 0x2),
 				// если не выбран режим проксирования загрузок и не отключён RuDirect («Максимальная приватность»).
 				wantDirectDL := cfg.SplitTunnel != nil && cfg.SplitTunnel.UseRuDirect != nil && *cfg.SplitTunnel.UseRuDirect
-				if cfg.IsPSNProxyEnabled() && cfg.PSNProxy.IncludeDownloads {
+				if psnCfg != nil && psnCfg.IncludeDownloads {
 					wantDirectDL = false
 				}
 				if wantDirectDL {
@@ -220,13 +224,13 @@ func main() {
 					antiDPIServer.Stop()
 					antiDPIServer = nil
 				}
-				if cfg.IsPSNProxyEnabled() {
-					psnProxyServer = NewPSNProxyServer(*cfg.PSNProxy, currentDirectMatcher)
+				if psnCfg != nil {
+					psnProxyServer = NewPSNProxyServer(*psnCfg, currentDirectMatcher)
 					if err := psnProxyServer.Start(ctx); err != nil {
 						log.Printf("[psnproxy] Внимание: не удалось запустить PSN-прокси: %v", err)
 						psnProxyServer = nil
 					} else {
-						_ = writeDnsmasqDropIn(psnProxyDnsmasqFilename, BuildDnsmasqPSNProxyContent(cfg.PSNProxy))
+						_ = writeDnsmasqDropIn(psnProxyDnsmasqFilename, BuildDnsmasqPSNProxyContent(psnCfg))
 						needDnsmasqRestart = true
 						go psnProxyServer.SelfCheck(ctx)
 					}
@@ -246,9 +250,9 @@ func main() {
 				if cfg.IsForceVPNEnabled() {
 					fvOpts := cfg.GetForceVPNOptions()
 					fvDomains := cfg.ForceVPN.ResolveTargetDomains()
-					if psnProxyServer != nil {
+					if psnProxyServer != nil && psnCfg != nil {
 						// Домены PSN обслуживает PSN-прокси — убираем их из ForceVPN
-						fvDomains = cfg.PSNProxy.FilterOutPSNDomains(fvDomains)
+						fvDomains = psnCfg.FilterOutPSNDomains(fvDomains)
 					}
 					if len(fvDomains) > 0 {
 						_ = SetupDnsmasqForceVPN(fvDomains, fvOpts.DNSServer, false)

@@ -660,7 +660,7 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString("    chain dstnat {\n")
 		b.WriteString("        type nat hook prerouting priority dstnat; policy accept;\n")
 		if psnOpts.Enabled || antidpiOpts.Enabled {
-			b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @direct_wan_cidrs tcp dport 80 return\n", lanIface))
+			b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @direct_wan_cidrs tcp dport { 80, 443 } return\n", lanIface))
 		}
 		if psnOpts.Enabled {
 			// PSN-прокси имеет наивысший приоритет: раньше force_vpn и Anti-DPI
@@ -709,7 +709,7 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString(fmt.Sprintf("        iifname != \"%s\" return\n", lanIface))
 	b.WriteString("        ip daddr @local_cidrs return\n")
 	b.WriteString("        ct status dnat meta mark set 0x00000002 return\n")
-	b.WriteString("        ip daddr @direct_wan_cidrs tcp dport 80 meta mark set 0x00000002 return\n")
+	b.WriteString("        ip daddr @direct_wan_cidrs tcp dport { 80, 443 } meta mark set 0x00000002 return\n")
 	if forceVPNOpts.Enabled && len(forceVPNOpts.StaticCIDRs) > 0 {
 		b.WriteString("        ip daddr @force_vpn_static meta mark set 0x00000001 return\n")
 	}
@@ -728,7 +728,7 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString("        meta mark 0x00000002 return\n") // Protector VPN-сокета и прямой WAN-сокет уже имеют mark 0x2
 	b.WriteString("        meta mark 0x00000001 return\n") // Явный VPN-сокет (fallback) уже имеет mark 0x1
 	b.WriteString("        ip daddr @local_cidrs return\n")
-	b.WriteString("        ip daddr @direct_wan_cidrs tcp dport 80 meta mark set 0x00000002 return\n")
+	b.WriteString("        ip daddr @direct_wan_cidrs tcp dport { 80, 443 } meta mark set 0x00000002 return\n")
 	if forceVPNOpts.Enabled && len(forceVPNOpts.StaticCIDRs) > 0 {
 		b.WriteString("        ip daddr @force_vpn_static meta mark set 0x00000001 return\n")
 	}
@@ -760,9 +760,15 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	b.WriteString(fmt.Sprintf("        oifname \"%s\" masquerade\n", tunName))
 	b.WriteString("    }\n")
 
-	// Chain forward (фильтрация LAN -> TUN + блокировка DoT + блокировка QUIC для YouTube)
+	// Chain forward (фильтрация LAN -> TUN + блокировка DoT + локальный отказ QUIC)
 	b.WriteString("    chain forward {\n")
 	b.WriteString("        type filter hook forward priority 0; policy accept;\n")
+	if antidpiOpts.Enabled && antidpiOpts.QUICReject {
+		// Шлюз на VPS также отклоняет udp dport 443 на sirin0; локальный reject на роутере
+		// мгновенно возвращает LAN-клиентам (Android TV / YouTube / Cronet) ICMP Port Unreachable
+		// вместо зависания [UNREPLIED] QUIC-сессий и ошибки «нет подключения».
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" udp dport 443 reject\n", lanIface, tunName))
+	}
 	if psnOpts.Enabled {
 		// QUIC к адресам PSN режем, чтобы клиент перешёл на TCP и попал в прокси
 		b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @psn_proxy_cidrs udp dport 443 reject\n", lanIface))

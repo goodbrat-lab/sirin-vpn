@@ -40,23 +40,21 @@ func RPCSchema() map[string]any {
 		},
 		"get_antidpi_config": map[string]any{},
 		"set_antidpi_config": map[string]any{
-			"enabled":   "bool",
-			"mode":      "str",
-			"split_pos": "int",
-			"fake_sni":  "str",
-			"auto_ttl":  "bool",
-			"fake_ttl":  "int",
-			"fooling":   "str",
-			"quic":      "str",
-			"domains":   "array",
-			"ips":       "array",
+			"enabled":        "bool",
+			"port":           "int",
+			"split_pos":      "int",
+			"quic_reject":    "bool",
+			"youtube":        "bool",
+			"instagram":      "bool",
+			"discord":        "bool",
+			"custom_domains": "array",
 		},
 		"get_force_vpn_config": map[string]any{},
 		"set_force_vpn_config": map[string]any{
-			"enabled": "bool",
-			"domains": "array",
-			"ips":     "array",
-			"presets": "array",
+			"enabled":  "bool",
+			"services": "array",
+			"domains":  "array",
+			"cidrs":    "array",
 		},
 		"get_whitelist_config": map[string]any{},
 		"set_whitelist_config": map[string]any{
@@ -573,7 +571,7 @@ func rpcSetAntiDPIConfig(configPath string, rawInput string) error {
 	if input.Port != nil && *input.Port > 0 && *input.Port <= 65535 {
 		ad.Port = *input.Port
 	}
-	if input.SplitPos != nil && (*input.SplitPos >= 0 && *input.SplitPos <= 3) {
+	if input.SplitPos != nil && (*input.SplitPos >= 0 && *input.SplitPos <= 100) {
 		ad.SplitPos = *input.SplitPos
 	}
 	if input.QUICReject != nil {
