@@ -119,9 +119,10 @@ func DialXHTTP(ctx context.Context, uuid [16]byte, target string, cfg *XHTTPConf
 
 	req, err := buildXHTTPRequest(ctx, cfg, pr)
 	if err != nil {
-		pw.Close()
-		cc.Close()
-		conn.Close()
+		_ = pr.Close()
+		_ = pw.Close()
+		_ = cc.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	req.Header.Set("X-Accel-Buffering", "no")
@@ -132,23 +133,26 @@ func DialXHTTP(ctx context.Context, uuid [16]byte, target string, cfg *XHTTPConf
 
 	resp, err := cc.RoundTrip(req)
 	if err != nil {
-		pw.Close()
-		cc.Close()
-		conn.Close()
+		_ = pr.Close()
+		_ = pw.Close()
+		_ = cc.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("xhttp roundtrip: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		pw.Close()
-		cc.Close()
-		conn.Close()
+		_ = resp.Body.Close()
+		_ = pr.Close()
+		_ = pw.Close()
+		_ = cc.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("xhttp unexpected status: %s", resp.Status)
 	}
 
 	return &XHTTPConn{
 		uConn:    conn,
 		h2Conn:   cc,
+		pr:       pr,
 		pw:       pw,
 		respBody: resp.Body,
 	}, nil
@@ -158,6 +162,7 @@ func DialXHTTP(ctx context.Context, uuid [16]byte, target string, cfg *XHTTPConf
 type XHTTPConn struct {
 	uConn        net.Conn
 	h2Conn       *http2.ClientConn
+	pr           *io.PipeReader
 	pw           *io.PipeWriter
 	respBody     io.ReadCloser
 	mu           sync.Mutex
@@ -199,6 +204,9 @@ func (c *XHTTPConn) Close() error {
 		return nil
 	}
 	c.closed = true
+	if c.pr != nil {
+		_ = c.pr.Close()
+	}
 	if c.pw != nil {
 		_ = c.pw.Close()
 	}

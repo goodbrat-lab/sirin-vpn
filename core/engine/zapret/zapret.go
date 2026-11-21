@@ -330,6 +330,20 @@ func ExtractSNI(data []byte) (string, int) {
 	return "", -1
 }
 
+func indexHostHeader(data []byte) int {
+	for i := 0; i+7 <= len(data); i++ {
+		if data[i] == '\r' && data[i+1] == '\n' &&
+			(data[i+2]|0x20) == 'h' &&
+			(data[i+3]|0x20) == 'o' &&
+			(data[i+4]|0x20) == 's' &&
+			(data[i+5]|0x20) == 't' &&
+			data[i+6] == ':' {
+			return i
+		}
+	}
+	return -1
+}
+
 // ExtractHTTPHost извлекает заголовок Host из открытого HTTP-запроса и возвращает хост и смещение значения.
 func ExtractHTTPHost(data []byte) (string, int) {
 	if len(data) < 16 {
@@ -343,8 +357,7 @@ func ExtractHTTPHost(data []byte) (string, int) {
 		!bytes.HasPrefix(data, []byte("OPTIONS ")) {
 		return "", -1
 	}
-	lower := bytes.ToLower(data)
-	idx := bytes.Index(lower, []byte("\r\nhost:"))
+	idx := indexHostHeader(data)
 	if idx == -1 {
 		return "", -1
 	}
@@ -621,8 +634,7 @@ func FragmentAndSend(dst net.Conn, data []byte, splitPos int, hostOffset int) er
 	copy(buf, data)
 
 	// Если это HTTP-запрос — модифицируем регистр заголовка "Host:" -> "hOsT:" (техника hostcase в Zapret)
-	lower := bytes.ToLower(buf)
-	if idx := bytes.Index(lower, []byte("\r\nhost:")); idx != -1 {
+	if idx := indexHostHeader(buf); idx != -1 {
 		buf[idx+2] = 'h'
 		buf[idx+3] = 'O'
 		buf[idx+4] = 's'

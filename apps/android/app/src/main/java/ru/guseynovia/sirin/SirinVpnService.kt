@@ -615,10 +615,8 @@ class SirinVpnService : VpnService() {
                 kotlin.concurrent.thread(name = "sirin-quality-escalate") {
                     try {
                         Params.refreshWithEscalation()
-                        val netKey = PathMemory.networkKey(this@SirinVpnService)
-                        val knownId = PathMemory.remembered(this@SirinVpnService, netKey)
                         val ladder = buildLadder(
-                            known = knownId,
+                            known = null,
                             skipDirect = false,
                             secondRoundMs = Params.secondRoundMs(),
                             skipStreams = false,
@@ -2200,10 +2198,12 @@ class SirinVpnService : VpnService() {
             if (TunnelState.connected.value && pausedByTrustedWifi.compareAndSet(false, true)) {
                 TunnelLog.add("доверенный Wi-Fi обнаружен — ставлю туннель на паузу")
                 TunnelLog.event("доверенный Wi-Fi — автопауза")
+                generation.incrementAndGet()
                 try {
                     Engine.stop()
                 } catch (_: Throwable) {
                 }
+                dropBlackhole("доверенный Wi-Fi")
                 TunnelState.setConnected(false)
             }
             return

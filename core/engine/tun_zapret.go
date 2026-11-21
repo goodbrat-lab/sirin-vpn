@@ -106,6 +106,54 @@ func checksumBytes(b []byte) uint32 {
 	return sum
 }
 
+// buildIPv4TCPReset строит IPv4 TCP RST в ответ на входящий IPv4 TCP пакет (без SYN),
+// когда соответствующее соединение отсутствует, а VPS находится в спящем режиме.
+func buildIPv4TCPReset(origPkt []byte) []byte {
+	if len(origPkt) < 40 || origPkt[0]>>4 != 4 || origPkt[9] != 6 {
+		return nil
+	}
+	ihl := int(origPkt[0]&0x0f) * 4
+	if ihl < 20 || len(origPkt) < ihl+20 {
+		return nil
+	}
+	l4 := origPkt[ihl:]
+	flags := l4[13]
+	if flags&0x04 != 0 { // не отвечаем RST на RST
+		return nil
+	}
+	srcPort := binary.BigEndian.Uint16(l4[0:2])
+	dstPort := binary.BigEndian.Uint16(l4[2:4])
+	seqNum := binary.BigEndian.Uint32(l4[4:8])
+	ackNum := binary.BigEndian.Uint32(l4[8:12])
+	dataOff := int(l4[12]>>4) * 4
+	payloadLen := 0
+	if len(l4) > dataOff && dataOff >= 20 {
+		payloadLen = len(l4) - dataOff
+	}
+
+	out := make([]byte, 40)
+	out[0] = 0x45
+	binary.BigEndian.PutUint16(out[2:4], 40)
+	out[8] = 64
+	out[9] = 6
+	copy(out[12:16], origPkt[16:20]) // src = orig dst
+	copy(out[16:20], origPkt[12:16]) // dst = orig src
+
+	tcp := out[20:40]
+	binary.BigEndian.PutUint16(tcp[0:2], dstPort)
+	binary.BigEndian.PutUint16(tcp[2:4], srcPort)
+	tcp[12] = 5 << 4
+	if flags&0x10 != 0 {
+		binary.BigEndian.PutUint32(tcp[4:8], ackNum)
+		tcp[13] = 0x04 // RST
+	} else {
+		binary.BigEndian.PutUint32(tcp[8:12], seqNum+uint32(payloadLen)+1)
+		tcp[13] = 0x14 // RST | ACK
+	}
+	recomputeIPv4Checksums(out)
+	return out
+}
+
 // buildIPv6TCPReset строит IPv6 TCP RST в ответ на входящий IPv6 TCP пакет.
 // Используется для мгновенного отклонения IPv6-соединений: движок не поддерживает IPv6 на VPS,
 // поэтому вместо тихого дропа (→ таймаут Happy Eyeballs 2–5 сек) шлём RST,
@@ -607,6 +655,9 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 			if tz.s.hasActiveUpstream() {
 				return false
 			}
+			if rst := buildIPv4TCPReset(pkt[:totalLen]); rst != nil {
+				_ = tz.writeTun(rst)
+			}
 			return true
 		}
 
@@ -720,21 +771,26 @@ func (tz *tunZapret) handleOutboundUDP(srcIP [4]byte, srcPort uint16, dstIP [4]b
 	dstAddr := &net.UDPAddr{IP: net.IP(dstIP[:]), Port: int(dstPort)}
 	sent := flow.pktsSent.Add(1)
 
-	// На первом пакете не-DNS потока отправляем Zapret 2 UDP Fake Burst (IP_TTL=3) для обхода DPI (Discord Voice / STUN)
-	if sent == 1 && dstPort != 53 && dstPort != 123 {
-		_, _ = zapret.SendUDPWithFakeBurst(flow.pc, dstAddr, payload)
-	} else {
-		_, _ = flow.pc.WriteTo(payload, dstAddr)
-	}
-
-	// Если по не-DNS UDP потоку ушло >= 4 пакетов за > 1.5с, а ответов 0 — переключаем IP на VPN
+	// Если по не-DNS UDP потоку ушло >= 4 пакетов за > 1.5с, а ответов 0 — закрываем WAN-сокет и переключаем IP на VPN
 	if dstPort != 53 && dstPort != 123 && sent >= 4 && flow.pktsRecv.Load() == 0 && time.Since(flow.firstSent) > 1500*time.Millisecond {
+		tz.udpMu.Lock()
+		delete(tz.udpFlows, key)
+		tz.udpMu.Unlock()
+		_ = flow.pc.Close()
+
 		ipStr := net.IP(dstIP[:]).String()
 		zapret.GlobalEngine.RecordFailure("", ipStr, "")
 		go func() {
 			_ = tz.s.ensureUpstream()
 		}()
 		return false
+	}
+
+	// На первом пакете не-DNS потока отправляем Zapret 2 UDP Fake Burst (IP_TTL=3) для обхода DPI (Discord Voice / STUN)
+	if sent == 1 && dstPort != 53 && dstPort != 123 {
+		_, _ = zapret.SendUDPWithFakeBurst(flow.pc, dstAddr, payload)
+	} else {
+		_, _ = flow.pc.WriteTo(payload, dstAddr)
 	}
 	return true
 }
@@ -1116,20 +1172,29 @@ func (tz *tunZapret) dialUpstreamTCP(ctx context.Context, dstIP [4]byte, dstPort
 
 	conn.sendSyn()
 
-	select {
-	case <-conn.establishedCh:
-		return conn, nil
-	case <-conn.closedCh:
-		tz.removeUpstreamConn(localPort)
-		return nil, errors.New("соединение через VPN сброшено")
-	case <-ctx.Done():
-		_ = conn.Close()
-		tz.removeUpstreamConn(localPort)
-		return nil, ctx.Err()
-	case <-time.After(4 * time.Second):
-		_ = conn.Close()
-		tz.removeUpstreamConn(localPort)
-		return nil, errors.New("таймаут подключения через VPN")
+	synTicker := time.NewTicker(500 * time.Millisecond)
+	defer synTicker.Stop()
+	timeout := time.NewTimer(4 * time.Second)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case <-conn.establishedCh:
+			return conn, nil
+		case <-conn.closedCh:
+			tz.removeUpstreamConn(localPort)
+			return nil, errors.New("соединение через VPN сброшено")
+		case <-ctx.Done():
+			_ = conn.Close()
+			tz.removeUpstreamConn(localPort)
+			return nil, ctx.Err()
+		case <-synTicker.C:
+			conn.retransmitSyn()
+		case <-timeout.C:
+			_ = conn.Close()
+			tz.removeUpstreamConn(localPort)
+			return nil, errors.New("таймаут подключения через VPN")
+		}
 	}
 }
 
@@ -1354,6 +1419,13 @@ func (c *tunTCPConn) sendSyn() {
 	_ = c.writePacket(0x02, nil, seq, 0) // SYN
 }
 
+func (c *tunTCPConn) retransmitSyn() {
+	c.mu.Lock()
+	seq := c.mySeq - 1
+	c.mu.Unlock()
+	_ = c.writePacket(0x02, nil, seq, 0) // SYN retransmit
+}
+
 func (c *tunTCPConn) sendRST() {
 	c.mu.Lock()
 	seq := c.mySeq
@@ -1453,10 +1525,10 @@ func (c *tunTCPConn) onPeerPacket(l4 []byte) {
 	if flags&0x01 != 0 { // FIN
 		if seq+uint32(len(payload)) == c.peerNext {
 			c.peerNext++
+			c.peerEOF = true
+			c.notifyRx()
 		}
-		c.peerEOF = true
 		needAck = true
-		c.notifyRx()
 	}
 
 	mySeq := c.mySeq
@@ -1550,26 +1622,20 @@ func (c *tunTCPConn) Write(b []byte) (int, error) {
 				t.Stop()
 				return total, io.ErrClosedPipe
 			case <-t.C:
-				// Защита от дедлока при потере ACK на TUN: отправляем один сегмент-зонд.
+				// Защита от дедлока при потере ACK на TUN: отправляем 0-байтовый ACK-зонд без сдвига mySeq,
+				// чтобы собеседник прислал актуальный ACK и размер окна.
 				c.mu.Lock()
 				if c.closed {
 					c.mu.Unlock()
 					return total, io.ErrClosedPipe
 				}
 				seq := c.mySeq
-				c.mySeq += uint32(len(chunk))
 				ack := c.peerNext
 				c.mu.Unlock()
 
-				if err := c.writePacket(0x18, chunk, seq, ack); err != nil {
-					return total, err
-				}
-				b = b[len(chunk):]
-				total += len(chunk)
-				goto nextChunk
+				_ = c.writePacket(0x10, nil, seq, ack)
 			}
 		}
-	nextChunk:
 	}
 	return total, nil
 }

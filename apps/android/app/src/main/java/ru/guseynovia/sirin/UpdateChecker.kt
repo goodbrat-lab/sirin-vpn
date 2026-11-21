@@ -262,7 +262,7 @@ object UpdateChecker {
 
             if (checksumsUrl != null) {
                 checksumsData = downloadUrlToBytes(checksumsUrl)
-                if (checksumsData != null && apkName != null) {
+                if (checksumsData != null) {
                     val csText = String(checksumsData, Charsets.UTF_8)
                     for (line in csText.lines()) {
                         val parts = line.trim().split(Regex("\\s+"))
@@ -278,20 +278,16 @@ object UpdateChecker {
                 signatureData = downloadUrlToBytes(signatureUrl)
             }
 
-            if (apkUrl != null && apkName != null) {
-                ReleaseInfo(
-                    tagName = tagName,
-                    versionName = cleanVersion,
-                    downloadUrl = apkUrl,
-                    fileName = apkName,
-                    sizeBytes = apkSize,
-                    expectedSha256 = expectedSha256,
-                    checksumsData = checksumsData,
-                    signatureData = signatureData
-                )
-            } else {
-                null
-            }
+            ReleaseInfo(
+                tagName = tagName,
+                versionName = cleanVersion,
+                downloadUrl = apkUrl,
+                fileName = apkName,
+                sizeBytes = apkSize,
+                expectedSha256 = expectedSha256,
+                checksumsData = checksumsData,
+                signatureData = signatureData
+            )
         } finally {
             conn.disconnect()
         }

@@ -453,8 +453,21 @@ func (a *App) handleEvents(events <-chan desktop.Event) {
 			a.mu.Lock()
 			isExpected := (a.state == "disconnected")
 			a.state = "disconnected"
+			tun := a.tun
+			cancel := a.cancel
+			a.tun = nil
+			a.cancel = nil
+			a.handle = nil
 			a.mu.Unlock()
 			if !isExpected {
+				if cancel != nil {
+					cancel()
+				}
+				if tun != nil {
+					tun.Close()
+				}
+				_ = route.Cleanup()
+				_ = route.CleanupDNS("Sirin")
 				a.emitState("disconnected", ev.Reason)
 			}
 			a.emitLog("Туннель остановлен: "+ev.Reason, "info")
@@ -514,14 +527,15 @@ func fetchParams(key string, deadDropURLs []string, logFn func(string, string)) 
 			lastErr = err
 			continue
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("status %d from %s", resp.StatusCode, u)
 			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = err
 			continue
@@ -816,6 +830,9 @@ func buildLadder(resp *ParamsResponse, key string, wlCfg *WhitelistFallbackConfi
 }
 
 func physicalIfaceIndex() uint32 {
+	if _, ifIdx, err := route.GetPhysicalDefaultGateway(); err == nil && ifIdx > 0 {
+		return ifIdx
+	}
 	ifaces, err := net.Interfaces()
 	if err == nil {
 		for _, ifi := range ifaces {

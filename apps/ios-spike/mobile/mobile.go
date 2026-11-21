@@ -80,6 +80,12 @@ func (s stateAdapter) OnStopping(reason string) {
 }
 
 func (s stateAdapter) OnStopped(reason string) {
+	mu.Lock()
+	if cancel != nil {
+		cancel()
+		cancel = nil
+	}
+	mu.Unlock()
 	if s.fn != nil {
 		s.fn("[stopped] " + reason)
 	}
@@ -137,12 +143,8 @@ func SirinStart(uuid string, flow PacketFlow, logger Logger) error {
 		return err
 	}
 
-	ctx, c := context.WithCancel(context.Background())
+	_, c := context.WithCancel(context.Background())
 	cancel = c
-	go func() {
-		<-ctx.Done()
-		engine.Stop()
-	}()
 
 	deviceID := "ios-spike-" + fmt.Sprintf("%x", time.Now().UnixNano()&0xFFFFFF)
 	log("Sirin iOS Spike: Запуск сессии через engine.Connect...")
@@ -218,14 +220,15 @@ func fetchParams(key string) (*ParamsResponse, error) {
 			lastErr = err
 			continue
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP status %d", resp.StatusCode)
 			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = err
 			continue

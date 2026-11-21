@@ -527,13 +527,16 @@ type session struct {
 
 	// stunSeen — отражённый адрес, увиденный при подъёме. С ним
 	// сравнивается тот, что придёт в момент немоты.
-	stunSeen atomic.Value // string
-	txBytes  atomic.Uint64
-	rxBytes  atomic.Uint64
+	stunSeen   atomic.Value // string
+	txBytes    atomic.Uint64
+	rxBytes    atomic.Uint64
+	vpnTxBytes atomic.Uint64
+	vpnRxBytes atomic.Uint64
 
 	// slotsMax — верхний предел автоподбора. slotsAuto — включён ли он.
 	slotsMax  int
 	slotsAuto bool
+	growMu    sync.Mutex
 
 	// Гибридный режим Zapret 2 + ленивый VPN-туннель по требованию:
 	tz            *tunZapret
@@ -541,6 +544,7 @@ type session struct {
 	lazyLadder    *Ladder
 	lazyMu        sync.Mutex
 	upstreamReady atomic.Bool
+	escalating    atomic.Bool
 	localTunIP    [4]byte
 	upstreamTunIP [4]byte
 	lastUpstream  atomic.Int64
@@ -2077,10 +2081,18 @@ func (s *session) escalateVPN() {
 	if !s.lazyMode {
 		return
 	}
+	if !s.escalating.CompareAndSwap(false, true) {
+		return
+	}
 	s.logf("[stream] низкая пропускная способность потока — переключаю на более быстрый сервер")
 	notifyQualityDegraded("низкая скорость потока (буферизация)")
 
+	s.lazyMu.Lock()
 	lastWinner := s.winner
+	lastHost := s.winCand.host
+	lastPort := s.winCand.port
+	s.lazyMu.Unlock()
+
 	// Очищаем старый сигнал обновления лестницы перед запросом нового
 	select {
 	case <-s.ladderCh:
@@ -2089,6 +2101,8 @@ func (s *session) escalateVPN() {
 
 	s.parkUpstream("низкая скорость CDN: переключение на более быстрый маршрут")
 	go func() {
+		defer s.escalating.Store(false)
+
 		// Ждём до 2.5 сек, пока платформа запросит /v1/params?escalate=1 и вызовет UpdateLazyLadder
 		select {
 		case <-s.ladderCh:
@@ -2099,13 +2113,19 @@ func (s *session) escalateVPN() {
 		s.lazyMu.Lock()
 		if s.lazyLadder != nil && lastWinner != "" && lastWinner != "zapret2-direct" {
 			for i := range s.lazyLadder.items {
-				if s.lazyLadder.items[i].name == lastWinner {
-					s.lazyLadder.items[i].delay = 2 * time.Second
+				it := &s.lazyLadder.items[i]
+				matched := (lastHost != "" && it.host == lastHost && it.port == lastPort) ||
+					(lastHost == "" && it.name == lastWinner)
+				if matched {
+					it.remembered = false
+					it.delay = 2 * time.Second
 				}
 			}
 		}
 		s.lazyMu.Unlock()
 
+		// Снимаем флаг escalating перед ensureUpstream, чтобы поднять новый туннель
+		s.escalating.Store(false)
 		if err := s.ensureUpstream(); err != nil {
 			s.logf("[stream] не удалось переключиться: %v", err)
 		} else {
@@ -2126,20 +2146,20 @@ func (s *session) updateLazyLadder(ladder *Ladder) {
 }
 
 // l3ThroughputWatch отслеживает реальную скорость входящего L3 VPN-трафика (YouTube / видео-CDN).
-// Если идёт активное скачивание (>= 32 КБ/с и есть исходящие ACK/запросы), но скорость ниже
+// Если идёт активное скачивание (>= 64 КБ/с и есть исходящие ACK/запросы в L3), но скорость ниже
 // 5 Мбит/с (625 КБ/с) 4 секунды подряд — инициирует переключение на более быстрый сервер.
 func (s *session) l3ThroughputWatch(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
 	const (
-		minActiveBytes = 32 * 1024                // 32 КБ/с (отсекаем простой и фоновый keepalive)
+		minActiveBytes = 64 * 1024                // 64 КБ/с = 512 кбит/с (отсекаем простой, keepalive и аудио 320 кбит/с)
 		minFastBytes   = streamMinKbps * 1000 / 8 // 625 КБ/с = 5 Мбит/с
 		lowSecTrigger  = 4
 	)
 
-	prevRx := s.rxBytes.Load()
-	prevTx := s.txBytes.Load()
+	prevRx := s.vpnRxBytes.Load()
+	prevTx := s.vpnTxBytes.Load()
 	lowCount := 0
 
 	for {
@@ -2147,8 +2167,8 @@ func (s *session) l3ThroughputWatch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			curRx := s.rxBytes.Load()
-			curTx := s.txBytes.Load()
+			curRx := s.vpnRxBytes.Load()
+			curTx := s.vpnTxBytes.Load()
 			dRx := curRx - prevRx
 			dTx := curTx - prevTx
 			prevRx = curRx
@@ -2191,6 +2211,9 @@ func (s *session) lazyIdleWatch(ctx context.Context) {
 }
 
 func (s *session) writeRawToUpstream(pkt []byte) error {
+	if s.escalating.Load() {
+		return errors.New("переключение маршрута в процессе")
+	}
 	if err := s.ensureUpstream(); err != nil {
 		return err
 	}
@@ -2215,6 +2238,7 @@ func (s *session) writeRawToUpstream(pkt []byte) error {
 		return err
 	}
 	s.txBytes.Add(uint64(len(out)))
+	s.vpnTxBytes.Add(uint64(len(out)))
 	if s.txCount.Add(1) == 1 {
 		s.logf("первый пакет ушёл в туннель, %d байт", len(out))
 	}
@@ -2267,6 +2291,15 @@ func (s *session) tunToNet() {
 		if s.tz != nil && (s.probe == nil || !s.probe.active.Load()) && s.tz.handleOutbound(buf[:n]) {
 			s.txBytes.Add(uint64(n))
 			s.txCount.Add(1)
+			continue
+		}
+
+		// В гибридном режиме не блокируем цикл чтения TUN на время подъёма лестницы (до 25 с):
+		// если туннель ещё спит, будим его асинхронно.
+		if s.lazyMode && !s.hasActiveUpstream() {
+			if !s.escalating.Load() {
+				go func() { _ = s.ensureUpstream() }()
+			}
 			continue
 		}
 
@@ -2345,10 +2378,12 @@ func (s *session) netToTun(r *rung) {
 		}
 		if s.tz != nil && s.tz.handleInboundFromUpstream(buf[:n]) {
 			s.rxBytes.Add(uint64(n))
+			s.vpnRxBytes.Add(uint64(n))
 			s.rxCount.Add(1)
 			continue
 		}
 		s.rxBytes.Add(uint64(n))
+		s.vpnRxBytes.Add(uint64(n))
 		if s.rxCount.Add(1) == 1 {
 			s.logf("первый пакет пришёл из туннеля, %d байт", n)
 		}

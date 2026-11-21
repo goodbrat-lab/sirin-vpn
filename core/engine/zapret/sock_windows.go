@@ -18,7 +18,7 @@ const (
 	wsaeWouldBlock = syscall.Errno(10035)
 )
 
-// sendOOB отправляет данные + 1 срочный байт TCP Urgent (MSG_OOB) через Winsock2.
+// sendOOB отправляет data обычным TCP Write, затем ровно 1 срочный байт TCP Urgent (MSG_OOB) через Winsock2.
 func sendOOB(conn net.Conn, data []byte, oobByte byte) error {
 	tc, ok := conn.(*net.TCPConn)
 	if !ok {
@@ -31,16 +31,19 @@ func sendOOB(conn net.Conn, data []byte, oobByte byte) error {
 		return werr
 	}
 
-	buf := make([]byte, len(data)+1)
-	copy(buf, data)
-	buf[len(data)] = oobByte
+	if len(data) > 0 {
+		if _, err := tc.Write(data); err != nil {
+			return err
+		}
+	}
 
+	oobBuf := [1]byte{oobByte}
 	var sendErr error
 	cerr := rc.Write(func(fd uintptr) bool {
 		r1, _, e1 := procSend.Call(
 			fd,
-			uintptr(unsafe.Pointer(&buf[0])),
-			uintptr(len(buf)),
+			uintptr(unsafe.Pointer(&oobBuf[0])),
+			1,
 			uintptr(msgOOB),
 		)
 		if int32(r1) == -1 {

@@ -302,6 +302,8 @@ func (s *session) growSlots(n int) {
 	if s.dialer == nil || n <= 0 {
 		return
 	}
+	s.growMu.Lock()
+	defer s.growMu.Unlock()
 	have := len(s.slotList())
 	if have+n > s.slotsMax {
 		n = s.slotsMax - have
