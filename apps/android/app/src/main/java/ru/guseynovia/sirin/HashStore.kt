@@ -142,8 +142,12 @@ object HashStore {
         // нужно — человек сам сказал вкладкой, что это DION.
         val parsed = if (asDion) parseDion(input) else parseMany(input)
         if (parsed.isEmpty()) {
-            return if (asDion) "не нашёл код комнаты в ссылке — вставьте ссылку-приглашение DION целиком"
-            else "не разобрал ни одного хеша"
+            return if (asDion) {
+                if (parseMany(input).isNotEmpty()) "это ссылка на звонок VK — переключите вкладку на VK"
+                else "не нашёл код комнаты в ссылке — вставьте ссылку-приглашение DION целиком"
+            } else {
+                "не разобрал ни одного хеша"
+            }
         }
 
         val known = items.map { it.hash }.toHashSet()
@@ -173,8 +177,9 @@ object HashStore {
     fun parseDion(input: String): List<String> {
         val out = LinkedHashSet<String>()
         for (raw in input.split(',', ';', '\n', '\r', '\t', ' ')) {
-            val s = raw.trim()
+            val s = raw.trim().trim { it in "<>()[]\"'«».,;!?" }
             if (s.isEmpty()) continue
+            if (isExplicitVkLink(s)) continue
             normalize(s)?.takeIf { isDion(it) }?.let { out.add(it); continue }
             val path = s.substringAfter("://", s).substringBefore('?').substringBefore('#')
             val seg = path.split('/').drop(if (s.contains("://") || s.contains('.')) 1 else 0)
@@ -247,16 +252,43 @@ object HashStore {
         if (e.checkedAt == 0L) "не проверялся"
         else SimpleDateFormat("dd.MM HH:mm", Locale.US).format(Date(e.checkedAt))
 
+    private fun isExplicitVkLink(s: String): Boolean {
+        val low = s.lowercase()
+        return low.contains("/call/join/") ||
+            low.startsWith("vk://") ||
+            low.contains("vk.com/") ||
+            low.contains("vk.ru/") ||
+            low.contains("vk.me/") ||
+            low.contains("calls.vk.")
+    }
+
+    private fun looksLikeLink(s: String): Boolean {
+        val low = s.lowercase()
+        return low.contains("://") ||
+            isExplicitVkLink(low) ||
+            low.contains("dion.vc/") ||
+            low.startsWith("dion:")
+    }
+
     /**
      * Разбор нескольких хешей из одной строки.
      *
      * Разделители те же, что у роутерного клиента (спецификация-2 B.8,
      * ParseHashes): запятая, точка с запятой, перевод строки, таб,
      * пробел. Дубли отбрасываются молча.
+     *
+     * Если во входе есть ссылки (например, текст-приглашение из VK),
+     * разбираются только токены-ссылки, чтобы слова вокруг не попадали
+     * в пул под видом голых хешей.
      */
     fun parseMany(input: String): List<String> {
+        val tokens = input.split(',', ';', '\n', '\r', '\t', ' ')
+            .map { it.trim().trim { c -> c in "<>()[]\"'«».,;!?" } }
+            .filter { it.isNotEmpty() }
+        val hasLinks = tokens.any { looksLikeLink(it) }
         val out = LinkedHashSet<String>()
-        for (part in input.split(',', ';', '\n', '\r', '\t', ' ')) {
+        for (part in tokens) {
+            if (hasLinks && !looksLikeLink(part)) continue
             normalize(part)?.let { out.add(it) }
         }
         return out.toList()
@@ -265,15 +297,12 @@ object HashStore {
     /**
      * Одна ссылка или хеш → хеш.
      *
-     * Правила из normalizeVKJoinHash (спецификация-2, B.8):
-     * вырезать хеш из /call/join/<хеш>; принять голый хеш, если строка
-     * не начинается с http(s); отсечь всё после ?, # и /.
-     *
-     * Человек копирует из VK ссылку целиком, а не хеш, — поэтому разбор
-     * тут, а не на нём.
+     * Поддерживает полные ссылки VK (https/http/vk:// и без схемы,
+     * домены vk.com, vk.ru, vk.me, calls.vk.* с путями /call/join/,
+     * /join/, /call/ или параметром ?join=), ссылки DION и голые хеши.
      */
     fun normalize(raw: String): String? {
-        var s = raw.trim()
+        var s = raw.trim().trim { it in "<>()[]\"'«».,;!?" }
         if (s.isEmpty()) return null
 
         // КОМНАТА DION: https://dion.vc/event/<slug>, dion.vc/event/<slug> или dion:<slug>.
@@ -298,11 +327,23 @@ object HashStore {
             }
         }
 
-        if (s.startsWith("http://", true) || s.startsWith("https://", true)) {
-            val marker = "/call/join/"
-            val at = s.indexOf(marker, ignoreCase = true)
-            if (at < 0) return null
-            s = s.substring(at + marker.length)
+        val low = s.lowercase()
+        val callJoinMarker = "/call/join/"
+        val callJoinAt = low.indexOf(callJoinMarker)
+        if (callJoinAt >= 0) {
+            s = s.substring(callJoinAt + callJoinMarker.length)
+        } else if (isExplicitVkLink(s)) {
+            val joinAt = low.indexOf("/join/")
+            val callAt = low.indexOf("/call/")
+            val qJoin = Regex("(?i)[?&](?:join|hash)=([^&#]+)").find(s)?.groupValues?.get(1)
+            s = when {
+                joinAt >= 0 -> s.substring(joinAt + 6)
+                callAt >= 0 -> s.substring(callAt + 6)
+                qJoin != null -> qJoin
+                else -> return null
+            }
+        } else if (low.contains("://") || low.contains('/') || low.contains('.')) {
+            return null
         }
 
         // Отсекаем хвост: параметры, якорь, продолжение пути.
@@ -310,8 +351,9 @@ object HashStore {
             val at = s.indexOf(stop)
             if (at >= 0) s = s.substring(0, at)
         }
-        s = s.trim()
-        return s.ifEmpty { null }
+        s = s.trim().trim { it in "<>()[]\"'«».,;!?" }
+        if (!Regex("^[A-Za-z0-9_=-]{4,128}$").matches(s)) return null
+        return s
     }
 
     private fun read(): List<Entry> {
