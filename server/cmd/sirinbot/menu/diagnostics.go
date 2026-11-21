@@ -419,12 +419,15 @@ func (m *Manager) ExecuteDiagnostics(c tele.Context) error {
 
 	_ = EditOrSend(c, "⏳ *Выполняется комплексная диагностика...*\n\n_Проверяем ключ, API-сервер, параметры маршрутизации и релеи..._", &tele.ReplyMarkup{})
 
-	input := diagnostics.ClientInput{
-		Platform:   state.Data["platform"],
-		IssueType:  state.Data["issue"],
-		ClientIP:   state.Data["client_ip"],
-		AppVersion: state.Data["version"],
-		Transport:  state.Data["transport"],
+	var input diagnostics.ClientInput
+	if state != nil && state.Data != nil {
+		input = diagnostics.ClientInput{
+			Platform:   state.Data["platform"],
+			IssueType:  state.Data["issue"],
+			ClientIP:   state.Data["client_ip"],
+			AppVersion: state.Data["version"],
+			Transport:  state.Data["transport"],
+		}
 	}
 
 	deps := diagnostics.Dependencies{

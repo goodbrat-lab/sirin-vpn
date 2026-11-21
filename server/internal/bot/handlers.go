@@ -1207,6 +1207,10 @@ func (b *Bot) handlePayment(c tele.Context) error {
 			log.Printf("[SirinBot] failed to extend client %s: %v", clientUUID, err)
 			return c.Send(fmt.Sprintf("⚠️ Оплата (%d ⭐) получена, но произошла ошибка продления ключа: %v. Администратор оповещён.", payment.Total, err))
 		}
+		if updated != nil && updated.Revoked {
+			_, _ = b.clientsStorage.SetRevoked(clientUUID, false)
+			updated, _ = b.clientsStorage.Get(clientUUID)
+		}
 	}
 
 	// Сброс флагов напоминаний об истечении срока

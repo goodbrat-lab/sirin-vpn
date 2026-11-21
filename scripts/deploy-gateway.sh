@@ -293,8 +293,9 @@ vless_host = "$SERVER_IP"
 vless_port = 443
 vless_uuid = "$VLESS_UUID"
 vless_pbk = "$REALITY_PUB"
-vless_short_id = "$SHORT_ID"
-vless_sni = "$REALITY_SNI"
+vless_sid = "$SHORT_ID"
+xhttp_sid = "$SHORT_ID"
+vless_sni_pool = ["$REALITY_SNI", "www.kinopoisk.ru", "wildberries.ru"]
 EOF
 
 # 11.3 sirinbot.toml
@@ -315,17 +316,19 @@ if [ ! -f /etc/sirin/bot_users.json ]; then
 fi
 if [ ! -f /etc/sirin/relays.json ]; then
   cat > /etc/sirin/relays.json << EOF
-[
-  {
-    "id": 1,
-    "name": "Primary Relay",
-    "host": "$SERVER_IP",
-    "port": 56005,
-    "max_clients": 100,
-    "current_clients": 0,
-    "is_active": true
-  }
-]
+{
+  "relays": [
+    {
+      "id": 1,
+      "name": "Primary Relay",
+      "host": "$SERVER_IP",
+      "port_vless": 443,
+      "port_xhttp": 8443,
+      "max_clients": 100,
+      "enabled": true
+    }
+  ]
+}
 EOF
 fi
 

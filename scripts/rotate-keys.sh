@@ -69,12 +69,17 @@ fi
 
 # 3. Update sirinapi.toml with the new short ID
 if [ -f "$SIRINAPI_CONFIG" ]; then
-  if grep -q "vless_short_id" "$SIRINAPI_CONFIG"; then
-    sed -i "s/vless_short_id = .*/vless_short_id = \"$NEW_SHORT_ID\"/" "$SIRINAPI_CONFIG"
+  if grep -q "vless_sid" "$SIRINAPI_CONFIG"; then
+    sed -i "s/vless_sid = .*/vless_sid = \"$NEW_SHORT_ID\"/" "$SIRINAPI_CONFIG"
   else
-    echo "vless_short_id = \"$NEW_SHORT_ID\"" >> "$SIRINAPI_CONFIG"
+    echo "vless_sid = \"$NEW_SHORT_ID\"" >> "$SIRINAPI_CONFIG"
   fi
-  log "Updated $SIRINAPI_CONFIG with new vless_short_id"
+  if grep -q "xhttp_sid" "$SIRINAPI_CONFIG"; then
+    sed -i "s/xhttp_sid = .*/xhttp_sid = \"$NEW_SHORT_ID\"/" "$SIRINAPI_CONFIG"
+  else
+    echo "xhttp_sid = \"$NEW_SHORT_ID\"" >> "$SIRINAPI_CONFIG"
+  fi
+  log "Updated $SIRINAPI_CONFIG with new vless_sid & xhttp_sid"
 fi
 
 # 4. Gracefully reload or restart Xray container

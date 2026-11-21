@@ -201,16 +201,46 @@ func (s *Server) GetNodeReports() map[string]NodeReport {
 	return res
 }
 
-// GetNodeReport возвращает отчёт мониторинга по узлу с учётом 3-минутного TTL.
+// GetNodeReport возвращает отчёт мониторинга по узлу с учётом 3-минутного TTL
+// и фоллбэком на префикс "nl_to_" (отчёты watchdog со шлюза NL).
 func (s *Server) GetNodeReport(node string) (NodeReport, bool) {
 	s.monitorMu.RLock()
 	defer s.monitorMu.RUnlock()
 
 	rep, ok := s.nodeStatus[node]
+	if (!ok || time.Since(rep.UpdatedAt) > 3*time.Minute) && !strings.HasPrefix(node, "nl_to_") {
+		rep, ok = s.nodeStatus["nl_to_"+node]
+	}
 	if !ok || time.Since(rep.UpdatedAt) > 3*time.Minute {
 		return NodeReport{}, false
 	}
 	return rep, true
+}
+
+func (s *Server) resolveRelayNodeKey(relayID int) string {
+	if relayID == 0 {
+		return "nl"
+	}
+	if s.relays != nil {
+		if r, found := s.relays.GetByID(relayID); found {
+			nameLower := strings.ToLower(r.Name)
+			if strings.Contains(nameLower, "москва") || strings.Contains(nameLower, "moscow") {
+				return "moscow"
+			} else if strings.Contains(nameLower, "герман") || strings.Contains(nameLower, "germany") {
+				return "germany"
+			} else if strings.Contains(nameLower, "спб") || strings.Contains(nameLower, "spb") || strings.Contains(nameLower, "питер") {
+				return "spb"
+			}
+		}
+	}
+	switch relayID {
+	case 1:
+		return "moscow"
+	case 2:
+		return "germany"
+	default:
+		return fmt.Sprintf("relay_%d", relayID)
+	}
 }
 
 // SelectBestRelay адаптивно выбирает лучший узел подключения (0 = Direct NL, >0 = Relay ID)
@@ -323,15 +353,8 @@ func (s *Server) SelectBestRelay(preferredID int) (int, string) {
 
 // IsNodeDegraded проверяет, помечен ли узел как degraded (с TTL 3 минуты).
 func (s *Server) IsNodeDegraded(node string) bool {
-	s.monitorMu.RLock()
-	defer s.monitorMu.RUnlock()
-
-	rep, ok := s.nodeStatus[node]
+	rep, ok := s.GetNodeReport(node)
 	if !ok {
-		return false
-	}
-	// Если отчёт старше 3 минут — считаем неактуальным
-	if time.Since(rep.UpdatedAt) > 3*time.Minute {
 		return false
 	}
 	return rep.Status == "degraded"
@@ -339,16 +362,7 @@ func (s *Server) IsNodeDegraded(node string) bool {
 
 // IsRelayDegraded проверяет состояние релея по его ID.
 func (s *Server) IsRelayDegraded(relayID int) bool {
-	switch relayID {
-	case 1:
-		return s.IsNodeDegraded("moscow")
-	case 2:
-		return s.IsNodeDegraded("germany")
-	case 0:
-		return s.IsNodeDegraded("nl")
-	default:
-		return false
-	}
+	return s.IsNodeDegraded(s.resolveRelayNodeKey(relayID))
 }
 
 // SetNodeStatusForTest устанавливает статус узла для тестов.

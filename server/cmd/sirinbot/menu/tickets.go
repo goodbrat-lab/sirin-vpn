@@ -462,6 +462,11 @@ func (m *Manager) HandleTicketCallback(c tele.Context, action string, args []str
 	RespondSafe(c)
 	userID := c.Sender().ID
 
+	if strings.HasPrefix(action, "adm_") && !m.bot.IsAdmin(userID) {
+		RespondAlert(c, "⛔ Доступно только администратору.")
+		return nil
+	}
+
 	switch action {
 	case "send_diag":
 		return m.HandleCreateTicketFromDiag(c, "")

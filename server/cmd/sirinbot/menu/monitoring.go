@@ -85,7 +85,7 @@ func (m *Manager) CheckUserProactiveWarnings(userID int64) (string, []tele.Row) 
 							statusReason = "перегружен"
 						}
 						warnLines = append(warnLines, fmt.Sprintf("• *%s*: сервер-релей %s", d.Label, statusReason))
-						btnReset := markup.Data(fmt.Sprintf("🔄 Переключить «%s» на Direct NL", d.Label), "client", "set_relay", d.UUID, "0")
+						btnReset := markup.Data(fmt.Sprintf("🔄 Переключить «%s» на Direct NL", d.Label), "diag", "fix", "reset_relay_nl")
 						actionRows = append(actionRows, markup.Row(btnReset))
 					}
 				}

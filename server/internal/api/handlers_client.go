@@ -46,6 +46,20 @@ func (s *Server) HandleKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now().Unix()
+
+	// Проверка expired ПЕРЕД TouchDevice, чтобы просроченные ключи не занимали слоты устройств и не обновляли last_seen
+	if c.ExpiresAt != nil && c.ExpiresAt.Unix() < now {
+		writeJSON(w, 200, KeyVerdict{
+			Contract:  "v1", Status: "answered",
+			Verdict:   "expired", Bound: "none",
+			ExpiresAt: c.ExpiresAt.Unix(),
+			Since:     c.CreatedAt.Unix(),
+			Message:   "срок действия ключа истёк",
+		})
+		return
+	}
+
 	// Обновляем last_seen и применяем лимит устройств («семейный ключ»)
 	if deviceID != "" {
 		allowed, _ := s.storage.TouchDevice(key, deviceID)
@@ -58,20 +72,6 @@ func (s *Server) HandleKey(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-	}
-
-	now := time.Now().Unix()
-
-	// Проверка expired
-	if c.ExpiresAt != nil && c.ExpiresAt.Unix() < now {
-		writeJSON(w, 200, KeyVerdict{
-			Contract:  "v1", Status: "answered",
-			Verdict:   "expired", Bound: "none",
-			ExpiresAt: c.ExpiresAt.Unix(),
-			Since:     c.CreatedAt.Unix(),
-			Message:   "срок действия ключа истёк",
-		})
-		return
 	}
 
 	// Всё ок — MVP: всегда bound="this"
@@ -183,11 +183,16 @@ func (s *Server) HandleParams(w http.ResponseWriter, r *http.Request) {
 		effectiveRelayID = c.RelayID
 
 		// Проверяем, деградирован ли назначенный маршрут, либо запрошена авто-балансировка (relay_id < 0) или эскалация скорости (escalate=1)
-		if effectiveRelayID < 0 || s.IsRelayDegraded(effectiveRelayID) || r.URL.Query().Get("escalate") == "1" {
-			bestID, reason := s.SelectBestRelay(effectiveRelayID)
+		isEscalate := r.URL.Query().Get("escalate") == "1"
+		if effectiveRelayID < 0 || s.IsRelayDegraded(effectiveRelayID) || isEscalate {
+			pref := effectiveRelayID
+			if isEscalate {
+				pref = -1 // при эскалации скорости оцениваем релеи нейтрально, без бонуса текущему
+			}
+			bestID, reason := s.SelectBestRelay(pref)
 			if bestID != effectiveRelayID {
-				log.Printf("[WARN] /v1/params: client %s (orig relay_id=%d) is DEGRADED! Auto-balancing to relay_id=%d (%s)",
-					c.UUID, effectiveRelayID, bestID, reason)
+				log.Printf("[WARN] /v1/params: client %s (orig relay_id=%d, escalate=%v) balancing to relay_id=%d (%s)",
+					c.UUID, effectiveRelayID, isEscalate, bestID, reason)
 				isFallbackActive = true
 				effectiveRelayID = bestID
 			}

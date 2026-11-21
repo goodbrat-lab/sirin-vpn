@@ -240,12 +240,17 @@ func (m *Manager) handleCallback(c tele.Context) error {
 		return nil
 	}
 
-	// Разграничение доступа: категории личного кабинета доступны всем, остальное — только админам
+	// Разграничение доступа: категории личного кабинета, диагностики, FAQ и оплаты доступны всем, остальное — только админам
 	clientCategories := map[string]bool{
-		"my":     true,
-		"trial":  true,
-		"order":  true,
-		"ticket": true,
+		"my":        true,
+		"trial":     true,
+		"order":     true,
+		"ticket":    true,
+		"diag":      true,
+		"faq":       true,
+		"noop":      true,
+		"stars_buy": true,
+		"my_stars":  true,
 	}
 	if !clientCategories[category] && !m.bot.IsAdmin(c.Sender().ID) {
 		log.Printf("[CALLBACK DENY] user %d is not admin (cat=%q)", c.Sender().ID, category)
@@ -741,7 +746,14 @@ func (m *Manager) handleText(c tele.Context) error {
 		}
 	}
 
-	// 3. Если подключен Gemini AI — ведём естественный диалог с пользователем!
+	// 3. Активное FSM-состояние администратора обрабатываем ДО Gemini AI, чтобы текстовый ввод не уходил в чат с ИИ
+	if m.bot.IsAdmin(c.Sender().ID) && hasState {
+		if handled, err := m.handleAdminFSMText(c, state, text); handled {
+			return err
+		}
+	}
+
+	// 4. Если подключен Gemini AI — ведём естественный диалог с пользователем!
 	if m.bot.AI() != nil && m.bot.AI().IsEnabled() {
 		_ = c.Notify(tele.Typing)
 		answer, err := m.bot.AI().Ask(c.Sender().ID, text)
@@ -784,70 +796,76 @@ func (m *Manager) handleText(c tele.Context) error {
 		return c.Send("👋 *Sirin Bot — Панель администратора*\n\nВыберите действие или нажмите кнопку ниже:", markup, tele.ModeMarkdown)
 	}
 
+	if handled, err := m.handleAdminFSMText(c, state, text); handled {
+		return err
+	}
+	return nil
+}
+
+func (m *Manager) handleAdminFSMText(c tele.Context, state *State, text string) (bool, error) {
 	switch state.Action {
 	case "relay_add_name":
-		return m.HandleFSMAddRelayName(c, state, text)
+		return true, m.HandleFSMAddRelayName(c, state, text)
 	case "relay_add_host":
-		return m.HandleFSMAddRelayHost(c, state, text)
+		return true, m.HandleFSMAddRelayHost(c, state, text)
 	case "relay_add_port_vless":
-		return m.HandleFSMAddRelayPortVLESS(c, state, text)
+		return true, m.HandleFSMAddRelayPortVLESS(c, state, text)
 	case "relay_add_port_xhttp":
-		return m.HandleFSMAddRelayPortXHTTP(c, state, text)
+		return true, m.HandleFSMAddRelayPortXHTTP(c, state, text)
 	case "relay_add_max_clients":
-		return m.HandleFSMAddRelayMaxClients(c, state, text)
+		return true, m.HandleFSMAddRelayMaxClients(c, state, text)
 	case "relay_edit_limit":
-		return m.HandleFSMEditRelayLimit(c, state, text)
+		return true, m.HandleFSMEditRelayLimit(c, state, text)
 	case "relay_edit_host":
-		return m.HandleFSMEditRelayHost(c, state, text)
+		return true, m.HandleFSMEditRelayHost(c, state, text)
 
 	case "new_name", "new_days_custom":
-		return m.HandleFSMNewText(c, state, text)
+		return true, m.HandleFSMNewText(c, state, text)
 
 	case "clients_filter":
 		m.fsm.Clear(c.Sender().ID)
-		return m.ShowClientsList(c, 1, text, false)
+		return true, m.ShowClientsList(c, 1, text, false)
 
 	case "search_query":
 		m.fsm.Clear(c.Sender().ID)
 		all := m.bot.ClientsStorage().List()
 		client, err, ambiguous := bot.ResolveClient(all, text)
 		if err == nil {
-			return m.ShowClientCard(c, client, false)
+			return true, m.ShowClientCard(c, client, false)
 		}
 		if len(ambiguous) > 0 {
-			return m.ShowClientsList(c, 1, text, false)
+			return true, m.ShowClientsList(c, 1, text, false)
 		}
-		// Ничего не найдено
 		textMsg := fmt.Sprintf("По запросу «%s» ничего не найдено.", text)
 		markup := &tele.ReplyMarkup{}
 		btnSearchAgain := markup.Data("🔍 Искать снова", "menu", "search")
 		btnMain := markup.Data("🏠 В меню", "menu", "main")
 		markup.Inline(markup.Row(btnSearchAgain, btnMain))
-		return c.Send(textMsg, markup, tele.ModeMarkdown)
+		return true, c.Send(textMsg, markup, tele.ModeMarkdown)
 
 	case "rename_new":
-		return m.HandleFSMRenameText(c, state, text)
+		return true, m.HandleFSMRenameText(c, state, text)
 
 	case "extend_days":
-		return m.HandleFSMExtendCustomText(c, state, text)
+		return true, m.HandleFSMExtendCustomText(c, state, text)
 
 	case "shorten_days":
-		return m.HandleFSMShortenCustomText(c, state, text)
+		return true, m.HandleFSMShortenCustomText(c, state, text)
 
 	case "trial_custom_days":
 		days, err := strconv.Atoi(text)
 		if err != nil || days <= 0 {
-			return c.Send("Пожалуйста, введите количество дней числом (например, `45`):", tele.ModeMarkdown)
+			return true, c.Send("Пожалуйста, введите количество дней числом (например, `45`):", tele.ModeMarkdown)
 		}
 		if days > 3650 {
 			days = 3650
 		}
 		reqID := state.Data["req_id"]
 		m.fsm.Clear(c.Sender().ID)
-		return m.HandleAdminTrialApprove(c, reqID, days)
+		return true, m.HandleAdminTrialApprove(c, reqID, days)
 	}
 
-	return nil
+	return false, nil
 }
 
 // -----------------------------------------------------------------------------

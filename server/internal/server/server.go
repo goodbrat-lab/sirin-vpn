@@ -334,9 +334,15 @@ func (s *Server) handleExistingSession(sess *Session, pkt []byte) {
 
 	switch st {
 	case StateHandshakeSent:
+		sess.mu.Lock()
+		if sess.state != StateHandshakeSent {
+			sess.mu.Unlock()
+			return
+		}
 		// Ожидается сообщение AUTH, зашифрованное через Noise
 		decrypted, err := sess.noise.DecryptAuth(plain)
 		if err != nil {
+			sess.mu.Unlock()
 			log.Printf("[Sirin Server] Ошибка DecryptAuth от %s: %v", sess.addr.String(), err)
 			return
 		}
@@ -345,31 +351,33 @@ func (s *Server) handleExistingSession(sess *Session, pkt []byte) {
 		parts := strings.Split(authStr, "|")
 		// Ожидаемый формат: AUTH|<uuid>|<device>|<caps>
 		if len(parts) < 2 || parts[0] != "AUTH" {
+			sess.mu.Unlock()
 			log.Printf("[Sirin Server] Некорректный синтаксис AUTH от %s: %q", sess.addr.String(), authStr)
 			return
 		}
 
 		clientUUID := parts[1]
 		if clientUUID != sess.clientUUID {
+			sess.mu.Unlock()
 			log.Printf("[Sirin Server] Несовпадение UUID в AUTH (%s != %s)", clientUUID, sess.clientUUID)
 			return
 		}
 
-		// Выделение туннельного IP (начиная с .2, т.к. шлюз .1)
-		seq := s.clientIPSeq.Add(1)
-		tunIP := net.IPv4(10, 77, 77, byte(seq)) // 10.77.77.2, .3, ...
-		sess.mu.Lock()
+		s.mu.Lock()
+		tunIP, err := s.allocateTunIPLocked(sess)
+		s.mu.Unlock()
+		if err != nil {
+			sess.mu.Unlock()
+			log.Printf("[Sirin Server] Не удалось выделить туннельный IP для %s: %v", sess.addr.String(), err)
+			return
+		}
 		sess.tunIP = tunIP
 		sess.state = StateAuthenticated
-		sess.mu.Unlock()
-
-		s.mu.Lock()
-		s.byTunIP[tunIP.String()] = sess
-		s.mu.Unlock()
 
 		// Формирование ответа: OK|<tunIP>|<gatewayIP>|<netmaskHex>|echo
 		okResp := fmt.Sprintf("OK|%s|%s|ffffff00|echo", tunIP.String(), s.cfg.TunIP)
 		encResp, err := sess.noise.EncryptResponse([]byte(okResp))
+		sess.mu.Unlock()
 		if err != nil {
 			log.Printf("[Sirin Server] Ошибка шифрования ответа OK: %v", err)
 			return
@@ -634,7 +642,10 @@ func (s *Server) handleTCPConn(conn net.Conn) {
 		s.mu.Lock()
 		delete(s.sessions, remoteAddr)
 		if sess.tunIP != nil {
-			delete(s.byTunIP, sess.tunIP.String())
+			ipKey := sess.tunIP.String()
+			if s.byTunIP[ipKey] == sess {
+				delete(s.byTunIP, ipKey)
+			}
 		}
 		sess.SetState(StateClosed)
 		s.mu.Unlock()
@@ -658,15 +669,17 @@ func (s *Server) handleTCPConn(conn net.Conn) {
 		sess.Touch()
 
 		plain, err := sess.obfsRx.Unwrap(frame)
-		if err != nil {
+		if err != nil || len(plain) == 0 {
 			continue
 		}
 
 		st := sess.State()
 		switch st {
 		case StateHandshakeSent:
+			sess.mu.Lock()
 			decrypted, err := sess.noise.DecryptAuth(plain)
 			if err != nil {
+				sess.mu.Unlock()
 				log.Printf("[Sirin Server] Ошибка DecryptAuth от %s: %v", remoteAddr, err)
 				return
 			}
@@ -674,29 +687,32 @@ func (s *Server) handleTCPConn(conn net.Conn) {
 			authStr := string(decrypted)
 			parts := strings.Split(authStr, "|")
 			if len(parts) < 2 || parts[0] != "AUTH" {
+				sess.mu.Unlock()
 				log.Printf("[Sirin Server] Некорректный синтаксис AUTH от %s: %q", remoteAddr, authStr)
 				return
 			}
 
 			clientUUID := parts[1]
 			if clientUUID != sess.clientUUID {
+				sess.mu.Unlock()
 				log.Printf("[Sirin Server] Несовпадение UUID в AUTH (%s != %s)", clientUUID, sess.clientUUID)
 				return
 			}
 
-			seq := s.clientIPSeq.Add(1)
-			tunIP := net.IPv4(10, 77, 77, byte(seq))
-			sess.mu.Lock()
+			s.mu.Lock()
+			tunIP, err := s.allocateTunIPLocked(sess)
+			s.mu.Unlock()
+			if err != nil {
+				sess.mu.Unlock()
+				log.Printf("[Sirin Server] Не удалось выделить туннельный IP для %s: %v", remoteAddr, err)
+				return
+			}
 			sess.tunIP = tunIP
 			sess.state = StateAuthenticated
-			sess.mu.Unlock()
-
-			s.mu.Lock()
-			s.byTunIP[tunIP.String()] = sess
-			s.mu.Unlock()
 
 			okResp := fmt.Sprintf("OK|%s|%s|ffffff00|echo", tunIP.String(), s.cfg.TunIP)
 			encResp, err := sess.noise.EncryptResponse([]byte(okResp))
+			sess.mu.Unlock()
 			if err != nil {
 				log.Printf("[Sirin Server] Ошибка шифрования ответа OK: %v", err)
 				return
@@ -760,7 +776,10 @@ func (s *Server) sessionCleanupLoop() {
 				if now.Sub(sess.LastSeen()) > ttl {
 					delete(s.sessions, k)
 					if sess.tunIP != nil {
-						delete(s.byTunIP, sess.tunIP.String())
+						ipKey := sess.tunIP.String()
+						if s.byTunIP[ipKey] == sess {
+							delete(s.byTunIP, ipKey)
+						}
 					}
 					sess.SetState(StateClosed)
 					if sess.tcpConn != nil {
@@ -772,4 +791,24 @@ func (s *Server) sessionCleanupLoop() {
 			s.mu.Unlock()
 		}
 	}
+}
+
+// allocateTunIPLocked выделяет свободный туннельный IP из диапазона .2..254
+// (исключая адрес сети .0, шлюз .1 и broadcast .255). Требует удержания s.mu.
+func (s *Server) allocateTunIPLocked(sess *Session) (net.IP, error) {
+	baseIP := net.ParseIP(s.cfg.TunIP).To4()
+	if baseIP == nil {
+		baseIP = net.IPv4(10, 77, 77, 1).To4()
+	}
+	for i := 0; i < 253; i++ {
+		seq := s.clientIPSeq.Add(1)
+		hostOctet := byte((seq-2)%253 + 2)
+		candidate := net.IPv4(baseIP[0], baseIP[1], baseIP[2], hostOctet)
+		key := candidate.String()
+		if existing, busy := s.byTunIP[key]; !busy || existing == nil {
+			s.byTunIP[key] = sess
+			return candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("пул туннельных IP (%d.%d.%d.2..254) исчерпан", baseIP[0], baseIP[1], baseIP[2])
 }

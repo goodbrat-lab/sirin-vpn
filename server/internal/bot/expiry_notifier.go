@@ -96,8 +96,8 @@ func (en *ExpiryNotifier) CheckExpirations() (notified3d int, notified1d int, no
 			// Отправляем, если ещё не отправляли за последние 5 дней
 			if u.NotifiedExpiry3dAt == 0 || now.Sub(time.Unix(u.NotifiedExpiry3dAt, 0)) > 5*24*time.Hour {
 				markup := &tele.ReplyMarkup{}
-				btnStars := markup.Data("⭐ Продлить на 1 мес (75 ⭐)", "stars_buy:1m:"+u.UUID)
-				btnTariffs := markup.Data("💳 Все тарифы", "my_stars:"+u.UUID)
+				btnStars := markup.Data("⭐ Продлить на 1 мес (75 ⭐)", "order", "stars", "1m")
+				btnTariffs := markup.Data("💳 Все тарифы", "my", "tariffs")
 				markup.Inline(
 					markup.Row(btnStars),
 					markup.Row(btnTariffs),
@@ -114,7 +114,7 @@ func (en *ExpiryNotifier) CheckExpirations() (notified3d int, notified1d int, no
 					u.NotifiedExpiry3dAt = now.Unix()
 					_ = en.bot.storage.Set(*u)
 					notified3d++
-					log.Printf("[ExpiryNotifier] 3-day reminder sent to user %d (uuid %s)", u.TelegramID, u.UUID[:8])
+					log.Printf("[ExpiryNotifier] 3-day reminder sent to user %d (uuid %s)", u.TelegramID, MaskUUID(u.UUID))
 				}
 			}
 			continue
@@ -125,8 +125,8 @@ func (en *ExpiryNotifier) CheckExpirations() (notified3d int, notified1d int, no
 			// Отправляем, если ещё не отправляли за последние 2 дня
 			if u.NotifiedExpiry1dAt == 0 || now.Sub(time.Unix(u.NotifiedExpiry1dAt, 0)) > 2*24*time.Hour {
 				markup := &tele.ReplyMarkup{}
-				btnStars := markup.Data("⭐ Продлить сейчас (75 ⭐)", "stars_buy:1m:"+u.UUID)
-				btnTariffs := markup.Data("💳 Все тарифы", "my_stars:"+u.UUID)
+				btnStars := markup.Data("⭐ Продлить сейчас (75 ⭐)", "order", "stars", "1m")
+				btnTariffs := markup.Data("💳 Все тарифы", "my", "tariffs")
 				markup.Inline(
 					markup.Row(btnStars),
 					markup.Row(btnTariffs),
@@ -143,7 +143,7 @@ func (en *ExpiryNotifier) CheckExpirations() (notified3d int, notified1d int, no
 					u.NotifiedExpiry1dAt = now.Unix()
 					_ = en.bot.storage.Set(*u)
 					notified1d++
-					log.Printf("[ExpiryNotifier] 1-day reminder sent to user %d (uuid %s)", u.TelegramID, u.UUID[:8])
+					log.Printf("[ExpiryNotifier] 1-day reminder sent to user %d (uuid %s)", u.TelegramID, MaskUUID(u.UUID))
 				}
 			}
 			continue
@@ -153,7 +153,7 @@ func (en *ExpiryNotifier) CheckExpirations() (notified3d int, notified1d int, no
 		if diff <= 0 && diff > -24*time.Hour {
 			if u.NotifiedExpiredAt == 0 || now.Sub(time.Unix(u.NotifiedExpiredAt, 0)) > 5*24*time.Hour {
 				markup := &tele.ReplyMarkup{}
-				btnStars := markup.Data("⭐ Возобновить подписку", "my_stars:"+u.UUID)
+				btnStars := markup.Data("⭐ Возобновить подписку", "my", "tariffs")
 				markup.Inline(markup.Row(btnStars))
 
 				text := fmt.Sprintf(
@@ -167,7 +167,7 @@ func (en *ExpiryNotifier) CheckExpirations() (notified3d int, notified1d int, no
 					u.NotifiedExpiredAt = now.Unix()
 					_ = en.bot.storage.Set(*u)
 					notifiedExp++
-					log.Printf("[ExpiryNotifier] expired notification sent to user %d (uuid %s)", u.TelegramID, u.UUID[:8])
+					log.Printf("[ExpiryNotifier] expired notification sent to user %d (uuid %s)", u.TelegramID, MaskUUID(u.UUID))
 				}
 			}
 		}
