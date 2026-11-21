@@ -2203,7 +2203,7 @@ class SirinVpnService : VpnService() {
                     Engine.stop()
                 } catch (_: Throwable) {
                 }
-                dropBlackhole("доверенный Wi-Fi")
+                dropBlackhole()
                 TunnelState.setConnected(false)
             }
             return
