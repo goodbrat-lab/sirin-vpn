@@ -32,7 +32,7 @@ if [ -z "$ARCH" ]; then
 fi
 
 VERSION=${VERSION:-2.1.0}
-URL="https://github.com/goodbrat-lab/sirin-vpn/releases/download/router-v$VERSION/sirin-client-$VERSION-$ARCH.tar.gz"
+URL=${URL:-"https://github.com/goodbrat-lab/sirin-vpn/releases/download/router-v$VERSION/sirin-client-$VERSION-$ARCH.tar.gz"}
 
 # Определить пакетный менеджер
 if command -v apk >/dev/null 2>&1; then
@@ -48,14 +48,23 @@ fi
 echo "Package manager: $PKG"
 
 # 1. Скачать
-echo "Downloading $URL..."
-wget -O /tmp/sirin.tar.gz "$URL"
+if [ -s /tmp/sirin.tar.gz ]; then
+    echo "Using existing /tmp/sirin.tar.gz"
+else
+    echo "Downloading $URL..."
+    if ! wget -O /tmp/sirin.tar.gz "$URL"; then
+        echo "Direct GitHub download failed (TSPU/timeout), trying mirror..."
+        MIRROR_URL="https://ghproxy.net/$URL"
+        echo "Downloading via mirror $MIRROR_URL..."
+        wget -O /tmp/sirin.tar.gz "$MIRROR_URL"
+    fi
+fi
 
 # Проверка SHA-256 по checksums.txt из релиза (если доступно)
 if command -v sha256sum >/dev/null 2>&1; then
     CHECKSUMS_URL="${URL%/*}/checksums.txt"
     ASSET_NAME="${URL##*/}"
-    if wget -qO /tmp/sirin_checksums.txt "$CHECKSUMS_URL" 2>/dev/null && [ -s /tmp/sirin_checksums.txt ]; then
+    if { wget -qO /tmp/sirin_checksums.txt "$CHECKSUMS_URL" 2>/dev/null || wget -qO /tmp/sirin_checksums.txt "https://ghproxy.net/$CHECKSUMS_URL" 2>/dev/null; } && [ -s /tmp/sirin_checksums.txt ]; then
         EXPECTED_SHA=$(awk -v f="$ASSET_NAME" '$2 == f || $2 == "*" f { print $1; exit }' /tmp/sirin_checksums.txt)
         rm -f /tmp/sirin_checksums.txt
         if [ -n "$EXPECTED_SHA" ]; then
