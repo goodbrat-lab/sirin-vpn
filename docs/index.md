@@ -5,16 +5,15 @@
 
   <p>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/v1.7.0"><img src="https://img.shields.io/badge/Android-v1.7.0-brightgreen.svg?logo=android&logoColor=white" alt="Android Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.8.0"><img src="https://img.shields.io/badge/OpenWrt%20Router-v1.8.0-blueviolet.svg?logo=openwrt&logoColor=white" alt="Router Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/desktop-v1.7.0"><img src="https://img.shields.io/badge/Windows-v1.7.0-0078D6.svg?logo=windows&logoColor=white" alt="Windows Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/latest"><img src="https://img.shields.io/badge/Release-Latest-brightgreen.svg?logo=github&logoColor=white" alt="Latest Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases"><img src="https://img.shields.io/badge/Platforms-Android%20%7C%20Windows%20%7C%20OpenWrt-blue.svg" alt="Platforms" /></a>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/discussions"><img src="https://img.shields.io/badge/GitHub-Discussions-purple.svg?logo=github" alt="Discussions" /></a>
   </p>
 </div>
 
 ---
 
-## ⚡ О проекте (v1.7.0)
+## ⚡ О проекте
 
 **Сирин (Sirin) VPN** — независимый клиент-серверный комплекс обхода интернет-цензуры, объединяющий **прямой обход ТСПУ по технологиям Zapret 2** (адаптивное разбиение TLS Record `SNI`, инъекция `TCP Urgent MSG_OOB`, фейковые пакеты с малым TTL и битой контрольной суммой, `UDP Fake Burst`) и **спящий по требованию (Lazy On-Demand) VPN-туннель** (`VLESS Reality XTLS-Vision`, `XHTTP/2 Reality`, `UDP Noise NK`, а также аварийный канал через `WebRTC TURN ВКонтакте / DION`).
 
@@ -24,25 +23,25 @@
 
 ## 📱 Выберите платформу
 
-| Платформа | Версия | Где скачать | Руководство | Статус |
-|:---|:---:|:---|:---|:---:|
-| **Android** | `1.7.0` | [📦 Скачать APK](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.7.0/sirin-v1.7.0.apk) | [📖 Инструкция для Android](README.md#11-android) | ✅ Стабильный |
-| **Windows Desktop** | `1.7.0` | [📦 Скачать Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.7.0/Sirin-VPN-1.7.0-Setup.exe) | [📖 Инструкция для Windows](README.md#12-windows-desktop) | ✅ Стабильный |
-| **Router (OpenWrt)** | `1.8.0` | [📦 Релиз архивы и пакеты (5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.8.0) | [📖 Руководство OpenWrt & LuCI](ROUTER.md) | ✅ Стабильный |
-| **iOS / iPadOS** | — | *В разработке (архитектура NetworkExtension)* | [🔬 Исследование (Spike iOS)](SPIKE_IOS.md) | ⏳ Скоро (Q1 2027) |
-| **macOS / Linux** | — | *Запланировано на базе Wails & core/engine* | [🗺️ Roadmap](ROADMAP.md) | ⏳ Скоро |
+| Платформа | Где скачать | Руководство | Статус |
+|:---|:---|:---|:---:|
+| **Android** | [📦 Релизы на GitHub (APK)](https://github.com/goodbrat-lab/sirin-vpn/releases) | [📖 Инструкция для Android](README.md#11-android) | ✅ Стабильный |
+| **Windows Desktop** | [📦 Релизы на GitHub (Setup.exe)](https://github.com/goodbrat-lab/sirin-vpn/releases) | [📖 Инструкция для Windows](README.md#12-windows-desktop) | ✅ Стабильный |
+| **Router (OpenWrt)** | [📦 Архивы и пакеты (5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases) | [📖 Руководство OpenWrt & LuCI](ROUTER.md) | ✅ Стабильный |
+| **iOS / iPadOS** | *В разработке (архитектура NetworkExtension)* | [🔬 Исследование (Spike iOS)](SPIKE_IOS.md) | ⏳ В планах |
+| **macOS / Linux** | *Запланировано на базе Wails & core/engine* | [🗺️ Roadmap](ROADMAP.md) | ⏳ В планах |
 
 ---
 
 ## 🚀 Быстрый старт
 
 ### 🤖 Android
-1. Загрузите и установите [sirin-v1.7.0.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.7.0/sirin-v1.7.0.apk).
+1. Загрузите свежий APK-пакет со страницы [релизов на GitHub](https://github.com/goodbrat-lab/sirin-vpn/releases).
 2. Запустите приложение и вставьте персональный ключ (UUID из Telegram-бота `@sirin_crp_bot` или откройте deep-link ссылку).
 3. Нажмите кнопку питания в центре экрана — активируется гибридный режим **Zapret 2 + Lazy VPN (`Z2`)**.
 
 ### 💻 Windows Desktop
-1. Скачайте инсталлятор [Sirin-VPN-1.7.0-Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.7.0/Sirin-VPN-1.7.0-Setup.exe) и завершите установку.
+1. Скачайте инсталлятор со страницы [релизов на GitHub](https://github.com/goodbrat-lab/sirin-vpn/releases) и завершите установку.
 2. В окне клиента укажите ваш ключ и нажмите **«Подключить»**.
 3. Трафик системы защищён; статус отображается в системном трее.
 

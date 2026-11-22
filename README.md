@@ -5,9 +5,8 @@
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/v1.8.5"><img src="https://img.shields.io/badge/Android-v1.8.5-brightgreen.svg?logo=android&logoColor=white" alt="Android Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.8.0"><img src="https://img.shields.io/badge/OpenWrt%20Router-v1.8.0-blueviolet.svg?logo=openwrt&logoColor=white" alt="Router Release" /></a>
-    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/tag/desktop-v1.8.2"><img src="https://img.shields.io/badge/Windows-v1.8.2-0078D6.svg?logo=windows&logoColor=white" alt="Windows Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases/latest"><img src="https://img.shields.io/badge/Release-Latest-brightgreen.svg?logo=github&logoColor=white" alt="Latest Release" /></a>
+    <a href="https://github.com/goodbrat-lab/sirin-vpn/releases"><img src="https://img.shields.io/badge/Platforms-Android%20%7C%20Windows%20%7C%20OpenWrt-blue.svg" alt="Platforms" /></a>
     <a href="https://github.com/goodbrat-lab/sirin-vpn/discussions"><img src="https://img.shields.io/badge/GitHub-Discussions-purple.svg?logo=github" alt="Discussions" /></a>
     <a href="https://goodbrat-lab.github.io/sirin-vpn/"><img src="https://img.shields.io/badge/Docs-GitHub%20Pages-informational.svg?logo=githubpages" alt="GitHub Pages" /></a>
   </p>
@@ -15,17 +14,17 @@
 
 ---
 
-## ⚡ Что это и как работает архитектура v1.7.0
+## ⚡ О продукте и архитектуре
 
-**Сирин (Sirin) VPN** — независимый клиент-серверный комплекс обхода цензуры нового поколения, объединяющий **прямую пакетную десинхронизацию ТСПУ (технологии Zapret 2)** и **спящий по требованию (Lazy On-Demand) криптотуннель до зарубежного VPS**.
+**Сирин (Sirin) VPN** — независимый клиент-серверный комплекс обхода интернет-цензуры нового поколения, объединяющий **прямую пакетную десинхронизацию ТСПУ (технологии Zapret 2)** и **спящий по требованию (Lazy On-Demand) криптотуннель до зарубежного VPS**.
 
-### Ключевые технологии комплекса:
+### Ключевые возможности комплекса:
 1. **Нативный движок Zapret 2 (Первичный контур — 0 Байт на VPS):**
    - Для **YouTube (4K/8K)**, **Instagram / Meta**, **Discord (голос и чат)**, **X / Twitter** и большинства сайтов клиент сначала применяет прямое соединение с многоступенчатой десинхронизацией DPI (`tlsrec_sni_split`, `TCP Urgent MSG_OOB`, `Fake ClientHello с малым TTL и битым TCP checksum`, `3-way MultiSplit`, `UDP Fake Burst`).
    - Пока работает прямой обход Zapret 2, VPN-туннель к вашему зарубежному VPS находится в **спящем режиме (0 Байт трафика)** — ТСПУ РКН не видит постоянных шифрованных сессий к вашему серверу и не блокирует IP-адрес VPS.
 2. **Бесшовный перехват в Lazy On-Demand VPN (Вторичный контур):**
-   - Если ТСПУ провайдера заблокировал ресурс по IP-подсети (и все 4 фазы Zapret 2 не получили ответа) **или** вы открываете сервис с гео-блокировкой со стороны самого зарубежного сайта (**ChatGPT / OpenAI, Claude, Gemini, Grok, Spotify, Autodesk** и др.), клиент автоматически за миллисекунды пробуждает шифрованный VPN-туннель (`VLESS Reality XTLS-Vision`, `XHTTP/2 Reality` или `UDP Noise NK`) и прозрачно перенаправляет этот поток через зарубежный VPS.
-   - После 10 минут отсутствия трафика туннель автоматически паркуется обратно в спящий режим.
+   - Если ТСПУ провайдера заблокировал ресурс по IP-подсети (и все фазы Zapret 2 не получили ответа) **или** вы открываете сервис с гео-блокировкой со стороны самого зарубежного сайта (**ChatGPT / OpenAI, Claude, Gemini, Grok, Spotify, Autodesk** и др.), клиент автоматически за миллисекунды пробуждает шифрованный VPN-туннель (`VLESS Reality XTLS-Vision`, `XHTTP/2 Reality` или `UDP Noise NK`) и прозрачно перенаправляет этот поток через зарубежный VPS.
+   - После периода отсутствия трафика туннель автоматически паркуется обратно в спящий режим.
 3. **Раздельное туннелирование (RuDirect 8641 CIDR + Порты):**
    - Встроенная агрегированная база подсетей РФ от RIPE NCC (`8641 CIDR`) и правила по портам (`Gaming Bypass`) обеспечивают прямой доступ к российским банкам, Госуслугам, маркетплейсам и онлайн-играм с минимальным пингом.
 4. **Аварийный обход «Белых списков» (VK Calls / DION WebRTC TURN) и Dead Drop:**
@@ -34,27 +33,27 @@
 
 ---
 
-## 📱 Выберите платформу
+## 📱 Поддерживаемые платформы
 
-| Платформа | Версия | Где скачать | Руководство по установке | Статус |
-|:---|:---:|:---|:---|:---:|
-| **Android** | `1.8.5` | [📦 Скачать APK](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.8.5/sirin-v1.8.5.apk) | [📖 Инструкция для Android](docs/README.md#11-android) | ✅ Стабильный |
-| **Windows Desktop** | `1.8.2` | [📦 Скачать Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.8.2/Sirin-VPN-1.8.2-Setup.exe) | [📖 Инструкция для Windows](docs/README.md#12-windows-desktop) | ✅ Стабильный |
-| **Router (OpenWrt)** | `1.8.0` | [📦 Релиз архивы и пакеты (.ipk / .apk для 5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases/tag/router-v1.8.0) | [📖 Руководство OpenWrt & LuCI](docs/ROUTER.md) | ✅ Стабильный |
-| **iOS / iPadOS** | — | *В разработке (архитектура NetworkExtension)* | [🔬 Исследование (Spike iOS)](docs/SPIKE_IOS.md) | ⏳ Скоро (Q1 2027) |
-| **macOS / Linux** | — | *Запланировано на базе Wails & core/engine* | [🗺️ Roadmap](docs/ROADMAP.md) | ⏳ Скоро |
+| Платформа | Где скачать | Руководство по установке | Статус |
+|:---|:---|:---|:---:|
+| **Android** | [📦 Релизы на GitHub (APK)](https://github.com/goodbrat-lab/sirin-vpn/releases) | [📖 Инструкция для Android](docs/README.md#11-android) | ✅ Стабильный |
+| **Windows Desktop** | [📦 Релизы на GitHub (Setup.exe)](https://github.com/goodbrat-lab/sirin-vpn/releases) | [📖 Инструкция для Windows](docs/README.md#12-windows-desktop) | ✅ Стабильный |
+| **Router (OpenWrt)** | [📦 Архивы и пакеты (.ipk / .apk для 5 архитектур)](https://github.com/goodbrat-lab/sirin-vpn/releases) | [📖 Руководство OpenWrt & LuCI](docs/ROUTER.md) | ✅ Стабильный |
+| **iOS / iPadOS** | *В разработке (архитектура NetworkExtension)* | [🔬 Исследование (Spike iOS)](docs/SPIKE_IOS.md) | ⏳ В планах |
+| **macOS / Linux** | *Запланировано на базе Wails & core/engine* | [🗺️ Roadmap](docs/ROADMAP.md) | ⏳ В планах |
 
 ---
 
 ## 🚀 Быстрый старт
 
 ### 🤖 Android
-1. Загрузите и установите [sirin-v1.7.0.apk](https://github.com/goodbrat-lab/sirin-vpn/releases/download/v1.7.0/sirin-v1.7.0.apk).
+1. Загрузите свежий APK-пакет со страницы [релизов проекта на GitHub](https://github.com/goodbrat-lab/sirin-vpn/releases).
 2. Запустите приложение и вставьте персональный ключ (UUID из Telegram-бота `@sirin_crp_bot` или откройте deep-link ссылку).
 3. Нажмите центральную кнопку Сирин — активируется режим **Zapret 2 + Lazy VPN (`Z2`)**.
 
 ### 💻 Windows Desktop
-1. Скачайте инсталлятор [Sirin-VPN-1.7.0-Setup.exe](https://github.com/goodbrat-lab/sirin-vpn/releases/download/desktop-v1.7.0/Sirin-VPN-1.7.0-Setup.exe) и завершите установку.
+1. Скачайте актуальный инсталлятор `Setup.exe` со страницы [релизов проекта на GitHub](https://github.com/goodbrat-lab/sirin-vpn/releases) и выполните установку.
 2. В окне клиента укажите ваш ключ и нажмите **«Подключить»** (доступно встроенное автообновление прямо из настроек приложения).
 
 ### 🌐 Router (OpenWrt 21.x – 24.x `opkg` и 25.x `apk`)
@@ -66,7 +65,7 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 
 ---
 
-## 📸 Скриншоты интерфейса (v1.7.0)
+## 📸 Скриншоты интерфейса
 
 <div align="center">
   <h3>Мобильное приложение (Android — Cyber-Neon UI)</h3>
@@ -115,11 +114,11 @@ wget -O - https://raw.githubusercontent.com/goodbrat-lab/sirin-vpn/master/apps/r
 
 | Статус | Задача | Платформа / Компонент |
 |:---:|---|---|
-| 🟢 **Готово** | Нативный движок **Zapret 2** (4 стратегии десинхронизации DPI) + **Lazy On-Demand VPS VPN** (0 Байт в покое) | Android, Windows, Router (`v1.7.0`) |
-| 🟢 **Готово** | Автоматический обход GeoIP-блокировок ИИ (ChatGPT, Claude, Gemini, Spotify, CAD) через принудительный VPN | Core Engine / Router (`v1.7.0`) |
-| 🟢 **Готово** | Аварийный обход «Белых списков» через отечественные WebRTC TURN релеи (**VK Звонки / DION**) + **Dead Drop** (Яндекс Диск / S3) | Core Engine / All Clients (`v1.6.0`) |
-| 🟢 **Готово** | Встроенное автообновление в один клик (In-App Updater) для OpenWrt LuCI и Windows Desktop | Router & Windows (`v1.6.0`) |
-| 🟢 **Готово** | Раздельное туннелирование по подсетям РФ (8641 CIDR RIPE NCC) и портам (`Gaming Bypass`), автономные пакеты `.ipk` / `.apk` | Router & Windows (`v1.4.0–v1.5.0`) |
+| 🟢 **Готово** | Нативный движок **Zapret 2** (стратегии десинхронизации DPI) + **Lazy On-Demand VPS VPN** (0 Байт в покое) | Android, Windows, Router |
+| 🟢 **Готово** | Автоматический обход GeoIP-блокировок ИИ (ChatGPT, Claude, Gemini, Spotify, CAD) через принудительный VPN | Core Engine / Router |
+| 🟢 **Готово** | Аварийный обход «Белых списков» через отечественные WebRTC TURN релеи (**VK Звонки / DION**) + **Dead Drop** (Яндекс Диск / S3) | Core Engine / All Clients |
+| 🟢 **Готово** | Встроенное автообновление в один клик (In-App Updater) для OpenWrt LuCI и Windows Desktop | Router & Windows |
+| 🟢 **Готово** | Раздельное туннелирование по подсетям РФ (8641 CIDR RIPE NCC) и портам (`Gaming Bypass`), автономные пакеты `.ipk` / `.apk` | Router & Windows |
 | 🟡 **В работе** | Интеграция автоматического биллинга (Telegram Stars / СБП) в Telegram-боте | Server / Bot |
 | 🔵 **В планах** | Клиент для iOS / iPadOS на базе NetworkExtension + Go Mobile | iOS Client |
 | 🔵 **В планах** | Сборка Desktop-клиента под macOS и Linux | Desktop Client |
