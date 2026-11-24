@@ -68,10 +68,13 @@ type Config struct {
 	KillSwitchExceptions []string `toml:"kill_switch_exceptions,omitempty"`
 
 	// OpSec & Fingerprinting (методика Vektor T13: маскировка стека и защита от утечек)
-	NormalizeTTL *bool `toml:"normalize_ttl,omitempty"` // нормализация TTL на выходе из туннеля (по умолчанию true)
-	TargetTTL    int   `toml:"target_ttl,omitempty"`    // целевое значение TTL (по умолчанию 64)
-	InterceptDNS *bool `toml:"intercept_dns,omitempty"` // принудительный перехват DNS (порт 53) на dnsmasq (по умолчанию true)
-	BlockDoT     *bool `toml:"block_dot,omitempty"`      // блокировка обхода через DNS-over-TLS (порт 853) (по умолчанию true)
+	NormalizeTTL *bool  `toml:"normalize_ttl,omitempty"` // нормализация TTL на выходе из туннеля (по умолчанию true)
+	TTLMode      string `toml:"ttl_mode,omitempty"`      // "fixed" (по умолчанию, ip ttl set target_ttl) или "preserve" (сохранять нативный TTL ОС 64/128 при активном MSS clamp)
+	TargetTTL    int    `toml:"target_ttl,omitempty"`    // целевое значение TTL (по умолчанию 64)
+	InterceptDNS *bool  `toml:"intercept_dns,omitempty"` // принудительный перехват DNS (порт 53) на dnsmasq (по умолчанию true)
+	BlockDoT     *bool  `toml:"block_dot,omitempty"`     // блокировка обхода через DNS-over-TLS (порт 853) (по умолчанию true)
+	BlockDoH     *bool  `toml:"block_doh,omitempty"`     // подавление браузерного DoH (use-application-dns.net NXDOMAIN + reject публичных DoH IP :443)
+	StunViaVPN   *bool  `toml:"stun_via_vpn,omitempty"`  // маршрутизация зарубежных WebRTC STUN (3478/5349/19302) через VPN для защиты от srflx IP-утечек
 
 	// Anti-DPI (прямой доступ к YouTube и Discord на полной скорости провайдера без VPN)
 	AntiDPI *AntiDPIConfig `toml:"antidpi,omitempty"`
@@ -143,18 +146,24 @@ func (c *Config) IsWhitelistFallbackEnabled() bool {
 
 // OpSecOptions задаёт параметры маскировки сетевого стека и защиты от утечек (методика Vektor T13).
 type OpSecOptions struct {
-	NormalizeTTL bool // фиксация TTL на egress туннеля
-	TargetTTL    int  // целевое значение TTL (по умолчанию 64)
-	InterceptDNS bool // принудительный перехват порта 53 на локальный dnsmasq
-	BlockDoT     bool // блокировка порта 853 (DNS-over-TLS)
+	NormalizeTTL bool   // фиксация TTL / MSS clamping на egress туннеля
+	TTLMode      string // "fixed" (по умолчанию) или "preserve" (сохранять нативный TTL 64/128 клиентов LAN)
+	TargetTTL    int    // целевое значение TTL (по умолчанию 64)
+	InterceptDNS bool   // принудительный перехват порта 53 на локальный dnsmasq
+	BlockDoT     bool   // блокировка порта 853 (DNS-over-TLS)
+	BlockDoH     bool   // подавление браузерного DoH (canary NXDOMAIN + reject известных DoH IP на 443)
+	StunViaVPN   bool   // отправка зарубежного STUN (3478, 5349, 19302) через VPN
 }
 
 func DefaultOpSecOptions() OpSecOptions {
 	return OpSecOptions{
 		NormalizeTTL: true,
+		TTLMode:      "fixed",
 		TargetTTL:    64,
 		InterceptDNS: true,
 		BlockDoT:     true,
+		BlockDoH:     false,
+		StunViaVPN:   false,
 	}
 }
 
@@ -162,6 +171,9 @@ func (c *Config) GetOpSecOptions() OpSecOptions {
 	opts := DefaultOpSecOptions()
 	if c.NormalizeTTL != nil {
 		opts.NormalizeTTL = *c.NormalizeTTL
+	}
+	if strings.EqualFold(strings.TrimSpace(c.TTLMode), "preserve") {
+		opts.TTLMode = "preserve"
 	}
 	if c.TargetTTL > 0 && c.TargetTTL <= 255 {
 		opts.TargetTTL = c.TargetTTL
@@ -171,6 +183,12 @@ func (c *Config) GetOpSecOptions() OpSecOptions {
 	}
 	if c.BlockDoT != nil {
 		opts.BlockDoT = *c.BlockDoT
+	}
+	if c.BlockDoH != nil {
+		opts.BlockDoH = *c.BlockDoH
+	}
+	if c.StunViaVPN != nil {
+		opts.StunViaVPN = *c.StunViaVPN
 	}
 	return opts
 }

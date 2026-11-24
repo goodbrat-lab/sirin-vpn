@@ -7,12 +7,20 @@ import (
 	"net"
 )
 
+func GetPhysicalDefaultGatewayExcluding(excludeIfIndex uint32) (net.IP, uint32, error) {
+	return nil, 0, fmt.Errorf("only supported on windows")
+}
+
 func GetPhysicalDefaultGateway() (net.IP, uint32, error) {
 	return nil, 0, fmt.Errorf("only supported on windows")
 }
 
 func Setup(cfg Config) error {
 	return fmt.Errorf("only supported on windows")
+}
+
+func Reconcile() (added int, removed int, physIf uint32, err error) {
+	return 0, 0, 0, nil
 }
 
 func Cleanup() error {

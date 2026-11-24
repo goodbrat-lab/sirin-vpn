@@ -156,3 +156,25 @@ func TestBuildXHTTPRequest_CDNFronting(t *testing.T) {
 		t.Errorf("expected Referer to contain CDNHost, got %s", req.Header.Get("Referer"))
 	}
 }
+
+func TestXHTTPBrowserHeadersForOS(t *testing.T) {
+	cases := []struct {
+		goos     string
+		wantPlat string
+		wantMob  string
+		wantSub  string
+	}{
+		{"windows", `"Windows"`, "?0", "Windows NT 10.0"},
+		{"android", `"Android"`, "?1", "Android 10; K"},
+		{"linux", `"Linux"`, "?0", "X11; Linux x86_64"},
+		{"darwin", `"macOS"`, "?0", "Macintosh"},
+		{"ios", `"iOS"`, "?1", "iPhone"},
+	}
+	for _, tc := range cases {
+		ua, plat, mob := xhttpBrowserHeadersForOS(tc.goos)
+		if plat != tc.wantPlat || mob != tc.wantMob || !strings.Contains(ua, tc.wantSub) {
+			t.Fatalf("goos=%s: got (%q, %s, %s), want sub=%q plat=%s mob=%s",
+				tc.goos, ua, plat, mob, tc.wantSub, tc.wantPlat, tc.wantMob)
+		}
+	}
+}

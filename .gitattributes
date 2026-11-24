@@ -13,6 +13,7 @@
 
 apps/router/luci-app-sirin/root/usr/libexec/rpcd/* text eol=lf
 apps/router/init.d/* text eol=lf
+apps/router/hotplug.d/* text eol=lf
 .githooks/* text eol=lf
 
 *.bat text eol=crlf

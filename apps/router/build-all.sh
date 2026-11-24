@@ -7,7 +7,7 @@ ROOT_DIR="$(pwd)"
 OUT=dist
 mkdir -p "$OUT"
 
-VERSION=${VERSION:-2.1.0}
+VERSION=${VERSION:-2.2.0}
 LDFLAGS="-s -w -X main.Version=$VERSION"
 
 echo "Building sirin-client v$VERSION for 5 architectures..."
@@ -46,6 +46,7 @@ for bin in "$OUT"/sirin-client-*; do
     tar -czf "$OUT/sirin-client-$VERSION-$arch.tar.gz" \
         -C "$OUT" "sirin-client-$arch" \
         -C "$ROOT_DIR" "init.d/sirin" \
+        -C "$ROOT_DIR" "hotplug.d/99-sirin" \
         -C "$ROOT_DIR/configs" "client.toml.example" \
         -C "$ROOT_DIR" "configs/client.toml.example" \
         -C "$ROOT_DIR" "luci-app-sirin"

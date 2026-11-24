@@ -248,3 +248,96 @@ func TestDNSFilterAAAAAndParseARecords(t *testing.T) {
 		t.Fatalf("expected [173.194.76.12], got %v", ips)
 	}
 }
+
+func TestIsSTUNBindingRequestAndOutboundRouting(t *testing.T) {
+	// 1. RFC 5389 STUN Binding Request (20 байт, magic cookie 0x2112A442)
+	stun5389 := make([]byte, 20)
+	binary.BigEndian.PutUint16(stun5389[0:2], 0x0001)
+	binary.BigEndian.PutUint16(stun5389[2:4], 0)
+	binary.BigEndian.PutUint32(stun5389[4:8], 0x2112A442)
+	copy(stun5389[8:20], []byte("123456789012"))
+
+	if !isSTUNBindingRequest(stun5389, 19302) {
+		t.Fatalf("expected RFC 5389 STUN Binding Request to be detected")
+	}
+	if !isSTUNBindingRequest(stun5389, 50000) {
+		t.Fatalf("expected RFC 5389 STUN with magic cookie on custom port to be detected")
+	}
+
+	// 2. Классический RFC 3489 STUN без magic cookie на порту 3478
+	stun3489 := make([]byte, 20)
+	binary.BigEndian.PutUint16(stun3489[0:2], 0x0001)
+	binary.BigEndian.PutUint16(stun3489[2:4], 0)
+	copy(stun3489[4:20], []byte("legacy_tran_id16"))
+	if !isSTUNBindingRequest(stun3489, 3478) {
+		t.Fatalf("expected RFC 3489 STUN on port 3478 to be detected")
+	}
+	if isSTUNBindingRequest(stun3489, 27015) {
+		t.Fatalf("must not treat non-5389 packet on game port 27015 as STUN")
+	}
+
+	// 3. Discord IP Discovery (74 байта: тип 0x0001, длина 70 — не кратна 4, без magic cookie)
+	discordDisc := make([]byte, 74)
+	binary.BigEndian.PutUint16(discordDisc[0:2], 0x0001)
+	binary.BigEndian.PutUint16(discordDisc[2:4], 70)
+	if isSTUNBindingRequest(discordDisc, 50005) {
+		t.Fatalf("Discord IP Discovery must not be misclassified as STUN")
+	}
+
+	// 4. При активном upstream (VPS поднят и есть слот) STUN должен уходить в VPN (handleOutbound == false)
+	sess := &session{}
+	sess.upstreamReady.Store(true)
+	slots := []*rung{{}}
+	sess.slots.Store(&slots)
+	tz := newTunZapret(sess)
+	stunPkt := buildTestUDPPacket(
+		[4]byte{10, 77, 77, 2}, 53000,
+		[4]byte{74, 125, 250, 129}, 19302, // stun.l.google.com
+		stun5389,
+	)
+	if tz.handleOutbound(stunPkt) {
+		t.Fatalf("expected STUN packet to bypass WAN and route via active VPN (handleOutbound=false)")
+	}
+}
+
+func TestActiveTunTCPSynOptionsAndTTL(t *testing.T) {
+	if got := activeInitialTTL("windows"); got != 128 {
+		t.Fatalf("expected TTL 128 for windows, got %d", got)
+	}
+	if got := activeInitialTTL("linux"); got != 64 {
+		t.Fatalf("expected TTL 64 for linux, got %d", got)
+	}
+	if got := activeInitialTTL("android"); got != 64 {
+		t.Fatalf("expected TTL 64 for android, got %d", got)
+	}
+
+	tz := newTunZapret(&session{})
+	key := tcpFlowKey{
+		clientIP:   [4]byte{104, 18, 32, 7}, // remote server
+		clientPort: 443,
+		targetIP:   [4]byte{10, 77, 77, 2}, // local tun IP
+		targetPort: 61005,
+	}
+	activeConn := newActiveTunTCPConn(tz, key, 61005)
+	synPkt := activeConn.buildPacket(0x02, activeSynTCPOptions[:], nil, 123456, 0)
+
+	if len(synPkt) != 52 {
+		t.Fatalf("expected 52-byte SYN packet (20 IP + 20 TCP + 12 opts), got %d", len(synPkt))
+	}
+	tcp := synPkt[20:]
+	dataOff := int(tcp[12]>>4) * 4
+	if dataOff != 32 {
+		t.Fatalf("expected TCP header length 32 bytes, got %d", dataOff)
+	}
+	if !bytes.Equal(tcp[20:32], activeSynTCPOptions[:]) {
+		t.Fatalf("unexpected TCP SYN options: %x", tcp[20:32])
+	}
+	// Проверяем валидность контрольной суммы TCP вместе с 12 байтами опций
+	tcpSum := pseudoHeaderSum(synPkt[12:16], synPkt[16:20], 6, len(tcp)) + checksumBytes(tcp)
+	for (tcpSum >> 16) > 0 {
+		tcpSum = (tcpSum & 0xffff) + (tcpSum >> 16)
+	}
+	if uint16(tcpSum) != 0xffff {
+		t.Fatalf("invalid TCP checksum on SYN with options: 0x%04x", tcpSum)
+	}
+}

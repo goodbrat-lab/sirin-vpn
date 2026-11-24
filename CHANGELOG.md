@@ -1,5 +1,20 @@
 # Changelog
 
+## [v2.2.0 / router-v2.2.0 / desktop-v2.2.0] - 2026-11-24
+
+### Added
+- **Анти-утечки и выравнивание сетевых отпечатков (`core/engine`)**:
+  - Защита от утечки реального IP через WebRTC STUN (`tun_zapret.go`): при активном VPN-туннеле STUN-запросы RFC 5389/3489 автоматически маршрутизируются через L3 VPN (не затрагивая Discord IP Discovery и прямой обход при спящем VPS).
+  - Согласованный Geo-DNS (`handleOutboundDNS`): для `GeoBlockedDomains` и `ForceVPNDomains` туннель пробуждается до DNS-запроса, исключая гео-рассинхрон CDN.
+  - Легитимный `JA4T`/TCP-отпечаток при фоллбэке `dialUpstreamTCP`: добавлены стандартные TCP SYN-опции (`MSS=1200, NOP, WScale=0, NOP, NOP, SACK Permitted`) и нативный `TTL` ОС (`128` на Windows, `64` на Linux/Android).
+  - Платформо-согласованные заголовки `User-Agent` / `Sec-CH-UA-Platform` / `Sec-CH-UA-Mobile` в `XHTTP` (`vless/xhttp.go`).
+- **Персистентность маршрутов после сна и смены сети без разрыва связи**:
+  - **Windows Desktop (`apps/desktop`)**: фоновый сторож `watchNetworkAndSleep` и идемпотентный `route.Reconcile()` восстанавливают сброшенные после сна/гибернации маршруты Wintun и `RuDirect` и атомарно обновляют физический интерфейс в `WindowsProtector`.
+  - **OpenWrt Router (`apps/router`)**: атомарный `reconcileRouting` по `SIGHUP`, RPC `reconcile`, hotplug-хуку `/etc/hotplug.d/iface/99-sirin` и 15-секундному сторожу; добавлены `100.64.0.0/10` (Tailscale/CGNAT) и `169.254.0.0/16` в `@local_cidrs`.
+- **Динамический доменный Split Tunneling и расширенные OpSec-опции роутера (`apps/router`)**:
+  - Встроенный Split DNS-форвардер `SplitDomainDNSServer` (`127.0.0.1:56255`) и динамический сет `@split_domain_cidrs` (`timeout 1h`), работающий даже без `dnsmasq-full`.
+  - Опциональные параметры `block_doh` (`use-application-dns.net` NXDOMAIN + reject публичных DoH `:443`), `stun_via_vpn` и `ttl_mode = "preserve"` (сохранение нативного TTL клиентов LAN при активном MSS clamping).
+
 ## [router-v1.8.0] - 2026-11-15
 
 ### Added

@@ -6,11 +6,13 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
 type linuxProtector struct {
+	mu       sync.RWMutex
 	wanIface string
 	wanGW    string
 }
@@ -22,12 +24,34 @@ func newProtector(wanIface, wanGW string) *linuxProtector {
 	}
 }
 
+// UpdateWAN потокобезопасно обновляет текущий WAN-интерфейс и шлюз при переподключении PPPoE/DHCP.
+func (p *linuxProtector) UpdateWAN(wanIface, wanGW string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.wanIface = strings.TrimSpace(wanIface)
+	p.wanGW = strings.TrimSpace(wanGW)
+	p.mu.Unlock()
+}
+
+// CurrentWAN возвращает текущие имя WAN-интерфейса и шлюз.
+func (p *linuxProtector) CurrentWAN() (string, string) {
+	if p == nil {
+		return "", ""
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.wanIface, p.wanGW
+}
+
 // Protect привязывает исходящий сокет VPN-движка к физическому WAN-интерфейсу,
 // исключая зацикливание трафика туннеля через самого себя.
 func (p *linuxProtector) Protect(fd int32) bool {
-	if p.wanIface != "" {
-		if err := unix.BindToDevice(int(fd), p.wanIface); err != nil {
-			log.Printf("[protect] Предупреждение SO_BINDTODEVICE к %s: %v", p.wanIface, err)
+	wanIface, _ := p.CurrentWAN()
+	if wanIface != "" {
+		if err := unix.BindToDevice(int(fd), wanIface); err != nil {
+			log.Printf("[protect] Предупреждение SO_BINDTODEVICE к %s: %v", wanIface, err)
 		}
 	}
 	// Устанавливаем марку 0x2 (WAN), чтобы трафик самого туннеля направлялся в обход VPN
@@ -42,7 +66,8 @@ func (p *linuxProtector) ExcludeHost(host string) {
 	if host == "" {
 		return
 	}
-	args := formatRouteArgs(host+"/32", wanInfo{iface: p.wanIface, gw: p.wanGW})
+	wanIface, wanGW := p.CurrentWAN()
+	args := formatRouteArgs(host+"/32", wanInfo{iface: wanIface, gw: wanGW})
 	if len(args) > 0 {
 		log.Printf("[protect] ExcludeHost: ip %s", strings.Join(args, " "))
 		_ = exec.Command("ip", args...).Run()

@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -715,7 +716,8 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 			}
 			dnsReq := append([]byte(nil), dnsPayload...)
 			if len(dnsReq) > 0 {
-				go tz.handleOutboundDNS(srcIP, srcPort, dstIP, dstPort, dnsReq)
+				origPkt := append([]byte(nil), pkt[:totalLen]...)
+				go tz.handleOutboundDNS(srcIP, srcPort, dstIP, dstPort, dnsReq, origPkt)
 				return true
 			}
 			return false
@@ -726,9 +728,17 @@ func (tz *tunZapret) handleOutbound(pkt []byte) bool {
 			return false
 		}
 
-		// Остальной UDP (NTP :123, STUN / Discord Voice и т.д.) при спящем VPS
-		// отправляем напрямую через защищённый WAN UDP-сокет с техникой Zapret 2 UDP Fake Burst!
 		payload := l4[8:]
+		// Защита от утечки реального IP через WebRTC STUN при активном VPN-туннеле:
+		// если VPS уже пробуждён (открыт гео-заблокированный сайт или активен фоллбэк),
+		// отправляем STUN-пакеты через L3 VPN-туннель, чтобы ICE-кандидат srflx совпадал с IP VPS.
+		// При спящем VPS прямой обход (Discord / звонки) работает через WAN без изменений.
+		if tz.s != nil && tz.s.hasActiveUpstream() && isSTUNBindingRequest(payload, dstPort) {
+			return false
+		}
+
+		// Остальной UDP (NTP :123, Discord Voice и т.д.) при спящем VPS
+		// отправляем напрямую через защищённый WAN UDP-сокет с техникой Zapret 2 UDP Fake Burst!
 		if tz.handleOutboundUDP(srcIP, srcPort, dstIP, dstPort, payload) {
 			return true
 		}
@@ -884,7 +894,28 @@ func (tz *tunZapret) initDoHClients() {
 	})
 }
 
-func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]byte, dstPort uint16, query []byte) {
+// isSTUNBindingRequest распознаёт STUN/TURN-пакеты WebRTC (RFC 5389 / RFC 8489 с magic cookie 0x2112A442,
+// а также классический RFC 3489 Binding Request на стандартных портах STUN).
+// Пакеты IP Discovery Discord (длина 70 байт, не кратна 4, без magic cookie) сюда не попадают.
+func isSTUNBindingRequest(payload []byte, dstPort uint16) bool {
+	if len(payload) < 20 || payload[0]&0xC0 != 0 {
+		return false
+	}
+	msgType := binary.BigEndian.Uint16(payload[0:2])
+	msgLen := int(binary.BigEndian.Uint16(payload[2:4]))
+	if msgLen%4 != 0 || 20+msgLen > len(payload) {
+		return false
+	}
+	if binary.BigEndian.Uint32(payload[4:8]) == 0x2112A442 {
+		return true
+	}
+	if msgType == 0x0001 && 20+msgLen == len(payload) && (dstPort == 3478 || dstPort == 5349 || dstPort == 19302) {
+		return true
+	}
+	return false
+}
+
+func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]byte, dstPort uint16, query []byte, origPkt []byte) {
 	if tz.s == nil {
 		return
 	}
@@ -899,6 +930,21 @@ func (tz *tunZapret) handleOutboundDNS(srcIP [4]byte, srcPort uint16, dstIP [4]b
 			}
 		}
 		return
+	}
+
+	// СОГЛАСОВАННЫЙ GEO-DNS: для гео-заблокированных и ForceVPN доменов (ChatGPT, Claude, PSN, YouTube)
+	// пробуждаем VPS ДО разрешения DNS и отправляем запрос через туннель, чтобы CDN выдал узел региона VPS,
+	// а не российский POP. При недоступности VPS прозрачно откатываемся на WAN DoH ниже.
+	if qname := dnsQueryName(query); qname != "" {
+		needVPN := zapret.IsGeoBlockedSNI(qname) || zapret.IsForceVPNDomain(qname) ||
+			zapret.GlobalEngine.IsFallbackActive(qname, "", zapret.MatchBaseDomain(qname))
+		if needVPN && len(origPkt) >= 28 && tz.s.lazyMode && tz.s.lazyLadder != nil {
+			if err := tz.s.ensureUpstream(); err == nil {
+				if werr := tz.s.writeRawToUpstream(origPkt); werr == nil {
+					return
+				}
+			}
+		}
 	}
 
 	tz.initDoHClients()
@@ -1371,14 +1417,45 @@ func (c *tunTCPConn) notifyAck() {
 	}
 }
 
-func (c *tunTCPConn) writePacket(flags byte, payload []byte, seq, ack uint32) error {
-	totalLen := 20 + 20 + len(payload)
+// activeSynTCPOptions — стандартный 12-байтовый блок TCP-опций для активного SYN в VPN-фоллбэке:
+// MSS=1200 (0x04b0), NOP, WScale=0 (множитель 1 — сохраняет точное окно 65535 байт), NOP, NOP, SACK Permitted.
+// Исключает детектирование антифродом (JA4T) голого 20-байтового user-space заголовка без опций.
+var activeSynTCPOptions = [12]byte{
+	0x02, 0x04, byte(tunTCPMaxSeg >> 8), byte(tunTCPMaxSeg & 0xff),
+	0x01,
+	0x03, 0x03, 0x00,
+	0x01, 0x01,
+	0x04, 0x02,
+}
+
+func activeInitialTTL(goos string) byte {
+	if goos == "windows" {
+		return 128
+	}
+	return 64
+}
+
+func (c *tunTCPConn) buildPacket(flags byte, tcpOpts []byte, payload []byte, seq, ack uint32) []byte {
+	optLen := len(tcpOpts)
+	if optLen%4 != 0 {
+		optLen += 4 - (optLen % 4)
+	}
+	if optLen > 40 {
+		optLen = 40
+		tcpOpts = tcpOpts[:40]
+	}
+	tcpHdrLen := 20 + optLen
+	totalLen := 20 + tcpHdrLen + len(payload)
 	pkt := make([]byte, totalLen)
 
 	pkt[0] = 0x45
 	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
 	pkt[6] = 0x40
-	pkt[8] = 64
+	if c.activeMode {
+		pkt[8] = activeInitialTTL(runtime.GOOS)
+	} else {
+		pkt[8] = 64
+	}
 	pkt[9] = 6 // TCP
 	copy(pkt[12:16], c.key.targetIP[:])
 	copy(pkt[16:20], c.key.clientIP[:])
@@ -1388,18 +1465,30 @@ func (c *tunTCPConn) writePacket(flags byte, payload []byte, seq, ack uint32) er
 	binary.BigEndian.PutUint16(tcp[2:4], c.key.clientPort)
 	binary.BigEndian.PutUint32(tcp[4:8], seq)
 	binary.BigEndian.PutUint32(tcp[8:12], ack)
-	tcp[12] = 5 << 4
+	tcp[12] = byte(tcpHdrLen/4) << 4
 	tcp[13] = flags
 	binary.BigEndian.PutUint16(tcp[14:16], tunTCPWindowSize)
+	if len(tcpOpts) > 0 {
+		copy(tcp[20:20+optLen], tcpOpts)
+	}
 	if len(payload) > 0 {
-		copy(tcp[20:], payload)
+		copy(tcp[tcpHdrLen:], payload)
 	}
 
 	recomputeIPv4Checksums(pkt)
+	return pkt
+}
+
+func (c *tunTCPConn) writePacketWithOpts(flags byte, tcpOpts []byte, payload []byte, seq, ack uint32) error {
+	pkt := c.buildPacket(flags, tcpOpts, payload, seq, ack)
 	if c.activeMode {
 		return c.tz.s.writeRawToUpstream(pkt)
 	}
 	return c.tz.writeTun(pkt)
+}
+
+func (c *tunTCPConn) writePacket(flags byte, payload []byte, seq, ack uint32) error {
+	return c.writePacketWithOpts(flags, nil, payload, seq, ack)
 }
 
 func (c *tunTCPConn) sendSynAck() {
@@ -1416,14 +1505,14 @@ func (c *tunTCPConn) sendSyn() {
 	seq := c.mySeq
 	c.mySeq++
 	c.mu.Unlock()
-	_ = c.writePacket(0x02, nil, seq, 0) // SYN
+	_ = c.writePacketWithOpts(0x02, activeSynTCPOptions[:], nil, seq, 0) // SYN
 }
 
 func (c *tunTCPConn) retransmitSyn() {
 	c.mu.Lock()
 	seq := c.mySeq - 1
 	c.mu.Unlock()
-	_ = c.writePacket(0x02, nil, seq, 0) // SYN retransmit
+	_ = c.writePacketWithOpts(0x02, activeSynTCPOptions[:], nil, seq, 0) // SYN retransmit
 }
 
 func (c *tunTCPConn) sendRST() {

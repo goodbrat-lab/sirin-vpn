@@ -18,8 +18,10 @@ var (
 	procDeleteIpForwardEntry2    = modiphlpapi.NewProc("DeleteIpForwardEntry2")
 	procInitializeIpForwardEntry = modiphlpapi.NewProc("InitializeIpForwardEntry")
 
-	routeMu      sync.Mutex
-	activeRoutes []RouteEntry
+	routeMu        sync.Mutex
+	activeRoutes   []RouteEntry
+	lastCfg        Config
+	hasActiveSetup bool
 )
 
 const (
@@ -56,14 +58,20 @@ func deleteIpForwardEntry2(row *windows.MibIpForwardRow2) error {
 	return nil
 }
 
-// GetPhysicalDefaultGateway находит шлюз по умолчанию на физическом адаптере.
-func GetPhysicalDefaultGateway() (net.IP, uint32, error) {
+// getForwardTableSnapshot читает текущую IPv4-таблицу маршрутов ядра Windows за один системный вызов,
+// одновременно определяя физический шлюз по умолчанию (исключая excludeIfIndex) и множество всех активных маршрутов.
+func getForwardTableSnapshot(excludeIfIndex uint32) (net.IP, uint32, map[string]bool, error) {
 	var table *windows.MibIpForwardTable2
 	err := windows.GetIpForwardTable2(windows.AF_INET, &table)
 	if err != nil {
-		return nil, 0, fmt.Errorf("GetIpForwardTable2: %w", err)
+		return nil, 0, nil, fmt.Errorf("GetIpForwardTable2: %w", err)
 	}
 	defer windows.FreeMibTable(unsafe.Pointer(table))
+
+	present := make(map[string]bool, int(table.NumEntries))
+	if table.NumEntries == 0 {
+		return nil, 0, present, fmt.Errorf("physical default gateway not found")
+	}
 
 	entries := unsafe.Slice(&table.Table[0], table.NumEntries)
 	var bestGw net.IP
@@ -72,14 +80,25 @@ func GetPhysicalDefaultGateway() (net.IP, uint32, error) {
 	found := false
 
 	for _, row := range entries {
+		dstInet := (*windows.RawSockaddrInet4)(unsafe.Pointer(&row.DestinationPrefix.Prefix))
+		nhInet := (*windows.RawSockaddrInet4)(unsafe.Pointer(&row.NextHop))
+		dstIP := net.IPv4(dstInet.Addr[0], dstInet.Addr[1], dstInet.Addr[2], dstInet.Addr[3])
+		nhIP := net.IPv4(nhInet.Addr[0], nhInet.Addr[1], nhInet.Addr[2], nhInet.Addr[3])
+		pLen := int(row.DestinationPrefix.PrefixLength)
+
+		present[RouteKey(RouteEntry{
+			IfIndex:   row.InterfaceIndex,
+			Dst:       dstIP,
+			PrefixLen: pLen,
+			NextHop:   nhIP,
+		})] = true
+
 		// Дефолтный маршрут имеет длину префикса 0 (0.0.0.0/0)
-		if row.DestinationPrefix.PrefixLength == 0 {
-			inet4 := (*windows.RawSockaddrInet4)(unsafe.Pointer(&row.NextHop))
-			gw := net.IPv4(inet4.Addr[0], inet4.Addr[1], inet4.Addr[2], inet4.Addr[3])
-			if !gw.IsUnspecified() && !gw.IsLoopback() {
+		if pLen == 0 && (excludeIfIndex == 0 || row.InterfaceIndex != excludeIfIndex) {
+			if !nhIP.IsUnspecified() && !nhIP.IsLoopback() {
 				if row.Metric < bestMetric {
 					bestMetric = row.Metric
-					bestGw = gw
+					bestGw = nhIP
 					bestIfIndex = row.InterfaceIndex
 					found = true
 				}
@@ -88,9 +107,20 @@ func GetPhysicalDefaultGateway() (net.IP, uint32, error) {
 	}
 
 	if !found {
-		return nil, 0, fmt.Errorf("physical default gateway not found")
+		return nil, 0, present, fmt.Errorf("physical default gateway not found")
 	}
-	return bestGw, bestIfIndex, nil
+	return bestGw, bestIfIndex, present, nil
+}
+
+// GetPhysicalDefaultGatewayExcluding находит шлюз по умолчанию на физическом адаптере, игнорируя указанный интерфейс туннеля.
+func GetPhysicalDefaultGatewayExcluding(excludeIfIndex uint32) (net.IP, uint32, error) {
+	gw, ifIdx, _, err := getForwardTableSnapshot(excludeIfIndex)
+	return gw, ifIdx, err
+}
+
+// GetPhysicalDefaultGateway находит шлюз по умолчанию на физическом адаптере.
+func GetPhysicalDefaultGateway() (net.IP, uint32, error) {
+	return GetPhysicalDefaultGatewayExcluding(0)
 }
 
 // addRoute добавляет маршрут через Win32 IP Helper API.
@@ -156,51 +186,19 @@ func Setup(cfg Config) error {
 	// 1. Очистить предыдущие маршруты
 	_ = Cleanup()
 
-	wintunGw := net.ParseIP(cfg.Gateway).To4()
-	wintunIf := uint32(cfg.IfIndex)
+	// Получаем физический шлюз (исключая интерфейс Wintun)
+	physGw, physIf, _ := GetPhysicalDefaultGatewayExcluding(uint32(cfg.IfIndex))
 
-	// Получаем физический шлюз
-	physGw, physIf, physErr := GetPhysicalDefaultGateway()
+	var domainIPs []net.IP
+	if len(cfg.CustomDomains) > 0 {
+		domainIPs = ResolveDomains(cfg.CustomDomains)
+	}
 
 	routeMu.Lock()
 	defer routeMu.Unlock()
 
-	var toAdd []RouteEntry
-
-	if cfg.Mode == "only" {
-		// РЕЖИМ ONLY: трафик идёт через провайдера, кроме явно указанных CIDR и доменов.
-		// Направляем кастомные CIDR в Wintun:
-		for _, cidrStr := range cfg.CustomCIDRs {
-			ip, prefix, err := ParseCIDR(cidrStr)
-			if err == nil {
-				toAdd = append(toAdd, RouteEntry{
-					IfIndex:   wintunIf,
-					Dst:       ip,
-					PrefixLen: prefix,
-					NextHop:   wintunGw,
-					Metric:    1,
-				})
-			}
-		}
-
-		// Разрешаем домены и направляем в Wintun:
-		if len(cfg.CustomDomains) > 0 {
-			domainIPs := ResolveDomains(cfg.CustomDomains)
-			for _, ip := range domainIPs {
-				toAdd = append(toAdd, RouteEntry{
-					IfIndex:   wintunIf,
-					Dst:       ip,
-					PrefixLen: 32,
-					NextHop:   wintunGw,
-					Metric:    1,
-				})
-			}
-		}
-	} else {
-		// РЕЖИМ BYPASS (по умолчанию): весь трафик через VPN туннель,
-		// кроме RuDirect (если включен) и кастомных CIDR/доменов.
-
-		// 1. Базовые /1 маршруты в туннель
+	if cfg.Mode != "only" {
+		// РЕЖИМ BYPASS (по умолчанию): базовые /1 маршруты в туннель
 		cmds := [][]string{
 			{"route", "add", "0.0.0.0", "mask", "128.0.0.0", cfg.Gateway, "metric", "1", "if", fmt.Sprint(cfg.IfIndex)},
 			{"route", "add", "128.0.0.0", "mask", "128.0.0.0", cfg.Gateway, "metric", "1", "if", fmt.Sprint(cfg.IfIndex)},
@@ -210,52 +208,9 @@ func Setup(cfg Config) error {
 				return fmt.Errorf("route add %v: %w (%s)", args, err, out)
 			}
 		}
-
-		// Если есть физический шлюз, настраиваем исключения (RuDirect и Bypass)
-		if physErr == nil && physGw != nil && physIf > 0 {
-			// 2. RuDirect: все 8641 RU-диапазонов направляем через физ. адаптер
-			if cfg.RuDirect {
-				ruCIDRs := GetRuCIDRs()
-				for _, c := range ruCIDRs {
-					toAdd = append(toAdd, RouteEntry{
-						IfIndex:   physIf,
-						Dst:       c.IP,
-						PrefixLen: c.PrefixLen,
-						NextHop:   physGw,
-						Metric:    5,
-					})
-				}
-			}
-
-			// 3. Кастомные CIDR в обход VPN
-			for _, cidrStr := range cfg.CustomCIDRs {
-				ip, prefix, err := ParseCIDR(cidrStr)
-				if err == nil {
-					toAdd = append(toAdd, RouteEntry{
-						IfIndex:   physIf,
-						Dst:       ip,
-						PrefixLen: prefix,
-						NextHop:   physGw,
-						Metric:    5,
-					})
-				}
-			}
-
-			// 4. Кастомные домены в обход VPN
-			if len(cfg.CustomDomains) > 0 {
-				domainIPs := ResolveDomains(cfg.CustomDomains)
-				for _, ip := range domainIPs {
-					toAdd = append(toAdd, RouteEntry{
-						IfIndex:   physIf,
-						Dst:       ip,
-						PrefixLen: 32,
-						NextHop:   physGw,
-						Metric:    5,
-					})
-				}
-			}
-		}
 	}
+
+	toAdd := BuildDesiredRoutes(cfg, physGw, physIf, domainIPs)
 
 	// Быстрая пакетная установка всех специфичных маршрутов
 	for _, entry := range toAdd {
@@ -263,14 +218,105 @@ func Setup(cfg Config) error {
 			activeRoutes = append(activeRoutes, entry)
 		}
 	}
+	lastCfg = cfg
+	hasActiveSetup = true
 
 	return nil
+}
+
+// Reconcile идемпотентно и без разрыва соединения восстанавливает маршруты туннеля и Split Tunneling
+// после выхода ОС из сна (Sleep/Hibernate) или смены физического сетевого интерфейса (Wi-Fi ↔ Ethernet/Модем).
+// Новые маршруты всегда добавляются ДО удаления устаревших, исключая окно утечки трафика.
+func Reconcile() (added int, removed int, physIf uint32, err error) {
+	routeMu.Lock()
+	if !hasActiveSetup {
+		routeMu.Unlock()
+		return 0, 0, 0, nil
+	}
+	cfg := lastCfg
+	routeMu.Unlock()
+
+	var domainIPs []net.IP
+	if len(cfg.CustomDomains) > 0 {
+		domainIPs = ResolveDomains(cfg.CustomDomains)
+	}
+
+	routeMu.Lock()
+	defer routeMu.Unlock()
+	if !hasActiveSetup {
+		return 0, 0, 0, nil
+	}
+	cfg = lastCfg
+	wintunIf := uint32(cfg.IfIndex)
+	wintunGw := net.ParseIP(cfg.Gateway).To4()
+
+	physGw, detectedIf, present, snapErr := getForwardTableSnapshot(wintunIf)
+	if present == nil {
+		return 0, 0, 0, snapErr
+	}
+
+	// 1. В режиме bypass проверяем сохранность базовых /1 маршрутов Wintun
+	if cfg.Mode != "only" && wintunIf > 0 && wintunGw != nil {
+		halfRoutes := []RouteEntry{
+			{IfIndex: wintunIf, Dst: net.IPv4(0, 0, 0, 0), PrefixLen: 1, NextHop: wintunGw, Metric: 1},
+			{IfIndex: wintunIf, Dst: net.IPv4(128, 0, 0, 0), PrefixLen: 1, NextHop: wintunGw, Metric: 1},
+		}
+		for _, hr := range halfRoutes {
+			if !present[RouteKey(hr)] {
+				if aerr := addRoute(hr); aerr == nil {
+					added++
+				}
+			}
+		}
+	}
+
+	// Если физический шлюз ещё не поднялся после сна (Wi-Fi ассоциируется), не удаляем старые исключения раньше времени
+	if cfg.Mode != "only" && (snapErr != nil || detectedIf == 0 || physGw == nil) {
+		return added, 0, 0, nil
+	}
+
+	desired := BuildDesiredRoutes(cfg, physGw, detectedIf, domainIPs)
+	toAdd, toRemove := DiffRoutes(desired, present, activeRoutes)
+	if len(toAdd) == 0 && len(toRemove) == 0 {
+		return added, 0, detectedIf, nil
+	}
+
+	// 2. Сначала добавляем все недостающие маршруты на актуальный интерфейс
+	var nextActive []RouteEntry
+	addedKeys := make(map[string]bool, len(desired))
+	for _, entry := range desired {
+		k := RouteKey(entry)
+		if present[k] {
+			nextActive = append(nextActive, entry)
+			addedKeys[k] = true
+			continue
+		}
+		if aerr := addRoute(entry); aerr == nil {
+			added++
+			nextActive = append(nextActive, entry)
+			addedKeys[k] = true
+		}
+	}
+
+	// 3. Только после установки новых маршрутов убираем устаревшие со старого интерфейса/шлюза
+	for _, stale := range toRemove {
+		if !addedKeys[RouteKey(stale)] {
+			if derr := deleteRoute(stale); derr == nil {
+				removed++
+			}
+		}
+	}
+	activeRoutes = nextActive
+	return added, removed, detectedIf, nil
 }
 
 // Cleanup удаляет все установленные маршруты туннеля и исключений.
 func Cleanup() error {
 	routeMu.Lock()
 	defer routeMu.Unlock()
+
+	hasActiveSetup = false
+	lastCfg = Config{}
 
 	// Удаляем маршруты /1
 	exec.Command("route", "delete", "0.0.0.0", "mask", "128.0.0.0").Run()

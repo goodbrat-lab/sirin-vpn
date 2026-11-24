@@ -705,3 +705,114 @@ custom_domains = ["blocked.domain.org"]
 		t.Fatalf("Некорректные custom_domains: %v", ad.CustomDomains)
 	}
 }
+
+func TestEvaluatePBRHealthAndLocalCGNAT(t *testing.T) {
+	locals := buildLocalCidrs([]string{"94.183.159.114"})
+	hasCGNAT := false
+	hasLinkLocal := false
+	for _, c := range locals {
+		if c == "100.64.0.0/10" {
+			hasCGNAT = true
+		}
+		if c == "169.254.0.0/16" {
+			hasLinkLocal = true
+		}
+	}
+	if !hasCGNAT || !hasLinkLocal {
+		t.Fatalf("buildLocalCidrs должен включать 100.64.0.0/10 (Tailscale/CGNAT) и 169.254.0.0/16: %v", locals)
+	}
+
+	curWan := wanInfo{iface: "pppoe-wan", gw: ""}
+	t100 := []byte("default dev sirin0 scope link\n")
+	t200 := []byte("default dev pppoe-wan scope link\n")
+	rules := []byte("0:\tfrom all lookup local\n10100:\tfrom all fwmark 0x1 lookup 100\n10200:\tfrom all fwmark 0x2 lookup 200\n32766:\tfrom all lookup main\n")
+
+	hOK := evaluatePBRHealth("sirin0", curWan, curWan, t100, t200, rules, true, true, true)
+	if !hOK.allOK() {
+		t.Fatalf("ожидалось здоровое состояние PBR, получено %+v", hOK)
+	}
+
+	// После переподнятия pppoe-wan ядро очистило таблицу 200
+	hLostT200 := evaluatePBRHealth("sirin0", curWan, curWan, t100, []byte(""), rules, true, true, true)
+	if hLostT200.table200OK || hLostT200.allOK() {
+		t.Fatalf("ожидалось обнаружение потери маршрута в table 200: %+v", hLostT200)
+	}
+
+	// Смена WAN интерфейса (pppoe-wan -> eth1 с новым шлюзом) должна помечать Kill Switch на обновление
+	newWan := wanInfo{iface: "eth1", gw: "192.168.10.1"}
+	hSwitch := evaluatePBRHealth("sirin0", newWan, curWan, t100, []byte("default via 192.168.10.1 dev eth1\n"), rules, true, true, true)
+	if hSwitch.nftKSOK {
+		t.Fatalf("при смене WAN-интерфейса Kill Switch должен обновляться под новый oifname")
+	}
+}
+
+func TestDynamicSplitDomainsAndOpSecAntiLeakOptions(t *testing.T) {
+	// 1. Проверка генерации dnsmasq конфига для split_tunnel.domains (с nftset и без него)
+	dnsPlain := BuildDnsmasqSplitDomainsContentExt([]string{"*.Kinopoisk.RU", "ozon.ru"}, 56255, false)
+	if !strings.Contains(dnsPlain, "server=/kinopoisk.ru/ozon.ru/127.0.0.1#56255") {
+		t.Fatalf("ожидался форвардер на 127.0.0.1#56255, получено:\n%s", dnsPlain)
+	}
+	if strings.Contains(dnsPlain, "nftset=") {
+		t.Fatalf("при withNFTSet=false не должно быть директивы nftset")
+	}
+
+	dnsNFT := BuildDnsmasqSplitDomainsContentExt([]string{"claude.ai"}, 56255, true)
+	if !strings.Contains(dnsNFT, "nftset=/claude.ai/4#ip#sirin#split_domain_cidrs") {
+		t.Fatalf("ожидалась директива nftset для split_domain_cidrs, получено:\n%s", dnsNFT)
+	}
+
+	// 2. Проверка DoH canary-конфига (NXDOMAIN для Mozilla/Firefox)
+	canary := BuildDnsmasqDoHCanaryContent()
+	if !strings.Contains(canary, "server=/use-application-dns.net/") {
+		t.Fatalf("ожидалось правило NXDOMAIN для use-application-dns.net, получено:\n%s", canary)
+	}
+
+	// 3. Проверка генерации nftables с @split_domain_cidrs, block_doh, stun_via_vpn и ttl_mode="preserve"
+	opsec := OpSecOptions{
+		NormalizeTTL: true,
+		TTLMode:      "preserve",
+		TargetTTL:    64,
+		InterceptDNS: true,
+		BlockDoT:     true,
+		BlockDoH:     true,
+		StunViaVPN:   true,
+	}
+	splitDom := SplitDomainOptions{Enabled: true}
+
+	rulesBypass := generateNftablesRules(
+		"sirin0", "br-lan", "bypass",
+		[]string{"192.168.1.0/24"}, []string{"77.88.0.0/18"},
+		"", nil, nil,
+		opsec, splitDom,
+	)
+
+	if !strings.Contains(rulesBypass, "set split_domain_cidrs {") {
+		t.Fatalf("ожидался динамический сет split_domain_cidrs")
+	}
+	if !strings.Contains(rulesBypass, "ip daddr @split_domain_cidrs meta mark set 0x00000002 return") {
+		t.Fatalf("в режиме bypass @split_domain_cidrs должен направляться в WAN (0x2)")
+	}
+	if !strings.Contains(rulesBypass, "set doh_resolvers {") || !strings.Contains(rulesBypass, "ip daddr @doh_resolvers tcp dport 443 reject with tcp reset") {
+		t.Fatalf("при BlockDoH=true ожидался сет doh_resolvers и reject с TCP RST на 443")
+	}
+	if !strings.Contains(rulesBypass, "ip daddr != @split_cidrs udp dport { 3478, 5349, 19302 } meta mark set 0x00000001 return") {
+		t.Fatalf("при StunViaVPN=true ожидалась отправка зарубежных STUN в VPN с сохранением @split_cidrs")
+	}
+	if strings.Contains(rulesBypass, "ip ttl set") {
+		t.Fatalf("при TTLMode=preserve не должно быть принудительного ip ttl set")
+	}
+	if !strings.Contains(rulesBypass, `oifname "sirin0" tcp flags syn tcp option maxseg size set rt mtu`) {
+		t.Fatalf("при TTLMode=preserve должен сохраняться TCP MSS clamping")
+	}
+
+	// В режиме Include ("only") @split_domain_cidrs должен направляться в VPN (0x1)
+	rulesOnly := generateNftablesRules(
+		"sirin0", "br-lan", "only",
+		[]string{"192.168.1.0/24"}, []string{"104.18.0.0/16"},
+		"", nil, nil,
+		opsec, splitDom,
+	)
+	if !strings.Contains(rulesOnly, "ip daddr @split_domain_cidrs meta mark set 0x00000001 return") {
+		t.Fatalf("в режиме only @split_domain_cidrs должен направляться в VPN (0x1)")
+	}
+}

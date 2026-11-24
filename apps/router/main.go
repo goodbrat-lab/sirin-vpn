@@ -7,12 +7,15 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"sirin/engine/desktop"
 )
 
-var Version = "2.1.3"
+var Version = "2.2.0"
 
 func main() {
 	configPath := flag.String("config", "/etc/sirin/client.toml", "путь к конфигурационному файлу TOML")
@@ -72,15 +75,7 @@ func main() {
 	}
 
 	// 1. Определение WAN интерфейса и шлюза
-	wan := detectWan()
-	if cfg.WanInterface != "" && cfg.WanInterface != "wan" && cfg.WanInterface != "auto" {
-		wan.iface = cfg.WanInterface
-	} else if wan.iface == "" && cfg.WanInterface != "" {
-		wan.iface = cfg.WanInterface
-	}
-	if cfg.WanGateway != "" {
-		wan.gw = cfg.WanGateway
-	}
+	wan := resolveEffectiveWan(cfg)
 	if wan.iface == "" {
 		log.Printf("[net] ВНИМАНИЕ: WAN-интерфейс не обнаружен автоматически (default route отсутствует)")
 	} else {
@@ -134,21 +129,74 @@ func main() {
 	}
 	defer handle.Stop()
 
-	// 6. Перехват системных сигналов для корректного отключения
+	// 6. Перехват системных сигналов для корректного отключения и hotplug-восстановления маршрутов (SIGHUP)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	hupCh := make(chan os.Signal, 1)
+	signal.Notify(hupCh, syscall.SIGHUP)
+
+	var routeMu sync.Mutex
+	var tunnelReady atomic.Bool
+	curWan := wan
+
+	runReconcile := func() {
+		if !tunnelReady.Load() {
+			return
+		}
+		routeMu.Lock()
+		defer routeMu.Unlock()
+		if !tunnelReady.Load() {
+			return
+		}
+		nextWan, changed, rerr := reconcileRouting(cfg, tun, handle.Info(), serverHosts, curWan)
+		if rerr != nil {
+			log.Printf("[route] Предупреждение сверки маршрутов: %v", rerr)
+			return
+		}
+		if nextWan != curWan {
+			curWan = nextWan
+			protector.UpdateWAN(curWan.iface, curWan.gw)
+			log.Printf("[net] Обновлён активный WAN в протекторе: iface=%s, gw=%s", curWan.iface, curWan.gw)
+		} else if changed {
+			protector.UpdateWAN(curWan.iface, curWan.gw)
+		}
+	}
+
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hupCh:
+				log.Printf("[net] Получен сигнал SIGHUP (hotplug/reconcile) — проверка таблиц PBR и WAN...")
+				runReconcile()
+			case <-ticker.C:
+				runReconcile()
+			}
+		}
+	}()
 
 	doneCh := make(chan struct{})
 	var antiDPIServer *AntiDPIServer
 	var psnProxyServer *PSNProxyServer
 	var directWANDNS *DirectWANDNSServer
+	var splitDomainDNS *SplitDomainDNSServer
 	var forceVPNActive bool
+	var dohCanaryActive bool
 
 	stopDnsExtensions := func() {
 		changed := false
 		if directWANDNS != nil {
 			directWANDNS.Stop()
 			directWANDNS = nil
+		}
+		if splitDomainDNS != nil {
+			removeDnsmasqDropIn(splitDomainDnsmasqFile)
+			splitDomainDNS.Stop()
+			splitDomainDNS = nil
+			changed = true
 		}
 		if psnProxyServer != nil {
 			removeDnsmasqDropIn(psnProxyDnsmasqFilename)
@@ -167,6 +215,11 @@ func main() {
 			forceVPNActive = false
 			changed = true
 		}
+		if dohCanaryActive {
+			removeDnsmasqDropIn(dohCanaryDnsmasqFilename)
+			dohCanaryActive = false
+			changed = true
+		}
 		if cfg.IsDNSFilterEnabled() {
 			removeDnsmasqDropIn(dnsFilterDnsmasqFilename)
 			changed = true
@@ -181,9 +234,14 @@ func main() {
 			switch ev.Kind {
 			case "ready":
 				log.Printf("[engine] Туннель готов: %s", ev.Reason)
-				if err := setupRouting(cfg, tun, handle.Info(), serverHosts, wan); err != nil {
+				routeMu.Lock()
+				curWan = resolveEffectiveWan(cfg)
+				protector.UpdateWAN(curWan.iface, curWan.gw)
+				if err := setupRouting(cfg, tun, handle.Info(), serverHosts, curWan); err != nil {
 					log.Printf("[route] Ошибка настройки маршрутов: %v", err)
 				}
+				tunnelReady.Store(true)
+				routeMu.Unlock()
 				needDnsmasqRestart := false
 				var warmDomains []string
 				// Повторный "ready" (переподключение туннеля): останавливаем прежние серверы
@@ -194,6 +252,10 @@ func main() {
 				if directWANDNS != nil {
 					directWANDNS.Stop()
 					directWANDNS = nil
+				}
+				if splitDomainDNS != nil {
+					splitDomainDNS.Stop()
+					splitDomainDNS = nil
 				}
 				var psnCfg *PSNProxyConfig
 				if sp := cfg.GetServiceProxyConfig(); sp != nil && sp.Enabled != nil && *sp.Enabled {
@@ -215,7 +277,24 @@ func main() {
 				// Убираем «осиротевший» drop-in от прошлого запуска (если процесс был убит)
 				removeDnsmasqDropIn(psnProxyDnsmasqFilename)
 				removeDnsmasqDropIn(dnsFilterDnsmasqFilename)
+				removeDnsmasqDropIn(splitDomainDnsmasqFile)
+				removeDnsmasqDropIn(dohCanaryDnsmasqFilename)
 				needDnsmasqRestart = true
+				if cfg.GetOpSecOptions().BlockDoH {
+					_ = writeDnsmasqDropIn(dohCanaryDnsmasqFilename, BuildDnsmasqDoHCanaryContent())
+					dohCanaryActive = true
+					log.Printf("[opsec] Активировано подавление браузерного DoH (use-application-dns.net -> NXDOMAIN + reject DoH :443)")
+				}
+				if cfg.GetSplitDomainOptions().Enabled && cfg.SplitTunnel != nil {
+					splitDomainDNS = NewSplitDomainDNSServer(DefaultSplitDomainDNSPort, cfg.SplitTunnel.Mode, cfg.SplitTunnel.Domains)
+					if err := splitDomainDNS.Start(ctx); err != nil {
+						log.Printf("[splitdns] Внимание: не удалось запустить Split DNS: %v", err)
+						splitDomainDNS = nil
+					} else if content := BuildDnsmasqSplitDomainsContent(cfg.SplitTunnel.Domains, DefaultSplitDomainDNSPort); content != "" {
+						_ = writeDnsmasqDropIn(splitDomainDnsmasqFile, content)
+						needDnsmasqRestart = true
+					}
+				}
 				if cfg.IsDNSFilterEnabled() {
 					_ = writeDnsmasqDropIn(dnsFilterDnsmasqFilename, BuildDnsmasqBlocklistContent(cfg.DNSFilter))
 					log.Printf("[dnsfilter] Активирован DNS-фильтр (заблокировано доменов: %d)", len(cfg.DNSFilter.ResolveBlockedDomains()))
@@ -275,14 +354,20 @@ func main() {
 				if directWANDNS != nil {
 					go directWANDNS.Warm(ctx)
 				}
+				if splitDomainDNS != nil {
+					go splitDomainDNS.Warm(ctx)
+				}
 			case "log":
 				// Логи выводятся в реальном времени через desktopCfg.LogFunc
 			case "stopping":
 				log.Printf("[engine] Остановка: %s", ev.Reason)
 			case "stopped":
+				tunnelReady.Store(false)
 				log.Printf("[engine] Завершено: %s", ev.Reason)
 				stopDnsExtensions()
-				cleanupRouting(cfg, tun, serverHosts, wan)
+				routeMu.Lock()
+				cleanupRouting(cfg, tun, serverHosts, curWan)
+				routeMu.Unlock()
 				close(doneCh)
 				return
 			}
@@ -291,9 +376,12 @@ func main() {
 
 	select {
 	case sig := <-sigCh:
+		tunnelReady.Store(false)
 		log.Printf("Получен сигнал %s, завершение работы...", sig)
 		stopDnsExtensions()
-		cleanupRouting(cfg, tun, serverHosts, wan)
+		routeMu.Lock()
+		cleanupRouting(cfg, tun, serverHosts, curWan)
+		routeMu.Unlock()
 		handle.Stop()
 		cancel()
 		tun.Close()

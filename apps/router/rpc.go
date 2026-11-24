@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -24,9 +25,12 @@ func RPCSchema() map[string]any {
 			"tun_mtu":        "int",
 			"kill_switch":    "bool",
 			"normalize_ttl":  "bool",
+			"ttl_mode":       "str",
 			"target_ttl":     "int",
 			"intercept_dns":  "bool",
 			"block_dot":      "bool",
+			"block_doh":      "bool",
+			"stun_via_vpn":   "bool",
 			"dead_drop_urls": "array",
 		},
 		"get_split_config": map[string]any{},
@@ -95,6 +99,7 @@ func RPCSchema() map[string]any {
 			"include_downloads": "bool",
 		},
 		"get_ru_direct_info": map[string]any{},
+		"reconcile":          map[string]any{},
 		"leak_check":         map[string]any{},
 		"test_connection":    map[string]any{},
 		"check_update":       map[string]any{},
@@ -232,6 +237,18 @@ func ExecuteRPC(method string, rawInput string, configPath string) (string, int)
 		data, _ := json.Marshal(res)
 		return string(data), 0
 
+	case "reconcile":
+		st := rpcStatus(configPath)
+		running, _ := st["running"].(bool)
+		pid, _ := st["pid"].(int)
+		if !running || pid <= 0 {
+			return `{"success":true,"running":false,"reconciled":false}`, 0
+		}
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = proc.Signal(syscall.SIGHUP)
+		}
+		return `{"success":true,"running":true,"reconciled":true}`, 0
+
 	case "leak_check":
 		res := rpcLeakCheck(configPath)
 		data, _ := json.Marshal(res)
@@ -360,9 +377,12 @@ func rpcGetConfig(configPath string) (map[string]any, error) {
 		"tun_mtu":        cfg.TunMTU,
 		"kill_switch":    cfg.IsKillSwitchEnabled(),
 		"normalize_ttl":  opsec.NormalizeTTL,
+		"ttl_mode":       opsec.TTLMode,
 		"target_ttl":     opsec.TargetTTL,
 		"intercept_dns":  opsec.InterceptDNS,
 		"block_dot":      opsec.BlockDoT,
+		"block_doh":      opsec.BlockDoH,
+		"stun_via_vpn":   opsec.StunViaVPN,
 		"dead_drop_urls": cfg.DeadDropURLs,
 	}, nil
 }
@@ -381,9 +401,12 @@ func rpcSetConfig(configPath string, rawInput string) error {
 		TunMTU       *int      `json:"tun_mtu"`
 		KillSwitch   *bool     `json:"kill_switch"`
 		NormalizeTTL *bool     `json:"normalize_ttl"`
+		TTLMode      *string   `json:"ttl_mode"`
 		TargetTTL    *int      `json:"target_ttl"`
 		InterceptDNS *bool     `json:"intercept_dns"`
 		BlockDoT     *bool     `json:"block_dot"`
+		BlockDoH     *bool     `json:"block_doh"`
+		StunViaVPN   *bool     `json:"stun_via_vpn"`
 		DeadDropURLs *[]string `json:"dead_drop_urls"`
 	}
 
@@ -409,6 +432,12 @@ func rpcSetConfig(configPath string, rawInput string) error {
 	if input.NormalizeTTL != nil {
 		cfg.NormalizeTTL = input.NormalizeTTL
 	}
+	if input.TTLMode != nil {
+		m := strings.ToLower(strings.TrimSpace(*input.TTLMode))
+		if m == "preserve" || m == "fixed" {
+			cfg.TTLMode = m
+		}
+	}
 	if input.TargetTTL != nil && *input.TargetTTL >= 1 && *input.TargetTTL <= 255 {
 		cfg.TargetTTL = *input.TargetTTL
 	}
@@ -417,6 +446,12 @@ func rpcSetConfig(configPath string, rawInput string) error {
 	}
 	if input.BlockDoT != nil {
 		cfg.BlockDoT = input.BlockDoT
+	}
+	if input.BlockDoH != nil {
+		cfg.BlockDoH = input.BlockDoH
+	}
+	if input.StunViaVPN != nil {
+		cfg.StunViaVPN = input.StunViaVPN
 	}
 	if input.DeadDropURLs != nil {
 		cfg.DeadDropURLs = *input.DeadDropURLs

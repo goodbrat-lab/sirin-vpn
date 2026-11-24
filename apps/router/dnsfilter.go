@@ -6,7 +6,29 @@ import (
 	"strings"
 )
 
-const dnsFilterDnsmasqFilename = "sirin-blocklist.conf"
+const (
+	dnsFilterDnsmasqFilename = "sirin-blocklist.conf"
+	dohCanaryDnsmasqFilename = "sirin-doh-canary.conf"
+)
+
+// KnownPublicDoHResolvers — публичные IPv4-адреса известных DoH-резолверов (Cloudflare, Google, Quad9, AdGuard, CleanBrowsing),
+// отклоняемые из LAN на порту 443 при включённом block_doh для мягкого возврата браузеров на локальный dnsmasq роутера.
+var KnownPublicDoHResolvers = []string{
+	"1.1.1.1/32",
+	"1.0.0.1/32",
+	"8.8.8.8/32",
+	"8.8.4.4/32",
+	"9.9.9.9/32",
+	"149.112.112.112/32",
+	"94.140.14.14/32",
+	"94.140.15.15/32",
+}
+
+// BuildDnsmasqDoHCanaryContent формирует drop-in конфиг dnsmasq с официальным canary-ответом NXDOMAIN
+// для Mozilla/Firefox (use-application-dns.net), отключающим обход роутерного DNS через встроенный браузерный DoH.
+func BuildDnsmasqDoHCanaryContent() string {
+	return "# Sirin OpSec: отключение встроенного браузерного DoH (NXDOMAIN для canary-домена)\nserver=/use-application-dns.net/\n"
+}
 
 // DNSFilterConfig — секция [dns_filter] в client.toml.
 // Встроенная лёгкая блокировка рекламы, трекеров и фишинга на уровне dnsmasq

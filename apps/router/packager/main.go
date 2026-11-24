@@ -20,7 +20,7 @@ type PackageFile struct {
 
 func main() {
 	distDir := flag.String("dist", "dist", "Path to dist directory")
-	version := flag.String("version", "2.1.3", "Package version")
+	version := flag.String("version", "2.2.0", "Package version")
 	flag.Parse()
 
 	absDist, err := filepath.Abs(*distDir)
@@ -99,6 +99,11 @@ func getClientDataFiles(routerRoot, binPath string) []PackageFile {
 		{
 			TargetRelPath: "etc/init.d/sirin",
 			SourcePath:    filepath.Join(routerRoot, "init.d", "sirin"),
+			Mode:          0755,
+		},
+		{
+			TargetRelPath: "etc/hotplug.d/iface/99-sirin",
+			SourcePath:    filepath.Join(routerRoot, "hotplug.d", "99-sirin"),
 			Mode:          0755,
 		},
 		{

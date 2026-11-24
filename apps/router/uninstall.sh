@@ -15,9 +15,9 @@ fi
 ip link del sirin0 2>/dev/null || true
 ip route flush dev sirin0 2>/dev/null || true
 
-# 3. Удаление бинарника, init-скрипта и конфигурации
+# 3. Удаление бинарника, init-скрипта, hotplug-хука и конфигурации
 echo "Удаление файлов клиента..."
-rm -f /etc/init.d/sirin /usr/bin/sirin-client
+rm -f /etc/init.d/sirin /etc/hotplug.d/iface/99-sirin /usr/bin/sirin-client
 rm -rf /etc/sirin
 
 # 4. Удаление компонентов LuCI Web UI (если были установлены)

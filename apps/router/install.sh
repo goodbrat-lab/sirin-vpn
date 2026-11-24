@@ -31,7 +31,7 @@ if [ -z "$ARCH" ]; then
     echo "Detected: $ARCH"
 fi
 
-VERSION=${VERSION:-2.1.0}
+VERSION=${VERSION:-2.2.0}
 URL=${URL:-"https://github.com/goodbrat-lab/sirin-vpn/releases/download/router-v$VERSION/sirin-client-$VERSION-$ARCH.tar.gz"}
 
 # Определить пакетный менеджер
@@ -148,6 +148,33 @@ if [ -n "$INIT_SRC" ]; then
     echo "Service: /etc/init.d/sirin (из $INIT_SRC)"
 else
     echo "WARNING: init-скрипт sirin не найден"
+fi
+
+# 4.5. Hotplug-хук для восстановления PBR при переподключении WAN / PPPoE
+mkdir -p /etc/hotplug.d/iface || true
+HOTPLUG_SRC=""
+for p in /tmp/hotplug.d/99-sirin /tmp/99-sirin; do
+    if [ -f "$p" ]; then
+        HOTPLUG_SRC="$p"
+        break
+    fi
+done
+if [ -n "$HOTPLUG_SRC" ]; then
+    cp "$HOTPLUG_SRC" /etc/hotplug.d/iface/99-sirin
+    chmod 0755 /etc/hotplug.d/iface/99-sirin
+    echo "Hotplug: /etc/hotplug.d/iface/99-sirin"
+else
+    cat > /etc/hotplug.d/iface/99-sirin << 'EOF'
+#!/bin/sh
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ] || exit 0
+[ "$INTERFACE" = "loopback" ] && exit 0
+[ "$DEVICE" = "sirin0" ] && exit 0
+if [ -x /usr/bin/sirin-client ]; then
+    /usr/bin/sirin-client rpc reconcile >/dev/null 2>&1 || killall -HUP sirin-client 2>/dev/null || true
+fi
+EOF
+    chmod 0755 /etc/hotplug.d/iface/99-sirin
+    echo "Hotplug: /etc/hotplug.d/iface/99-sirin (generated)"
 fi
 
 # 5. Веб-интерфейс LuCI

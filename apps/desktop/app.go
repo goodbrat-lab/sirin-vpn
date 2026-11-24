@@ -30,6 +30,7 @@ type App struct {
 	state  string // "disconnected", "connecting", "connected", "error"
 	handle *desktop.Handle
 	tun    *tun.Interface
+	prot   *protector.WindowsProtector
 	cancel context.CancelFunc
 	logs   []string
 }
@@ -170,13 +171,18 @@ func (a *App) Connect(key string) error {
 	a.tun = tunDev
 	a.mu.Unlock()
 
+	winProt := protector.New(physicalIfaceIndex())
+	a.mu.Lock()
+	a.prot = winProt
+	a.mu.Unlock()
+
 	cfg := desktop.Config{
 		Gateway:        gateway,
 		CachedFallback: params.Entries[0].Host,
 		Ladder:         ladder,
 		Password:       key,
 		DeviceID:       deviceID(),
-		Protector:      protector.New(physicalIfaceIndex()),
+		Protector:      winProt,
 		ClampMSS:       true,
 		TunnelDNS:      desktop.DefaultTunnelDNS,
 	}
@@ -256,8 +262,59 @@ func (a *App) Connect(key string) error {
 
 	a.emitState("connected", "")
 	go a.handleEvents(events)
+	go a.watchNetworkAndSleep(ctx, winProt)
 
 	return nil
+}
+
+// watchNetworkAndSleep отслеживает выход Windows из режима сна/гибернации (S3 / Modern Standby)
+// и смену активного физического сетевого адаптера, идемпотентно восстанавливая маршруты Split Tunneling без обрыва туннеля.
+func (a *App) watchNetworkAndSleep(ctx context.Context, prot *protector.WindowsProtector) {
+	const pollInterval = 5 * time.Second
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	lastMono := time.Now()
+	lastWall := lastMono.Round(0)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			nowMono := time.Now()
+			nowWall := nowMono.Round(0)
+			monoDelta := nowMono.Sub(lastMono)
+			wallDelta := nowWall.Sub(lastWall)
+			lastMono = nowMono
+			lastWall = nowWall
+
+			wokeUp := route.HasSleepGap(wallDelta, monoDelta, 4*time.Second)
+			if wokeUp {
+				a.emitLog("Обнаружен выход из спящего режима — синхронизация маршрутов и сетевого адаптера...", "info")
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(1500 * time.Millisecond):
+				}
+				lastMono = time.Now()
+				lastWall = lastMono.Round(0)
+			}
+
+			added, removed, physIf, err := route.Reconcile()
+			if err != nil {
+				continue
+			}
+			if physIf > 0 && prot != nil && prot.InterfaceIndex() != physIf {
+				oldIf := prot.InterfaceIndex()
+				prot.SetInterfaceIndex(physIf)
+				a.emitLog(fmt.Sprintf("Физический сетевой интерфейс обновлён: ifIndex %d -> %d", oldIf, physIf), "info")
+			}
+			if added > 0 || removed > 0 {
+				a.emitLog(fmt.Sprintf("Маршрутизация восстановлена без разрыва: добавлено=%d, удалено устаревших=%d", added, removed), "info")
+			}
+		}
+	}
 }
 
 // Disconnect обрывает соединение
@@ -270,6 +327,7 @@ func (a *App) Disconnect() error {
 	a.handle = nil
 	a.cancel = nil
 	a.tun = nil
+	a.prot = nil
 	a.state = "disconnected"
 	a.mu.Unlock() // ← ЯВНЫЙ Unlock, без defer
 

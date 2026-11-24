@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -63,7 +64,8 @@ func buildXHTTPRequest(ctx context.Context, cfg *XHTTPConfig, pr io.Reader) (*ht
 	}
 	req.Host = hostHeader
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152."+"0.0.0 Safari/537.36")
+	ua, chPlatform, chMobile := xhttpBrowserHeadersForOS(runtime.GOOS)
+	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Content-Type", "application/grpc")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
@@ -72,14 +74,32 @@ func buildXHTTPRequest(ctx context.Context, cfg *XHTTPConfig, pr io.Reader) (*ht
 	req.Header.Set("Priority", "u=1, i")
 	req.Header.Set("Referer", fmt.Sprintf("https://%s%s?x_padding=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", hostHeader, normPath))
 	req.Header.Set("Sec-CH-UA", `"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"`)
-	req.Header.Set("Sec-CH-UA-Mobile", "?0")
-	req.Header.Set("Sec-CH-UA-Platform", `"Windows"`)
+	req.Header.Set("Sec-CH-UA-Mobile", chMobile)
+	req.Header.Set("Sec-CH-UA-Platform", chPlatform)
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("X-Accel-Buffering", "no")
 
 	return req, nil
+}
+
+// xhttpBrowserHeadersForOS подбирает консистентную тройку (User-Agent, Sec-CH-UA-Platform, Sec-CH-UA-Mobile)
+// под реальную ОС клиента, чтобы исключить несоответствие с параметрами TCP/IP-стека (TTL, TCP Timestamp) при CDN-фронтинге.
+func xhttpBrowserHeadersForOS(goos string) (userAgent, secPlatform, secMobile string) {
+	const chromeVer = "152." + "0.0.0"
+	switch goos {
+	case "android":
+		return "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + chromeVer + " Mobile Safari/537.36", `"Android"`, "?1"
+	case "darwin":
+		return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + chromeVer + " Safari/537.36", `"macOS"`, "?0"
+	case "ios":
+		return "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/" + chromeVer + " Mobile/15E148 Safari/604.1", `"iOS"`, "?1"
+	case "linux":
+		return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + chromeVer + " Safari/537.36", `"Linux"`, "?0"
+	default:
+		return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + chromeVer + " Safari/537.36", `"Windows"`, "?0"
+	}
 }
 
 // DialXHTTP выполняет TLS Reality рукопожатие, инициирует HTTP/2 POST стрим

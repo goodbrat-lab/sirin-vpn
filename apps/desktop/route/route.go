@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed data/ru-ranges.txt
@@ -116,4 +117,135 @@ func ResolveDomains(domains []string) []net.IP {
 		}
 	}
 	return ips
+}
+
+// RouteKey формирует уникальный строковый ключ маршрута (интерфейс + сеть/префикс + шлюз)
+// для быстрого идемпотентного сравнения состояния таблицы маршрутизации ОС.
+func RouteKey(e RouteEntry) string {
+	dstStr := ""
+	if ip4 := e.Dst.To4(); ip4 != nil {
+		mask := net.CIDRMask(e.PrefixLen, 32)
+		dstStr = ip4.Mask(mask).String()
+	}
+	nhStr := "0.0.0.0"
+	if nh4 := e.NextHop.To4(); nh4 != nil {
+		nhStr = nh4.String()
+	}
+	return fmt.Sprintf("%d|%s/%d|%s", e.IfIndex, dstStr, e.PrefixLen, nhStr)
+}
+
+// BuildDesiredRoutes вычисляет целевой набор специфичных маршрутов для режимов Exclude ("bypass") и Include ("only")
+// без обращения к системным API, что позволяет безопасно пересчитывать дифф после сна или смены интерфейса.
+func BuildDesiredRoutes(cfg Config, physGw net.IP, physIf uint32, domainIPs []net.IP) []RouteEntry {
+	wintunGw := net.ParseIP(cfg.Gateway).To4()
+	wintunIf := uint32(cfg.IfIndex)
+
+	var desired []RouteEntry
+	seen := make(map[string]bool)
+	addUnique := func(e RouteEntry) {
+		if e.Dst.To4() == nil {
+			return
+		}
+		mask := net.CIDRMask(e.PrefixLen, 32)
+		e.Dst = e.Dst.To4().Mask(mask)
+		k := RouteKey(e)
+		if !seen[k] {
+			seen[k] = true
+			desired = append(desired, e)
+		}
+	}
+
+	if cfg.Mode == "only" {
+		for _, cidrStr := range cfg.CustomCIDRs {
+			if ip, prefix, err := ParseCIDR(cidrStr); err == nil {
+				addUnique(RouteEntry{
+					IfIndex:   wintunIf,
+					Dst:       ip,
+					PrefixLen: prefix,
+					NextHop:   wintunGw,
+					Metric:    1,
+				})
+			}
+		}
+		for _, ip := range domainIPs {
+			if ip4 := ip.To4(); ip4 != nil {
+				addUnique(RouteEntry{
+					IfIndex:   wintunIf,
+					Dst:       ip4,
+					PrefixLen: 32,
+					NextHop:   wintunGw,
+					Metric:    1,
+				})
+			}
+		}
+		return desired
+	}
+
+	if physGw != nil && physGw.To4() != nil && physIf > 0 {
+		gw4 := physGw.To4()
+		if cfg.RuDirect {
+			for _, c := range GetRuCIDRs() {
+				addUnique(RouteEntry{
+					IfIndex:   physIf,
+					Dst:       c.IP,
+					PrefixLen: c.PrefixLen,
+					NextHop:   gw4,
+					Metric:    5,
+				})
+			}
+		}
+		for _, cidrStr := range cfg.CustomCIDRs {
+			if ip, prefix, err := ParseCIDR(cidrStr); err == nil {
+				addUnique(RouteEntry{
+					IfIndex:   physIf,
+					Dst:       ip,
+					PrefixLen: prefix,
+					NextHop:   gw4,
+					Metric:    5,
+				})
+			}
+		}
+		for _, ip := range domainIPs {
+			if ip4 := ip.To4(); ip4 != nil {
+				addUnique(RouteEntry{
+					IfIndex:   physIf,
+					Dst:       ip4,
+					PrefixLen: 32,
+					NextHop:   gw4,
+					Metric:    5,
+				})
+			}
+		}
+	}
+	return desired
+}
+
+// DiffRoutes определяет недостающие маршруты в таблице ОС (toAdd) и устаревшие ранее управляемые маршруты (toRemove),
+// например при смене физического шлюза/интерфейса после выхода из сна.
+// Применение toAdd строго ДО toRemove гарантирует отсутствие окна утечки или обрыва связи.
+func DiffRoutes(desired []RouteEntry, kernelPresent map[string]bool, prevManaged []RouteEntry) (toAdd []RouteEntry, toRemove []RouteEntry) {
+	desiredKeys := make(map[string]bool, len(desired))
+	for _, d := range desired {
+		k := RouteKey(d)
+		desiredKeys[k] = true
+		if !kernelPresent[k] {
+			toAdd = append(toAdd, d)
+		}
+	}
+	for _, p := range prevManaged {
+		k := RouteKey(p)
+		if !desiredKeys[k] {
+			toRemove = append(toRemove, p)
+		}
+	}
+	return toAdd, toRemove
+}
+
+// HasSleepGap определяет, выходила ли система из режима сна/гибернации (S3 / Modern Standby / Hibernate)
+// путём сравнения прироста астрономических часов (wall clock) и монотонного таймера ОС.
+func HasSleepGap(wallDelta, monoDelta, threshold time.Duration) bool {
+	if threshold <= 0 {
+		threshold = 3 * time.Second
+	}
+	return wallDelta-monoDelta >= threshold
 }

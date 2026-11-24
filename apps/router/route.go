@@ -215,6 +215,22 @@ func detectWan() wanInfo {
 	return wanInfo{}
 }
 
+// resolveEffectiveWan определяет актуальный физический WAN-интерфейс и шлюз с учётом переопределений в Config.
+func resolveEffectiveWan(cfg *Config) wanInfo {
+	wan := detectWan()
+	if cfg != nil {
+		if cfg.WanInterface != "" && cfg.WanInterface != "wan" && cfg.WanInterface != "auto" {
+			wan.iface = cfg.WanInterface
+		} else if wan.iface == "" && cfg.WanInterface != "" {
+			wan.iface = cfg.WanInterface
+		}
+		if cfg.WanGateway != "" {
+			wan.gw = cfg.WanGateway
+		}
+	}
+	return wan
+}
+
 type cidrRange struct {
 	start uint32
 	end   uint32
@@ -362,6 +378,8 @@ func buildLocalCidrs(serverHosts []string) []string {
 	locals := []string{
 		"127.0.0.0/8",
 		"10.0.0.0/8",
+		"100.64.0.0/10",
+		"169.254.0.0/16",
 		"172.16.0.0/12",
 		"192.168.0.0/16",
 		"224.0.0.0/4",
@@ -482,6 +500,7 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 	}
 	forceVPN := cfg.GetForceVPNOptions()
 	psnProxy := cfg.GetPSNProxyOptions()
+	splitDom := cfg.GetSplitDomainOptions()
 
 	// Матчер «адрес идёт мимо VPN» для PSN-прокси (чужие домены на общих IP CDN)
 	if mode == "only" {
@@ -492,7 +511,7 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 	}
 
 	// 8. Настройка nftables правил маркировки и NAT
-	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, opsec, antidpi, forceVPN, psnProxy); err != nil {
+	if err := applySplitTunnelNftables(tun.name, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, opsec, antidpi, forceVPN, psnProxy, splitDom); err != nil {
 		log.Printf("[route] nftables ошибка: %v. Пробуем iptables fallback...", err)
 		setupIptables(tun.name, lanIface, opsec)
 	}
@@ -518,6 +537,186 @@ func setupRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHo
 	return nil
 }
 
+type pbrHealth struct {
+	table100OK bool
+	table200OK bool
+	rule100OK  bool
+	rule200OK  bool
+	nftSirinOK bool
+	nftKSOK    bool
+}
+
+func (h pbrHealth) allOK() bool {
+	return h.table100OK && h.table200OK && h.rule100OK && h.rule200OK && h.nftSirinOK && h.nftKSOK
+}
+
+// evaluatePBRHealth проверяет целостность таблиц PBR (100/200), ip rule (10100/10200) и nftables по их выводам.
+func evaluatePBRHealth(tunName string, curWan, prevWan wanInfo, table100Out, table200Out, rulesOut []byte, nftSirinOK, killSwitch, nftKSOK bool) pbrHealth {
+	t100 := string(table100Out)
+	t200 := string(table200Out)
+	rules := string(rulesOut)
+
+	h := pbrHealth{
+		table100OK: strings.Contains(t100, "default") && (tunName == "" || strings.Contains(t100, tunName)),
+		nftSirinOK: nftSirinOK,
+		nftKSOK:    !killSwitch || (nftKSOK && (prevWan.iface == "" || curWan.iface == prevWan.iface)),
+	}
+
+	if curWan.iface != "" {
+		hasDef := strings.Contains(t200, "default") && strings.Contains(t200, curWan.iface)
+		if !isPointToPoint(curWan.iface) && curWan.gw != "" {
+			hasDef = hasDef && strings.Contains(t200, curWan.gw)
+		}
+		h.table200OK = hasDef
+	} else if curWan.gw != "" {
+		h.table200OK = strings.Contains(t200, "default") && strings.Contains(t200, curWan.gw)
+	} else {
+		h.table200OK = true
+	}
+
+	for _, line := range strings.Split(rules, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "10100:") && strings.Contains(line, "100") {
+			h.rule100OK = true
+		}
+		if strings.HasPrefix(line, "10200:") && strings.Contains(line, "200") {
+			h.rule200OK = true
+		}
+	}
+	return h
+}
+
+// reconcileRouting проверяет сохранность маршрутов PBR, правил ip rule и таблиц nftables
+// (например, после переподключения PPPoE/DHCP WAN или перезагрузки fw4) и восстанавливает
+// только потерянные элементы атомарно (ip route replace / транзакция nft -f -), НЕ вызывая cleanupRouting
+// и не обрывая активные соединения LAN и туннеля.
+func reconcileRouting(cfg *Config, tun *tunDevice, info desktop.TunnelInfo, serverHosts []string, prevWan wanInfo) (wanInfo, bool, error) {
+	curWan := resolveEffectiveWan(cfg)
+	if curWan.iface == "" && curWan.gw == "" {
+		// Физический линк временно лежит (например, идёт переподключение PPPoE) — ничего не ломаем, ждём подъёма
+		return prevWan, false, nil
+	}
+
+	t100Out, _ := exec.Command("ip", "-4", "route", "show", "table", "100").Output()
+	t200Out, _ := exec.Command("ip", "-4", "route", "show", "table", "200").Output()
+	rulesOut, _ := exec.Command("ip", "-4", "rule", "show").Output()
+	nftSirinOK := exec.Command("nft", "list", "table", "ip", "sirin").Run() == nil
+	ksEnabled := cfg.IsKillSwitchEnabled()
+	nftKSOK := true
+	if ksEnabled {
+		nftKSOK = exec.Command("nft", "list", "table", "inet", "sirin_killswitch").Run() == nil
+	}
+
+	h := evaluatePBRHealth(tun.name, curWan, prevWan, t100Out, t200Out, rulesOut, nftSirinOK, ksEnabled, nftKSOK)
+	if curWan == prevWan && h.allOK() {
+		return curWan, false, nil
+	}
+
+	tunIP := cfg.TunIP
+	prefix := 24
+	if info.IP != "" {
+		tunIP = info.IP
+		if info.PrefixLen > 0 {
+			prefix = info.PrefixLen
+		}
+	}
+	if tunIP == "" {
+		tunIP = "10.77.77.2"
+	}
+	mtu := cfg.TunMTU
+	if info.MTU > 0 {
+		mtu = int(info.MTU)
+	}
+
+	runCmd("ip", "link", "set", tun.name, "up", "mtu", fmt.Sprintf("%d", mtu))
+	runCmd("ip", "addr", "replace", fmt.Sprintf("%s/%d", tunIP, prefix), "dev", tun.name)
+
+	// Обновляем прямые /32 маршруты к серверам через актуальный WAN (ip route replace не рвёт сокеты)
+	for _, host := range serverHosts {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			continue
+		}
+		ips, err := net.LookupHost(host)
+		if err != nil {
+			ips = []string{host}
+		}
+		for _, ipStr := range ips {
+			if args := formatRouteArgs(ipStr+"/32", curWan); len(args) > 0 {
+				runCmd("ip", args...)
+			}
+		}
+	}
+
+	if !h.table100OK {
+		runCmd("ip", "route", "replace", "default", "dev", tun.name, "table", "100")
+	}
+	if !h.table200OK || curWan != prevWan {
+		if wanArgs := formatRouteArgsTable("default", curWan, "200"); len(wanArgs) > 0 {
+			runCmd("ip", wanArgs...)
+		}
+	}
+	if !h.rule100OK {
+		runCmd("ip", "rule", "add", "fwmark", "0x1", "table", "100", "pref", "10100")
+	}
+	if !h.rule200OK {
+		runCmd("ip", "rule", "add", "fwmark", "0x2", "table", "200", "pref", "10200")
+	}
+
+	lanIface := cfg.LanInterface
+	if lanIface == "" {
+		lanIface = "br-lan"
+	}
+	mode := "bypass"
+	var tcpPorts, udpPorts []string
+	portMode := ""
+	if cfg.SplitTunnel != nil {
+		if cfg.SplitTunnel.Mode != "" {
+			mode = cfg.SplitTunnel.Mode
+		}
+		tcpPorts, udpPorts = cfg.SplitTunnel.GetSplitPorts()
+		portMode = cfg.SplitTunnel.PortMode
+	}
+
+	if !h.nftSirinOK {
+		splitCIDRs := buildSplitCidrs(cfg)
+		localCIDRs := buildLocalCidrs(serverHosts)
+		opsec := cfg.GetOpSecOptions()
+		antidpi := cfg.GetAntiDPIConfig()
+		if !cfg.IsAntiDPIEnabled() {
+			antidpi.Enabled = false
+		}
+		forceVPN := cfg.GetForceVPNOptions()
+		psnProxy := cfg.GetPSNProxyOptions()
+		splitDom := cfg.GetSplitDomainOptions()
+
+		atomicRules := "table ip sirin {}\nflush table ip sirin\n" +
+			generateNftablesRules(tun.name, lanIface, mode, localCIDRs, splitCIDRs, portMode, tcpPorts, udpPorts, opsec, antidpi, forceVPN, psnProxy, splitDom)
+		cmd := exec.Command("nft", "-f", "-")
+		cmd.Stdin = strings.NewReader(atomicRules)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("[route] Ошибка атомарного восстановления таблицы ip sirin: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	if ksEnabled && (!h.nftKSOK || curWan.iface != prevWan.iface) {
+		var allowedDest []string
+		allowedDest = append(allowedDest, serverHosts...)
+		allowedDest = append(allowedDest, cfg.KillSwitchExceptions...)
+		allowedDest = append(allowedDest, getWanHostRoutes(curWan.iface)...)
+		atomicKS := "table inet sirin_killswitch {}\nflush table inet sirin_killswitch\n" +
+			generateKillSwitchNftablesRules(lanIface, curWan.iface, mode, allowedDest)
+		cmd := exec.Command("nft", "-f", "-")
+		cmd.Stdin = strings.NewReader(atomicKS)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("[route] Ошибка атомарного восстановления Kill Switch: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	log.Printf("[route] PBR-маршруты синхронизированы без разрыва сессии (WAN: iface=%s, gw=%s)", curWan.iface, curWan.gw)
+	return curWan, true, nil
+}
+
 // applySplitTunnelNftables создаёт таблицу ip sirin с наборами local_cidrs, split_cidrs, antidpi_cidrs,
 // split_ports_tcp/udp (при наличии), цепочками маркировки prerouting (для LAN) и output (для роутера),
 // а также цепочками NAT, Forward, Anti-DPI и OpSec-маскировки (нормализация TTL, перехват DNS).
@@ -539,11 +738,14 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	antidpiOpts := DefaultAntiDPIConfig()
 	var forceVPNOpts ForceVPNOptions
 	var psnOpts PSNProxyOptions
+	var splitDomOpts SplitDomainOptions
 
 	for _, opt := range options {
 		switch v := opt.(type) {
 		case PSNProxyOptions:
 			psnOpts = v
+		case SplitDomainOptions:
+			splitDomOpts = v
 		case OpSecOptions:
 			opsecOpts = v
 		case []OpSecOptions:
@@ -594,6 +796,25 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(splitCIDRs, ", ")))
 	}
 	b.WriteString("    }\n")
+
+	// Set split_domain_cidrs (динамическое наполнение через Split DNS для split_tunnel.domains)
+	if splitDomOpts.Enabled {
+		b.WriteString("    set split_domain_cidrs {\n")
+		b.WriteString("        type ipv4_addr\n")
+		b.WriteString("        flags interval, timeout\n")
+		b.WriteString("        timeout 1h\n")
+		b.WriteString("        gc-interval 5m\n")
+		b.WriteString("    }\n")
+	}
+
+	// Set doh_resolvers (блокировка обхода локального DNS через браузерный DoH на 443)
+	if opsecOpts.BlockDoH {
+		b.WriteString("    set doh_resolvers {\n")
+		b.WriteString("        type ipv4_addr\n")
+		b.WriteString("        flags interval\n")
+		b.WriteString(fmt.Sprintf("        elements = { %s }\n", strings.Join(KnownPublicDoHResolvers, ", ")))
+		b.WriteString("    }\n")
+	}
 
 	// Set antidpi_cidrs (для автоматического наполнения через dnsmasq nftset)
 	// timeout 5m + gc-interval 1m — элементы автоматически устаревают,
@@ -652,7 +873,7 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString("    }\n")
 	}
 
-	modeRules := generateNftablesModeRules(mode, portMode, tcpPorts, udpPorts)
+	modeRules := generateNftablesModeRulesExt(mode, portMode, tcpPorts, udpPorts, splitDomOpts.Enabled)
 
 	// Chain dstnat (Anti-DNS-Leak и Anti-DPI Transparent Proxy)
 	hasDstnat := opsecOpts.InterceptDNS || antidpiOpts.Enabled || psnOpts.Enabled
@@ -719,6 +940,13 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	if antidpiOpts.Enabled {
 		b.WriteString("        ip daddr @antidpi_cidrs meta mark set 0x00000002 return\n")
 	}
+	if opsecOpts.StunViaVPN {
+		if mode != "only" && len(splitCIDRs) > 0 {
+			b.WriteString("        ip daddr != @split_cidrs udp dport { 3478, 5349, 19302 } meta mark set 0x00000001 return\n")
+		} else {
+			b.WriteString("        udp dport { 3478, 5349, 19302 } meta mark set 0x00000001 return\n")
+		}
+	}
 	b.WriteString(modeRules)
 	b.WriteString("    }\n")
 
@@ -738,6 +966,13 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 	if antidpiOpts.Enabled {
 		b.WriteString("        ip daddr @antidpi_cidrs meta mark set 0x00000002 return\n")
 	}
+	if opsecOpts.StunViaVPN {
+		if mode != "only" && len(splitCIDRs) > 0 {
+			b.WriteString("        ip daddr != @split_cidrs udp dport { 3478, 5349, 19302 } meta mark set 0x00000001 return\n")
+		} else {
+			b.WriteString("        udp dport { 3478, 5349, 19302 } meta mark set 0x00000001 return\n")
+		}
+	}
 	b.WriteString(modeRules)
 	b.WriteString("    }\n")
 
@@ -749,7 +984,9 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		}
 		b.WriteString("    chain postrouting_mangle {\n")
 		b.WriteString("        type filter hook postrouting priority mangle; policy accept;\n")
-		b.WriteString(fmt.Sprintf("        oifname \"%s\" ip ttl set %d\n", tunName, targetTTL))
+		if !strings.EqualFold(opsecOpts.TTLMode, "preserve") {
+			b.WriteString(fmt.Sprintf("        oifname \"%s\" ip ttl set %d\n", tunName, targetTTL))
+		}
 		b.WriteString(fmt.Sprintf("        oifname \"%s\" tcp flags syn tcp option maxseg size set rt mtu\n", tunName))
 		b.WriteString("    }\n")
 	}
@@ -786,6 +1023,10 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 		b.WriteString(fmt.Sprintf("        iifname \"%s\" tcp dport 853 reject\n", lanIface))
 		b.WriteString(fmt.Sprintf("        iifname \"%s\" udp dport 853 reject\n", lanIface))
 	}
+	if opsecOpts.BlockDoH {
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @doh_resolvers tcp dport 443 reject with tcp reset\n", lanIface))
+		b.WriteString(fmt.Sprintf("        iifname \"%s\" ip daddr @doh_resolvers udp dport 443 reject\n", lanIface))
+	}
 	b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" accept\n", lanIface, tunName))
 	b.WriteString(fmt.Sprintf("        iifname \"%s\" oifname \"%s\" ct state established,related accept\n", tunName, lanIface))
 	b.WriteString("    }\n")
@@ -796,19 +1037,32 @@ func generateNftablesRules(tunName, lanIface, mode string, localCIDRs, splitCIDR
 
 // generateNftablesModeRules формирует правила маркировки с учетом IP split tunneling и портов.
 func generateNftablesModeRules(mode, portMode string, tcpPorts, udpPorts []string) string {
+	return generateNftablesModeRulesExt(mode, portMode, tcpPorts, udpPorts, false)
+}
+
+// generateNftablesModeRulesExt формирует правила маркировки с учетом статического (@split_cidrs)
+// и динамического (@split_domain_cidrs) split tunneling и портов.
+func generateNftablesModeRulesExt(mode, portMode string, tcpPorts, udpPorts []string, hasSplitDomains bool) string {
 	hasPorts := len(tcpPorts) > 0 || len(udpPorts) > 0
 	hasTCP := len(tcpPorts) > 0
 	hasUDP := len(udpPorts) > 0
 
 	var b strings.Builder
 
+	writeSplitIPMark := func(markHex string) {
+		b.WriteString(fmt.Sprintf("        ip daddr @split_cidrs meta mark set %s return\n", markHex))
+		if hasSplitDomains {
+			b.WriteString(fmt.Sprintf("        ip daddr @split_domain_cidrs meta mark set %s return\n", markHex))
+		}
+	}
+
 	if !hasPorts {
-		// Классический режим только по IP (обратная совместимость)
+		// Классический режим по IP/доменам (обратная совместимость)
 		if mode == "only" {
-			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000001 return\n")
+			writeSplitIPMark("0x00000001")
 			b.WriteString("        meta mark set 0x00000002\n")
 		} else {
-			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000002 return\n")
+			writeSplitIPMark("0x00000002")
 			b.WriteString("        meta mark set 0x00000001\n")
 		}
 		return b.String()
@@ -826,28 +1080,34 @@ func generateNftablesModeRules(mode, portMode string, tcpPorts, udpPorts []strin
 		}
 		// 2. Для остальных портов применяются правила IP-режима:
 		if mode == "only" {
-			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000001 return\n")
+			writeSplitIPMark("0x00000001")
 			b.WriteString("        meta mark set 0x00000002\n")
 		} else {
-			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000002 return\n")
+			writeSplitIPMark("0x00000002")
 			b.WriteString("        meta mark set 0x00000001\n")
 		}
 	} else {
 		// Режим "only": только указанные порты могут направляться в VPN,
 		// всё остальное (другие порты, не-TCP/UDP) идёт напрямую в WAN (0x2).
 		if mode == "only" {
-			// В режиме only: трафик должен соответствовать split_cidrs И split_ports
+			// В режиме only: трафик должен соответствовать split_cidrs/split_domain_cidrs И split_ports
 			if hasTCP {
 				b.WriteString("        ip daddr @split_cidrs tcp dport @split_ports_tcp meta mark set 0x00000001 return\n")
+				if hasSplitDomains {
+					b.WriteString("        ip daddr @split_domain_cidrs tcp dport @split_ports_tcp meta mark set 0x00000001 return\n")
+				}
 			}
 			if hasUDP {
 				b.WriteString("        ip daddr @split_cidrs udp dport @split_ports_udp meta mark set 0x00000001 return\n")
+				if hasSplitDomains {
+					b.WriteString("        ip daddr @split_domain_cidrs udp dport @split_ports_udp meta mark set 0x00000001 return\n")
+				}
 			}
 			b.WriteString("        meta mark set 0x00000002\n")
 		} else {
-			// В режиме bypass: RuDirect/split_cidrs идут в WAN (0x2),
-			// а для не-RuDirect адресов в VPN идут ТОЛЬКО указанные порты
-			b.WriteString("        ip daddr @split_cidrs meta mark set 0x00000002 return\n")
+			// В режиме bypass: RuDirect/split_cidrs/split_domain_cidrs идут в WAN (0x2),
+			// а для остальных адресов в VPN идут ТОЛЬКО указанные порты
+			writeSplitIPMark("0x00000002")
 			if hasTCP {
 				b.WriteString("        tcp dport @split_ports_tcp meta mark set 0x00000001 return\n")
 			}

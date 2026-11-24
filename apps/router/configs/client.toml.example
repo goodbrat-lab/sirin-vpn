@@ -12,14 +12,22 @@ kill_switch = true
 # kill_switch_exceptions = ["200.10.40.239/32"]
 
 # OpSec & Network Stack Hardening (по методике Vektor T13)
-# Нормализация TTL пакетов на выходе из VPN туннеля (маскировка роутера и раздачи интернета)
+# Нормализация TTL и TCP MSS clamping на выходе из VPN туннеля
 normalize_ttl = true
+# ttl_mode: "fixed" (по умолчанию, ip ttl set target_ttl — для мобильных модемов)
+#           "preserve" (сохранять нативный TTL ОС клиента: 128 у Windows, 64 у Android/Linux/macOS против OS-антифрода Cloudflare, сохраняя MSS clamp)
+# ttl_mode = "fixed"
 # Целевое значение TTL (по умолчанию 64 для Linux/Android/iOS/macOS; 128 для Windows)
 target_ttl = 64
 # Anti-DNS-Leak: перехват всех DNS-запросов (порт 53) клиентов LAN на локальный dnsmasq роутера
 intercept_dns = true
 # Блокировка DNS-over-TLS (порт 853) в LAN для предотвращения обхода локального DNS встроенными сервисами Android/DoT
 block_dot = true
+# Подавление встроенного в браузеры DoH (use-application-dns.net -> NXDOMAIN + reject публичных DoH IP на 443),
+# чтобы Chrome/Firefox не обходили доменные списки роутера (@antidpi_cidrs, @force_vpn_cidrs, @split_domain_cidrs)
+# block_doh = false
+# Защита от утечки реального IP через WebRTC STUN: отправлять зарубежные STUN-запросы (3478/5349/19302) через VPN (не затрагивая RU-подсети)
+# stun_via_vpn = false
 
 lan_interface = "br-lan"
 # wan_interface: если пусто, определяется автоматически по маршруту по умолчанию (например, pppoe-wan или eth0)

@@ -1,0 +1,11 @@
+#!/bin/sh
+# OpenWrt netifd hotplug-хук для бесшовного восстановления PBR-маршрутов Sirin
+# при переподнятии физического WAN / PPPoE / смене адреса DHCP без перезапуска туннеля.
+
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ] || exit 0
+[ "$INTERFACE" = "loopback" ] && exit 0
+[ "$DEVICE" = "sirin0" ] && exit 0
+
+if [ -x /usr/bin/sirin-client ]; then
+    /usr/bin/sirin-client rpc reconcile >/dev/null 2>&1 || killall -HUP sirin-client 2>/dev/null || true
+fi
